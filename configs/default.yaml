@@ -1,0 +1,45 @@
+# Default configuration — mirrors the defaults in scheduler/instance.py and
+# scheduler/model.py. The benchmark harness currently ignores this file (it
+# sweeps doctor counts directly); it's kept for the UI / API layer to load.
+# Every value here corresponds to a gap in docs/CONSTRAINTS.md §5.
+
+horizon:
+  n_days: 28
+  start_weekday: 0            # Monday
+
+tier_mix:                      # Used when generating from a single N
+  junior_fraction: 0.35
+  senior_fraction: 0.15
+  # consultant = remainder
+
+subspecs: [A, B, C]
+
+stations:
+  - {name: CT,        sessions: [AM, PM], required: 1, tiers: [consultant]}
+  - {name: MR,        sessions: [AM, PM], required: 1, tiers: [consultant]}
+  - {name: US,        sessions: [AM, PM], required: 1, tiers: [junior, senior, consultant]}
+  - {name: XR_REPORT, sessions: [AM, PM], required: 1, tiers: [junior, senior, consultant], is_reporting: true}
+  - {name: IR,        sessions: [AM, PM], required: 1, tiers: [consultant]}
+  - {name: FLUORO,    sessions: [AM, PM], required: 1, tiers: [consultant]}
+  - {name: GEN_AM,    sessions: [AM],     required: 1, tiers: [junior, senior, consultant]}
+  - {name: GEN_PM,    sessions: [PM],     required: 1, tiers: [junior, senior, consultant]}
+
+weekend:
+  am_pm_enabled: false          # Gap #5: weekend work is only the H8 roles.
+
+oncall:
+  weeknight_junior_count: 1    # Gap #4
+  weeknight_senior_count: 1
+
+leave:
+  expected_fraction: 0.03
+
+weights:
+  balance_sessions: 10
+  balance_oncall:   20
+  balance_weekend:  20
+  reporting_spread: 5
+
+solver:
+  time_limit_s: 300
+  num_workers:   8
