@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from ortools.sat.python import cp_model
 
@@ -39,6 +39,31 @@ class Weights:
     reporting_spread: int = 5
 
 
+IntermediateCallback = Callable[[dict[str, Any]], None]
+
+
+class _IntermediateLogger(cp_model.CpSolverSolutionCallback):
+    """Invokes `callback` with {wall_s, objective, bound} on each new solution."""
+
+    def __init__(self, start: float, callback: IntermediateCallback) -> None:
+        super().__init__()
+        self._start = start
+        self._cb = callback
+
+    def on_solution_callback(self) -> None:  # noqa: D401 — CP-SAT API
+        try:
+            obj = self.ObjectiveValue()
+            bound = self.BestObjectiveBound()
+        except Exception:
+            obj = None
+            bound = None
+        self._cb({
+            "wall_s": time.perf_counter() - self._start,
+            "objective": obj,
+            "best_bound": bound,
+        })
+
+
 def solve(
     inst: Instance,
     *,
@@ -47,8 +72,16 @@ def solve(
     num_workers: int = 8,
     log_search_progress: bool = False,
     feasibility_only: bool = False,
+    on_intermediate: IntermediateCallback | None = None,
 ) -> SolveResult:
-    """Build and solve the CP-SAT model for `inst`."""
+    """Build and solve the CP-SAT model for `inst`.
+
+    Parameters
+    ----------
+    on_intermediate : optional callable invoked with a dict
+        `{wall_s, objective, best_bound}` each time CP-SAT finds a new
+        improving solution. Lets the caller stream progress.
+    """
     weights = weights or Weights()
     model = cp_model.CpModel()
     doc_by_id = {d.id: d for d in inst.doctors}
@@ -416,7 +449,11 @@ def solve(
     solver.parameters.log_search_progress = log_search_progress
 
     t0 = time.perf_counter()
-    status_int = solver.Solve(model)
+    if on_intermediate is not None and not feasibility_only:
+        logger = _IntermediateLogger(t0, on_intermediate)
+        status_int = solver.Solve(model, logger)
+    else:
+        status_int = solver.Solve(model)
     wall = time.perf_counter() - t0
 
     status_name = {

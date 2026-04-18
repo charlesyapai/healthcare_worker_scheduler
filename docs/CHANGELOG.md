@@ -2,6 +2,33 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-18 — v0.2 Streamlit UI + HF Spaces config
+
+**What:** Streamlit app at `app.py`, HF Spaces frontmatter in `README.md`,
+intermediate-solution callback hooked through `scheduler.solve`, 10-scenario
+stress test under `tests/test_stress.py`.
+
+**Why:** User asked for a Streamlit UI on Hugging Face Spaces and wanted
+evidence the model holds up across varied constraints.
+
+**Added:**
+- `app.py` — sidebar config (doctors, days, start weekday, leave rate,
+  public holidays, time limit, workers, weights), Solve button, tabs for
+  Summary / Roster / Workload / Export.
+- `tests/test_stress.py` — 10 scenarios (baseline, heavy leave, public
+  holidays, Saturday start, higher headcount, prev-oncall seed, tight N,
+  custom station list, short horizon, long horizon). Independent verifier
+  re-checks H1–H10 on the returned roster. All pass.
+- `scheduler.solve(on_intermediate=...)` — optional callback fired by
+  CP-SAT's `CpSolverSolutionCallback` each time a new improving solution
+  is found. The UI uses this for the "intermediate solutions" chart.
+- `requirements.txt` gains `streamlit`, `pandas`.
+
+**Deployment:**
+- HF Spaces frontmatter in `README.md` — deploy this repo as a Streamlit
+  Space, no extra config needed.
+- Local: `streamlit run app.py`.
+
 ## 2026-04-18 — v0.1 initial scaffold
 
 **What:** Initial repo layout, constraint spec, CP-SAT model, synthetic

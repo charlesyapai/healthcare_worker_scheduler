@@ -1,8 +1,26 @@
+---
+title: Healthcare Roster Scheduler
+emoji: H
+colorFrom: blue
+colorTo: green
+sdk: streamlit
+sdk_version: "1.37.0"
+app_file: app.py
+pinned: false
+license: mit
+---
+
 # Healthcare Worker Scheduler
 
 CP-SAT based roster generator for a radiology department. Phase 1 of the
 project: **measure how long CP-SAT takes** across realistic problem sizes, so
 we can decide whether a downstream ML-predictor layer is actually needed.
+
+## Try it
+
+- **Hugging Face Space**: deploy this repo as a Streamlit Space — the
+  frontmatter above is the required config.
+- **Local**: `pip install -r requirements.txt && streamlit run app.py`.
 
 ## Start here
 
