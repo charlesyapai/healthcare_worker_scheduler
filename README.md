@@ -3,9 +3,8 @@ title: Healthcare Roster Scheduler
 emoji: H
 colorFrom: blue
 colorTo: green
-sdk: streamlit
-sdk_version: "1.37.0"
-app_file: app.py
+sdk: docker
+app_port: 7860
 pinned: false
 license: mit
 ---
