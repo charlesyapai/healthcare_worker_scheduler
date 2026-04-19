@@ -1,6 +1,6 @@
 ---
 title: Healthcare Roster Scheduler
-emoji: H
+emoji: 🏥
 colorFrom: blue
 colorTo: green
 sdk: docker
