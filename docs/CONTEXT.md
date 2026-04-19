@@ -30,17 +30,29 @@ The key open question that Phase 1 answers:
 **For N doctors × D days, how long does CP-SAT take to find (a) a feasible
 solution, (b) a proved-optimal solution?**
 
-## 3. Where we are right now (v0.1)
+## 3. Where we are right now (v0.3)
 
 - Branch: `claude/healthcare-roster-scheduler-P5QLa`.
 - Constraint spec frozen in `docs/CONSTRAINTS.md`, with defaults applied for
   9 open gaps (user can override).
-- CP-SAT model implemented in `scheduler/model.py`.
+- CP-SAT model in `scheduler/model.py`. `SolveResult` exposes
+  `first_feasible_s` and `penalty_components`; the intermediate-solution
+  callback records wall time + per-component weighted penalty.
+- Metrics layer in `scheduler/metrics.py` — `problem_metrics`,
+  `solve_metrics`, `solution_metrics`.
+- Infeasibility diagnostics in `scheduler/diagnostics.py` — L1
+  `presolve_feasibility` (ms; five necessary-condition checks) and
+  L3 `explain_infeasibility` (soft-relax on H1/H8, reports exactly
+  which constraints had to be broken).
+- Plotly charts in `scheduler/plots.py` — 10 figures, each returned
+  with its explanation from `docs/plots/<name>.md`.
+- Streamlit UI in `app.py` — threaded streaming solver, live
+  convergence chart, Analytics / Roster / Workload / Why-infeasible /
+  Export tabs, sidebar **Diagnose** (L1) button.
 - Synthetic instance generator in `scheduler/instance.py`.
-- Benchmark harness in `scheduler/benchmark.py` that sweeps
-  `(30, 50, 100, 200)` doctors × `(7, 14, 28)` days and logs
-  `{status, wall_time_s, objective, n_vars, n_constraints}` to `results/*.csv`.
-- No ML yet. Hugging Face Space not yet created.
+- Benchmark harness in `scheduler/benchmark.py`.
+- No ML. Deploys to Hugging Face Spaces as-is via the frontmatter in
+  `README.md`.
 
 ## 4. How to pick up where we left off
 
@@ -63,9 +75,14 @@ solution, (b) a proved-optimal solution?**
 | `docs/CONTEXT.md` | This file. |
 | `docs/CHANGELOG.md` | Append-only log of what changed, when, and why. |
 | `scheduler/instance.py` | `Instance`, `Doctor`, `Station` dataclasses + synthetic generator. |
-| `scheduler/model.py` | `build_model(instance) -> (model, vars)` and `solve(...)`. |
+| `scheduler/model.py` | `build_model(instance) -> (model, vars)`, `solve(...)`, `SolveResult` (incl. `first_feasible_s`, `penalty_components`). |
+| `scheduler/metrics.py` | `problem_metrics`, `solve_metrics`, `solution_metrics`. |
+| `scheduler/diagnostics.py` | L1 `presolve_feasibility` + L3 `explain_infeasibility`. |
+| `scheduler/plots.py` | 10 Plotly figure builders, each returning `(figure, explanation_md)`. |
 | `scheduler/benchmark.py` | CLI sweeping problem sizes, writing CSV. |
 | `configs/default.yaml` | Default config for stations / tier mix / weights. |
+| `app.py` | Streamlit entry point (threaded streaming solve, analytics tabs, L3 button). |
+| `docs/plots/*.md` | Per-plot explanations (what / how to read / focus on). Hot-loaded by `plots.py`. |
 | `results/` | CSVs and solution dumps. Gitignored except `.gitkeep`. |
 
 ## 6. Decisions made so far (rationale)

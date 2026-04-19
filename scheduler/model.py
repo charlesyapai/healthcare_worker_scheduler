@@ -24,6 +24,11 @@ class SolveResult:
     best_bound: float | None
     n_vars: int
     n_constraints: int
+    # Time to first feasible solution (captured via callback). None if never.
+    first_feasible_s: float | None = None
+    # Final per-component penalty values. Keyed by component name (e.g.
+    # "S1_balance_sessions_junior"). Value is the weighted contribution.
+    penalty_components: dict[str, int] = field(default_factory=dict)
     assignments: dict[str, Any] = field(default_factory=dict)
     # assignments["stations"] = {(d, day, station, sess): 1, ...}
     # assignments["oncall"]   = {(d, day): 1, ...}
@@ -43,12 +48,18 @@ IntermediateCallback = Callable[[dict[str, Any]], None]
 
 
 class _IntermediateLogger(cp_model.CpSolverSolutionCallback):
-    """Invokes `callback` with {wall_s, objective, bound} on each new solution."""
+    """Invokes `callback` with {wall_s, objective, bound, components} on each new solution."""
 
-    def __init__(self, start: float, callback: IntermediateCallback) -> None:
+    def __init__(
+        self,
+        start: float,
+        callback: IntermediateCallback,
+        components: dict[str, tuple[cp_model.IntVar, int]] | None = None,
+    ) -> None:
         super().__init__()
         self._start = start
         self._cb = callback
+        self._components = components or {}
 
     def on_solution_callback(self) -> None:  # noqa: D401 — CP-SAT API
         try:
@@ -57,10 +68,17 @@ class _IntermediateLogger(cp_model.CpSolverSolutionCallback):
         except Exception:
             obj = None
             bound = None
+        comp_vals: dict[str, int] = {}
+        for name, (var, weight) in self._components.items():
+            try:
+                comp_vals[name] = int(self.Value(var)) * int(weight)
+            except Exception:
+                comp_vals[name] = 0
         self._cb({
             "wall_s": time.perf_counter() - self._start,
             "objective": obj,
             "best_bound": bound,
+            "components": comp_vals,
         })
 
 
@@ -335,6 +353,8 @@ def solve(
 
     # ----------------------------------------------------------- Soft objective
     penalties: list[cp_model.IntVar | int] = []
+    # name -> (var, weight) for the real-time callback and SolveResult.
+    penalty_components: dict[str, tuple[cp_model.IntVar, int]] = {}
 
     if not feasibility_only:
         session_count: dict[int, cp_model.IntVar] = {}
@@ -402,6 +422,7 @@ def solve(
                 gap = model.NewIntVar(0, horizon_upper, f"gap_s_{tier}")
                 model.Add(gap == mx - mn)
                 penalties.append(gap * weights.balance_sessions)
+                penalty_components[f"S1_sessions_gap_{tier}"] = (gap, weights.balance_sessions)
 
             # S2 on-call balance (skip consultants — no oncall for them).
             if weights.balance_oncall and tier != "consultant":
@@ -412,6 +433,7 @@ def solve(
                 gap = model.NewIntVar(0, inst.n_days, f"gap_o_{tier}")
                 model.Add(gap == mx - mn)
                 penalties.append(gap * weights.balance_oncall)
+                penalty_components[f"S2_oncall_gap_{tier}"] = (gap, weights.balance_oncall)
 
             # S3 weekend balance.
             if weights.balance_weekend:
@@ -422,9 +444,11 @@ def solve(
                 gap = model.NewIntVar(0, 3 * inst.n_days, f"gap_w_{tier}")
                 model.Add(gap == mx - mn)
                 penalties.append(gap * weights.balance_weekend)
+                penalty_components[f"S3_weekend_gap_{tier}"] = (gap, weights.balance_weekend)
 
         # S4 reporting-station consecutive-day spread.
         if weights.reporting_spread:
+            rep_pair_vars: list[cp_model.IntVar] = []
             for st in inst.stations:
                 if not st.is_reporting:
                     continue
@@ -438,6 +462,12 @@ def solve(
                             pair = model.NewBoolVar(f"rep_{d.id}_{day}_{st.name}_{sess}")
                             model.Add(pair >= a + b - 1)
                             penalties.append(pair * weights.reporting_spread)
+                            rep_pair_vars.append(pair)
+            # Aggregate into a single counter for cleaner callback reporting.
+            if rep_pair_vars:
+                rep_total = model.NewIntVar(0, len(rep_pair_vars), "rep_total")
+                model.Add(rep_total == sum(rep_pair_vars))
+                penalty_components["S4_reporting_count"] = (rep_total, weights.reporting_spread)
 
         if penalties:
             model.Minimize(sum(penalties))
@@ -448,9 +478,21 @@ def solve(
     solver.parameters.num_search_workers = num_workers
     solver.parameters.log_search_progress = log_search_progress
 
+    # Always capture first-feasible time, even if the caller didn't pass a
+    # streaming callback. Chain caller's callback if present.
+    first_feasible: dict[str, float] = {}
+    captured_events: list[dict[str, Any]] = []
+
+    def _dispatch(event: dict[str, Any]) -> None:
+        captured_events.append(event)
+        if "first" not in first_feasible:
+            first_feasible["first"] = event["wall_s"]
+        if on_intermediate is not None:
+            on_intermediate(event)
+
     t0 = time.perf_counter()
-    if on_intermediate is not None and not feasibility_only:
-        logger = _IntermediateLogger(t0, on_intermediate)
+    if not feasibility_only:
+        logger = _IntermediateLogger(t0, _dispatch, penalty_components)
         status_int = solver.Solve(model, logger)
     else:
         status_int = solver.Solve(model)
@@ -469,6 +511,14 @@ def solve(
     n_constraints = len(proto.constraints)
 
     has_solution = status_name in ("OPTIMAL", "FEASIBLE")
+    final_components: dict[str, int] = {}
+    if has_solution and not feasibility_only:
+        for name, (var, weight) in penalty_components.items():
+            try:
+                final_components[name] = int(solver.Value(var)) * int(weight)
+            except Exception:
+                pass
+
     result = SolveResult(
         status=status_name,
         wall_time_s=wall,
@@ -478,6 +528,8 @@ def solve(
                     if has_solution and not feasibility_only else None),
         n_vars=n_vars,
         n_constraints=n_constraints,
+        first_feasible_s=first_feasible.get("first"),
+        penalty_components=final_components,
     )
 
     if has_solution:

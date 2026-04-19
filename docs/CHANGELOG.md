@@ -2,6 +2,96 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-19 — v0.3 Metrics, diagnostics, plots, real-time streaming
+
+**What:** Three new modules (`scheduler/metrics.py`,
+`scheduler/diagnostics.py`, `scheduler/plots.py`), a rewritten
+`app.py` with a threaded-streaming solve loop, and per-plot
+explanation docs under `docs/plots/`.
+
+**Why:** User asked for (a) real-time streaming of intermediate
+solutions with a breakdown of *which* soft constraints each solution
+is still paying for, (b) a three-tier infeasibility story (pre-solve
+sniff → solver status → soft-relax explainer), (c) plots that cover
+solution quality, problem ease, solver behaviour, and constraint
+complexity, and (d) a short explanation bundled with each plot so a
+reader knows what to focus on.
+
+**Added — modules:**
+- `scheduler/metrics.py`
+  - `problem_metrics(inst)` — scale, tier/subspec mix, eligibility
+    density, leave density, per-day coverage slack, on-call capacity.
+  - `solve_metrics(result, events)` — status, wall time, time-to-first
+    feasible, objective, best bound, optimality gap, convergence
+    timeline, per-component weighted penalty.
+  - `solution_metrics(inst, result)` — per-tier session/on-call/weekend
+    balance, on-call spacing histogram (flags gaps under 3 days),
+    reporting-station spread, coverage/post-call/eligibility
+    violations (sanity check).
+- `scheduler/diagnostics.py`
+  - `presolve_feasibility(inst)` — five L1 necessary-condition
+    checks: tier headcount, per-station eligibility, subspec weekend
+    coverage, on-call capacity under 1-in-3, coverage slack per day.
+    Runs in milliseconds.
+  - `explain_infeasibility(inst)` — L3 soft-relax. Rebuilds the model
+    with slack variables on H1 (station coverage) and H8 (weekend
+    subspec roles), minimises total slack, reports exactly which
+    constraints had to be broken and by how much.
+- `scheduler/plots.py` — 10 Plotly figure builders, each returning
+  `(figure, explanation_md)`. Covers convergence, penalty breakdown,
+  workload histogram, on-call spacing, roster heatmap, coverage
+  heatmap, pre-solve coverage slack, and three dashboard views
+  (time-vs-size heatmap, first-feasible-vs-optimal bars, complexity
+  scaling log-log).
+
+**Added — docs:**
+- `docs/plots/*.md` — one short markdown per plot (convergence,
+  penalty_breakdown, workload_histogram, oncall_spacing, roster_heatmap,
+  coverage_heatmap, coverage_slack, time_size_heatmap,
+  first_feasible_vs_optimal, complexity_scaling). Each has three
+  sections: **What it shows**, **How to read it**, **What to focus
+  on**. `plots.py` hot-loads them at call time so edits are reflected
+  immediately without a code change.
+
+**Changed — model.py:**
+- `SolveResult` gains `first_feasible_s` and `penalty_components`.
+- Intermediate-solution callback now always records wall time + per
+  component weighted penalty (no more loss of information when the
+  user supplies their own callback — we chain ours first).
+- Soft-constraint terms are registered in a `penalty_components` dict
+  during model build: `S1_sessions_gap_<tier>`, `S2_oncall_gap_<tier>`,
+  `S3_weekend_gap_<tier>`, `S4_reporting_count`. S4 uses an aggregated
+  `rep_total` IntVar so the callback can read it at each step.
+
+**Changed — app.py (rewritten for streaming):**
+- Background solver thread + `Queue` pattern. Worker puts
+  `("event"|"done"|"error", payload)` on the queue; main thread polls
+  at `POLL_INTERVAL_S=0.2` and updates `st.empty()` placeholders for
+  the status line, live convergence chart, and live components table.
+- Tabs: **Summary**, **Analytics** (all charts, each under an
+  expander with its explanation), **Roster**, **Workload**,
+  **Why infeasible?** (button → L3 soft-relax), **Export**.
+- Sidebar gains a **Diagnose** button that runs the L1 pre-solve
+  sniff and shows any necessary-condition violations before the user
+  burns solver time.
+
+**Changed — requirements.txt:** adds `plotly>=5.20`.
+
+**Verified:**
+- `tests/test_smoke.py` — passes.
+- `tests/test_stress.py` — all 10 scenarios OPTIMAL, no verifier
+  violations.
+- `streamlit run app.py` — boots cleanly, streaming loop observed
+  capturing ≥10 intermediate solutions with populated components
+  dict on the 20-doctor × 14-day default.
+
+**Known follow-ups (deferred):**
+- GitHub Pages dashboard was scoped out: `ortools` does not run in
+  the browser, and the user chose HF-only. A static dashboard via
+  GitHub Actions remains possible but is not in this release.
+- L3 explainer only covers H1 and H8 today. H2 (one-slot-per-session)
+  and H4 (1-in-3 on-call) can be added by the same pattern.
+
 ## 2026-04-18 — v0.2 Streamlit UI + HF Spaces config
 
 **What:** Streamlit app at `app.py`, HF Spaces frontmatter in `README.md`,
