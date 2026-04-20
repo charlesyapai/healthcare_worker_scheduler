@@ -48,18 +48,20 @@ IntermediateCallback = Callable[[dict[str, Any]], None]
 
 
 class _IntermediateLogger(cp_model.CpSolverSolutionCallback):
-    """Invokes `callback` with {wall_s, objective, bound, components} on each new solution."""
+    """Invokes `callback` with {wall_s, objective, bound, components, assignments?} on each new solution."""
 
     def __init__(
         self,
         start: float,
         callback: IntermediateCallback,
         components: dict[str, tuple[cp_model.IntVar, int]] | None = None,
+        snapshot_vars: dict[str, dict[tuple, cp_model.IntVar]] | None = None,
     ) -> None:
         super().__init__()
         self._start = start
         self._cb = callback
         self._components = components or {}
+        self._snapshot_vars = snapshot_vars or {}
 
     def on_solution_callback(self) -> None:  # noqa: D401 — CP-SAT API
         try:
@@ -74,12 +76,25 @@ class _IntermediateLogger(cp_model.CpSolverSolutionCallback):
                 comp_vals[name] = int(self.Value(var)) * int(weight)
             except Exception:
                 comp_vals[name] = 0
-        self._cb({
+        event: dict[str, Any] = {
             "wall_s": time.perf_counter() - self._start,
             "objective": obj,
             "best_bound": bound,
             "components": comp_vals,
-        })
+        }
+        if self._snapshot_vars:
+            snap: dict[str, dict] = {}
+            for key, vmap in self._snapshot_vars.items():
+                taken = {}
+                for k, v in vmap.items():
+                    try:
+                        if self.Value(v):
+                            taken[k] = 1
+                    except Exception:
+                        continue
+                snap[key] = taken
+            event["assignments"] = snap
+        self._cb(event)
 
 
 def solve(
@@ -91,6 +106,7 @@ def solve(
     log_search_progress: bool = False,
     feasibility_only: bool = False,
     on_intermediate: IntermediateCallback | None = None,
+    snapshot_assignments: bool = False,
 ) -> SolveResult:
     """Build and solve the CP-SAT model for `inst`.
 
@@ -491,8 +507,16 @@ def solve(
             on_intermediate(event)
 
     t0 = time.perf_counter()
+    snapshot_maps = None
+    if snapshot_assignments:
+        snapshot_maps = {
+            "stations": assign,
+            "oncall": oncall,
+            "ext": ext,
+            "wconsult": wconsult,
+        }
     if not feasibility_only:
-        logger = _IntermediateLogger(t0, _dispatch, penalty_components)
+        logger = _IntermediateLogger(t0, _dispatch, penalty_components, snapshot_maps)
         status_int = solver.Solve(model, logger)
     else:
         status_int = solver.Solve(model)

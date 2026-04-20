@@ -30,7 +30,20 @@ The key open question that Phase 1 answers:
 **For N doctors × D days, how long does CP-SAT take to find (a) a feasible
 solution, (b) a proved-optimal solution?**
 
-## 3. Where we are right now (v0.3)
+## 3. Where we are right now (v0.4)
+
+- Branch: `claude/healthcare-roster-scheduler-P5QLa`.
+- Real configuration UI (editable doctor/station/leave tables, date
+  picker, snapshot picker) — see `app.py`. Seven tabs: Setup /
+  Constraints / Solve / Roster / Analytics / Diagnostics / Export.
+- `scheduler/ui_state.py` converts editable tables → `Instance`.
+- `scheduler.model.solve(..., snapshot_assignments=True)` captures a
+  full `assignments` dict per intermediate solution so the Roster tab
+  can render *any* snapshot, not just the final.
+- Deploys to Hugging Face Spaces via the Docker frontmatter in
+  `README.md` (port 7860, CORS/XSRF disabled for HF's iframe).
+
+## 3b. v0.3 snapshot (still valid for the solver/metrics layer)
 
 - Branch: `claude/healthcare-roster-scheduler-P5QLa`.
 - Constraint spec frozen in `docs/CONSTRAINTS.md`, with defaults applied for

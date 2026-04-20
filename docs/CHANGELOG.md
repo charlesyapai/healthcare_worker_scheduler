@@ -2,6 +2,66 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-20 — v0.4 Interactive UI: real doctors, real dates, snapshot picker
+
+**What:** Pivot from the benchmarking-oriented UI (numeric inputs →
+synthetic doctors) to a real configuration interface keyed to named
+doctors, real calendar dates, and per-solution roster snapshots.
+
+**Why:** User feedback — "the settings don't make sense… aren't we
+supposed to have some kind of interface where we dictate who are the
+actors and then show the rostered schedule when it's generated?" The
+v0.3 app was really a benchmark harness with a viewer bolted on.
+
+**Added:**
+- `scheduler/ui_state.py` — defaults (`default_doctors_df`,
+  `default_stations_df`), date helpers
+  (`dates_for_horizon`, `format_date`, `day_index`),
+  `build_instance(...)` that turns editable DataFrames + leave entries
+  + public holidays into an `Instance`, and `doctor_name_map(...)`
+  for id→name translation.
+- `scheduler.model.solve(..., snapshot_assignments: bool = False)` —
+  when True, each intermediate-solution event carries a full
+  `assignments` snapshot (stations/oncall/ext/wconsult) so the UI can
+  render the roster for *any* solution CP-SAT found, not just the final.
+
+**Changed — `app.py` rewritten:**
+- Seven tabs: **Setup**, **Constraints**, **Solve**, **Roster**,
+  **Analytics**, **Diagnostics**, **Export**.
+- **Setup**: date picker + horizon, public-holiday multi-select over
+  real dates, `st.data_editor` for the doctors table (name / tier /
+  sub-spec / eligible stations), a collapsible stations editor, a
+  leave-entry table (doctor + date rows).
+- **Constraints**: weekend-AM/PM toggle, four soft-weight inputs
+  (S1–S4), solver time limit + workers + feasibility-only.
+- **Solve**: Diagnose (L1) / Solve / Clear buttons. Streaming status
+  line shows elapsed time, solution count, objective, best bound, and
+  live optimality gap; live convergence chart; live intermediate-
+  solutions table (`#, t, objective, bound, + penalty components as columns`).
+- **Roster**: snapshot picker — any of the improving solutions or the
+  final. Renders a **doctor-name × real-date** grid with role codes
+  (`AM:CT`, `OC`, `EXT`, `WC`, `LV`) + a per-doctor workload summary.
+- **Analytics**: final-solution metrics strip plus the six charts.
+- **Diagnostics**: dedicated L1 + L3 buttons that use the current
+  editable state (not the last solve's instance).
+- **Export**: JSON + CSV with doctor names and ISO dates instead of
+  numeric ids and day indices.
+
+**Verified:**
+- `tests/test_smoke.py` — OK.
+- `tests/test_stress.py` — all 10 scenarios OPTIMAL, no verifier violations.
+- `streamlit run app.py` — HTTP 200 + `/_stcore/health` OK.
+- End-to-end with the new `build_instance` path: 20 doctors × 14 days
+  OPTIMAL in ~1.4s with 10 snapshots captured, each containing full
+  stations/oncall/ext/wconsult assignments.
+
+**Known follow-ups (Phase B):**
+- Per-doctor calendar grid for leave (today: doctor + date rows).
+- Save/load instance to YAML (download/upload buttons since HF storage is ephemeral).
+- `prev_oncall` editor.
+- Hard-constraint toggles beyond weekend AM/PM (e.g. parametrise 1-in-N on-call gap).
+- Colour-coded roster cells (would need a Plotly heatmap-with-text swap-in).
+
 ## 2026-04-19 — v0.3 Metrics, diagnostics, plots, real-time streaming
 
 **What:** Three new modules (`scheduler/metrics.py`,
