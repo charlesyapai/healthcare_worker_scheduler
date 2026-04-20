@@ -38,6 +38,11 @@ from scheduler.model import (
     WorkloadWeights,
     solve,
 )
+from scheduler.persistence import (
+    dump_state,
+    load_state,
+    prev_workload_from_roster_json,
+)
 from scheduler.ui_state import (
     BuildError,
     SUBSPEC_CHOICES,
@@ -65,7 +70,17 @@ def _next_monday(today: date) -> date:
     return today + timedelta(days=offset)
 
 
-BLOCK_TYPES = ("Leave", "No on-call", "No AM", "No PM")
+BLOCK_TYPES = (
+    "Leave", "No on-call", "No AM", "No PM", "Prefer AM", "Prefer PM"
+)
+OVERRIDE_ROLES_HELP = (
+    "Examples: `STATION_CT_AM`, `STATION_XR_REPORT_PM`, `ONCALL`, "
+    "`EXT`, `WCONSULT`. Case-insensitive."
+)
+DEFAULT_TIER_LABELS = {
+    "junior": "Junior", "senior": "Senior", "consultant": "Consultant",
+}
+DEFAULT_SUBSPECS = ["Neuro", "Body", "MSK"]
 
 
 def _ensure_defaults() -> None:
@@ -78,8 +93,17 @@ def _ensure_defaults() -> None:
         ss.blocks_df = pd.DataFrame({
             "doctor": pd.Series(dtype="object"),
             "date": pd.Series(dtype="object"),
+            "end_date": pd.Series(dtype="object"),
             "type": pd.Series(dtype="object"),
         })
+    if "overrides_df" not in ss:
+        ss.overrides_df = pd.DataFrame({
+            "doctor": pd.Series(dtype="object"),
+            "date": pd.Series(dtype="object"),
+            "role": pd.Series(dtype="object"),
+        })
+    ss.setdefault("tier_labels", dict(DEFAULT_TIER_LABELS))
+    ss.setdefault("subspecs", list(DEFAULT_SUBSPECS))
     ss.setdefault("start_date", _next_monday(date.today()))
     ss.setdefault("n_days", 21)
     ss.setdefault("public_holidays", [])
@@ -106,6 +130,7 @@ def _ensure_defaults() -> None:
     ss.setdefault("h_weekend_oncall", 16.0)
     ss.setdefault("h_weekend_ext", 12.0)
     ss.setdefault("h_weekend_consult", 8.0)
+    ss.setdefault("w_pref", 5)
     # Constraint toggles.
     ss.setdefault("h4_enabled", True)
     ss.setdefault("h4_gap", 3)
@@ -123,26 +148,49 @@ def _ensure_defaults() -> None:
 
 
 # ========================================================== Instance build
+def _coerce_date(v):
+    if v is None or (hasattr(v, "__class__") and pd.isna(v)):
+        return None
+    if isinstance(v, date):
+        return v
+    if isinstance(v, str):
+        try:
+            return date.fromisoformat(v)
+        except ValueError:
+            return None
+    return None
+
+
 def _build_inst():
     ss = st.session_state
-    block_entries: list[tuple[str, date, str]] = []
+    block_entries: list[tuple[str, date, date | None, str]] = []
     for _, row in ss.blocks_df.iterrows():
         doctor = row.get("doctor")
-        d = row.get("date")
+        d_start = _coerce_date(row.get("date"))
+        d_end = _coerce_date(row.get("end_date"))
         kind = row.get("type") or "Leave"
-        if doctor is None or d is None:
+        if doctor is None or d_start is None:
             continue
-        if pd.isna(doctor) or (hasattr(d, "__class__") and pd.isna(d)):
+        if pd.isna(doctor):
             continue
-        if isinstance(d, str):
-            try:
-                d = date.fromisoformat(d)
-            except ValueError:
-                continue
         name = str(doctor).strip()
         if not name:
             continue
-        block_entries.append((name, d, str(kind)))
+        block_entries.append((name, d_start, d_end, str(kind)))
+
+    override_entries: list[tuple[str, date, str]] = []
+    for _, row in ss.overrides_df.iterrows():
+        doctor = row.get("doctor")
+        d = _coerce_date(row.get("date"))
+        role = row.get("role")
+        if doctor is None or d is None or not role:
+            continue
+        if pd.isna(doctor) or pd.isna(role):
+            continue
+        name = str(doctor).strip()
+        if not name:
+            continue
+        override_entries.append((name, d, str(role)))
 
     return build_instance(
         start_date=ss.start_date,
@@ -150,8 +198,10 @@ def _build_inst():
         doctors_df=ss.doctors_df,
         stations_df=ss.stations_df,
         block_entries=block_entries,
+        override_entries=override_entries,
         public_holidays=list(ss.public_holidays or []),
         weekend_am_pm_enabled=bool(ss.weekend_am_pm),
+        subspecs=list(ss.subspecs or DEFAULT_SUBSPECS),
     )
 
 
@@ -164,6 +214,7 @@ def _current_weights() -> Weights:
         reporting_spread=int(ss.w_report),
         balance_workload=int(ss.w_workload),
         idle_weekday=int(ss.w_idle),
+        preference=int(ss.get("w_pref", 5)),
     )
 
 
@@ -259,6 +310,11 @@ def _snapshot_to_role_grid(inst, assignments: dict, names: dict[int, str]) -> pd
     return df
 
 
+def _tier_label(tier: str) -> str:
+    return st.session_state.get("tier_labels", DEFAULT_TIER_LABELS).get(
+        tier, tier.capitalize())
+
+
 def _workload_tables(inst, assignments: dict, names: dict[int, str],
                      wl_weights: WorkloadWeights,
                      hours: HoursConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -282,7 +338,7 @@ def _workload_tables(inst, assignments: dict, names: dict[int, str],
         idle = idle_counts.get(d.id, 0)
         headline_rows.append({
             "Doctor": nm,
-            "Tier": d.tier,
+            "Tier": _tier_label(d.tier),
             "Sub-spec": subspec,
             "Workload score": b["score"],
             "Δ vs. tier median": 0.0,   # filled below
@@ -292,7 +348,7 @@ def _workload_tables(inst, assignments: dict, names: dict[int, str],
         })
         breakdown_rows.append({
             "Doctor": nm,
-            "Tier": d.tier,
+            "Tier": _tier_label(d.tier),
             "Sub-spec": subspec,
             "Weekday sessions": b["weekday_sessions"],
             "Weekend sessions": b["weekend_sessions"],
@@ -309,13 +365,171 @@ def _workload_tables(inst, assignments: dict, names: dict[int, str],
     headline = pd.DataFrame(headline_rows)
     if not headline.empty:
         for tier in ("junior", "senior", "consultant"):
-            mask = headline["Tier"] == tier
+            label = _tier_label(tier)
+            mask = headline["Tier"] == label
             if mask.sum() < 2:
                 continue
             med = headline.loc[mask, "Workload score"].median()
             headline.loc[mask, "Δ vs. tier median"] = \
                 headline.loc[mask, "Workload score"] - med
     return headline, pd.DataFrame(breakdown_rows)
+
+
+def _station_view(inst, assignments: dict, names: dict[int, str]) -> pd.DataFrame:
+    """Rows = station × session; columns = dates; cells = comma-joined doctor names."""
+    start_date = st.session_state.start_date
+    dates = [start_date + timedelta(days=t) for t in range(inst.n_days)]
+    date_labels = [format_date(d) for d in dates]
+    rows_by_label: dict[str, list[list[str]]] = {}
+
+    def _ensure_row(label: str):
+        if label not in rows_by_label:
+            rows_by_label[label] = [[] for _ in range(inst.n_days)]
+        return rows_by_label[label]
+
+    for (did, day, st_name, sess), v in assignments.get("stations", {}).items():
+        if not v:
+            continue
+        row = _ensure_row(f"{st_name} · {sess}")
+        row[day].append(names.get(did, f"Dr #{did}"))
+    for (did, day), v in assignments.get("oncall", {}).items():
+        if not v:
+            continue
+        row = _ensure_row("ON-CALL (night)")
+        row[day].append(names.get(did, f"Dr #{did}"))
+    for (did, day), v in assignments.get("ext", {}).items():
+        if not v:
+            continue
+        row = _ensure_row("Weekend EXT")
+        row[day].append(names.get(did, f"Dr #{did}"))
+    for (did, day), v in assignments.get("wconsult", {}).items():
+        if not v:
+            continue
+        row = _ensure_row("Weekend consultant")
+        row[day].append(names.get(did, f"Dr #{did}"))
+
+    if not rows_by_label:
+        return pd.DataFrame({label: [""] * len(date_labels) for label in date_labels})
+
+    df = pd.DataFrame(
+        {date_labels[t]: [", ".join(rows_by_label[label][t])
+                          for label in sorted(rows_by_label.keys())]
+         for t in range(inst.n_days)},
+        index=sorted(rows_by_label.keys()),
+    )
+    df.index.name = "Role / station"
+    return df
+
+
+def _today_summary(inst, assignments: dict, names: dict[int, str],
+                   target_date: date) -> pd.DataFrame:
+    """Single-day summary: who's doing what on `target_date`."""
+    start_date = st.session_state.start_date
+    day = (target_date - start_date).days
+    if day < 0 or day >= inst.n_days:
+        return pd.DataFrame()
+    rows: list[dict] = []
+    for (did, d, st_name, sess), v in assignments.get("stations", {}).items():
+        if d == day and v:
+            rows.append({"Doctor": names.get(did, f"Dr #{did}"),
+                         "Role": f"{sess} · {st_name}"})
+    for (did, d), v in assignments.get("oncall", {}).items():
+        if d == day and v:
+            rows.append({"Doctor": names.get(did, f"Dr #{did}"),
+                         "Role": "On-call (night)"})
+    for (did, d), v in assignments.get("ext", {}).items():
+        if d == day and v:
+            rows.append({"Doctor": names.get(did, f"Dr #{did}"),
+                         "Role": "Weekend extended"})
+    for (did, d), v in assignments.get("wconsult", {}).items():
+        if d == day and v:
+            rows.append({"Doctor": names.get(did, f"Dr #{did}"),
+                         "Role": "Weekend consultant"})
+    for did, leave_days in inst.leave.items():
+        if day in leave_days:
+            rows.append({"Doctor": names.get(did, f"Dr #{did}"), "Role": "LEAVE"})
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows).sort_values(["Role", "Doctor"]).reset_index(drop=True)
+
+
+def _per_doctor_calendar(inst, assignments: dict, names: dict[int, str],
+                         doctor_name: str) -> pd.DataFrame:
+    """Week rows × day-of-week columns for a single doctor."""
+    start_date = st.session_state.start_date
+    did = None
+    for d in inst.doctors:
+        if names.get(d.id) == doctor_name:
+            did = d.id
+            break
+    if did is None:
+        return pd.DataFrame()
+
+    full_grid = _snapshot_to_role_grid(inst, assignments, names)
+    if doctor_name not in full_grid.index:
+        return pd.DataFrame()
+    row = full_grid.loc[doctor_name]
+
+    # Pad to start on Monday.
+    first_day_weekday = start_date.weekday()  # 0=Mon
+    # Figure out how many weeks to show.
+    total_days = first_day_weekday + inst.n_days
+    n_weeks = (total_days + 6) // 7
+
+    day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    week_rows = []
+    week_index: list[str] = []
+    for w in range(n_weeks):
+        week_start = start_date + timedelta(days=w * 7 - first_day_weekday)
+        week_index.append(f"Week of {format_date(week_start)}")
+        cells: list[str] = []
+        for dow in range(7):
+            d = week_start + timedelta(days=dow)
+            day_idx = (d - start_date).days
+            if 0 <= day_idx < inst.n_days:
+                cells.append(str(row.iloc[day_idx]))
+            else:
+                cells.append("—")  # outside horizon
+        week_rows.append(cells)
+    df = pd.DataFrame(week_rows, columns=day_names, index=week_index)
+    return df
+
+
+def _diff_snapshots(inst, a: dict, b: dict, names: dict[int, str]) -> pd.DataFrame:
+    """Doctor × date grid where cells show changes from snapshot `a` to `b`."""
+    ga = _snapshot_to_role_grid(inst, a, names)
+    gb = _snapshot_to_role_grid(inst, b, names)
+    if ga.empty or gb.empty:
+        return pd.DataFrame()
+    # Align rows/columns.
+    cols = ga.columns.intersection(gb.columns)
+    idx = ga.index.intersection(gb.index)
+    ga2, gb2 = ga.loc[idx, cols], gb.loc[idx, cols]
+    diff = ga2.copy()
+    for row_label in idx:
+        for c in cols:
+            va = str(ga2.loc[row_label, c]).strip()
+            vb = str(gb2.loc[row_label, c]).strip()
+            if va == vb:
+                diff.loc[row_label, c] = ""
+            else:
+                diff.loc[row_label, c] = f"{va or '—'} → {vb or '—'}"
+    return diff
+
+
+def _style_diff(df: pd.DataFrame):
+    if df.empty:
+        return df
+
+    def _color(val):
+        v = str(val) if val else ""
+        if v and "→" in v:
+            return "background-color: rgba(255, 220, 120, 0.5); color: #5a3a00"
+        return ""
+
+    styler = df.style
+    mapfn = getattr(styler, "map", None) or styler.applymap
+    return mapfn(_color)
 
 
 def _style_roster_grid(grid_df: pd.DataFrame):
@@ -409,9 +623,12 @@ def _verdict(result, events, idle_total: int, has_coverage_viol: bool,
             lo_t, lo = min(non_zero.items(), key=lambda kv: kv[1])
             hi_t, hi = max(non_zero.items(), key=lambda kv: kv[1])
             if hi > 0 and lo / hi < 0.6:
+                labels = st.session_state.get("tier_labels", DEFAULT_TIER_LABELS)
+                hi_lab = labels.get(hi_t, hi_t) + "s"
+                lo_lab = labels.get(lo_t, lo_t) + "s"
                 issues.append(
-                    f"**Cross-tier gap**: {hi_t}s average {hi:.0f}h/week but "
-                    f"{lo_t}s only {lo:.0f}h/week. Usually means your stations "
+                    f"**Cross-tier gap**: {hi_lab} average {hi:.0f}h/week but "
+                    f"{lo_lab} only {lo:.0f}h/week. Usually means your stations "
                     "give one tier far fewer eligible slots — check the Stations "
                     "editor (required_per_session, eligible_tiers)."
                 )
@@ -438,8 +655,79 @@ st.caption("Configure, solve, review. Constraint spec: `docs/CONSTRAINTS.md`.")
 
 # --------------------------------------------------------------------- Sidebar
 with st.sidebar:
+    st.subheader("Save / Load configuration")
+    st.caption("Hugging Face storage is ephemeral. Use these buttons to save "
+               "your whole setup (doctors, stations, blocks, weights) to a "
+               "YAML file on your computer, and re-upload it later to pick up "
+               "where you left off.")
+    try:
+        yaml_text = dump_state(st.session_state)
+    except Exception as exc:  # pragma: no cover
+        yaml_text = f"# error: {exc}"
+    today_tag = date.today().isoformat()
+    st.download_button(
+        "💾 Save YAML",
+        data=yaml_text, file_name=f"roster_config_{today_tag}.yaml",
+        mime="application/x-yaml", use_container_width=True,
+    )
+    uploaded = st.file_uploader(
+        "Load YAML", type=["yaml", "yml"], key="yaml_uploader",
+        help="Replaces your current configuration.")
+    if uploaded is not None and not st.session_state.get("_yaml_loaded_once"):
+        try:
+            updates = load_state(uploaded.read().decode("utf-8"))
+            for k, v in updates.items():
+                st.session_state[k] = v
+            st.session_state["_yaml_loaded_once"] = True
+            st.success("Configuration loaded. Switching to the Configure tab.")
+            st.rerun()
+        except Exception as exc:  # pragma: no cover
+            st.error(f"Could not load YAML: {exc}")
+    elif uploaded is None:
+        st.session_state.pop("_yaml_loaded_once", None)
+
+    with st.expander("Import prior-period workload"):
+        st.caption("Upload last month's JSON export (from the Export tab) to "
+                   "auto-fill the **Previous workload** column in the Doctors "
+                   "table.")
+        prev_roster = st.file_uploader(
+            "Previous roster JSON", type=["json"], key="prev_roster_uploader")
+        if prev_roster is not None and not st.session_state.get("_prev_loaded_once"):
+            try:
+                prev_data = json.loads(prev_roster.read().decode("utf-8"))
+                ww = {
+                    "weekday_session": st.session_state.wl_wd_session,
+                    "weekend_session": st.session_state.wl_we_session,
+                    "weekday_oncall": st.session_state.wl_wd_oncall,
+                    "weekend_oncall": st.session_state.wl_we_oncall,
+                    "weekend_ext": st.session_state.wl_ext,
+                    "weekend_consult": st.session_state.wl_wconsult,
+                }
+                scores = prev_workload_from_roster_json(prev_data, ww)
+                if scores:
+                    df = st.session_state.doctors_df.copy()
+                    if "prev_workload" not in df.columns:
+                        df["prev_workload"] = 0
+                    for i, row in df.iterrows():
+                        nm = str(row.get("name", "")).strip()
+                        if nm in scores:
+                            df.at[i, "prev_workload"] = int(scores[nm])
+                    st.session_state.doctors_df = df
+                    st.session_state["_prev_loaded_once"] = True
+                    st.success(f"Filled prev_workload for {len(scores)} doctors.")
+                    st.rerun()
+                else:
+                    st.warning("JSON had no recognisable assignments.")
+            except Exception as exc:  # pragma: no cover
+                st.error(f"Could not parse: {exc}")
+        elif prev_roster is None:
+            st.session_state.pop("_prev_loaded_once", None)
+
+    st.divider()
     st.subheader("Solver settings")
-    st.slider("Time limit (s)", 5, 600, key="time_limit")
+    st.slider("Time limit (s)", 5, 3600, key="time_limit",
+              help="Max wall time for the solver. Longer = potentially better "
+                   "solutions.")
     st.slider("CP-SAT workers", 1, 16, key="num_workers")
     st.checkbox("Feasibility only (skip objective)", key="feasibility_only")
 
@@ -511,13 +799,36 @@ with tab_configure:
     )
 
     st.divider()
-    st.subheader("2. Doctors")
-    st.caption("Each row = one doctor. **Tier** drives which stations they can "
-               "work. **Sub-spec** is required for consultants only. "
-               "**Eligible stations** are comma-separated names from the "
-               "Stations table. **Previous workload** is their carry-in "
-               "score from last month — higher means they did more last "
-               "period, so they'll get less this period.")
+    st.subheader("2. Tier labels & sub-specialties")
+    st.caption("Rename the three tiers to match your hospital (e.g. "
+               "Registrar / Fellow / Consultant). Internal rules still apply "
+               "to the three semantic tiers.")
+    tl1, tl2, tl3 = st.columns(3)
+    ss.tier_labels["junior"] = tl1.text_input(
+        "Label for 'junior' tier", value=ss.tier_labels.get("junior", "Junior"))
+    ss.tier_labels["senior"] = tl2.text_input(
+        "Label for 'senior' tier", value=ss.tier_labels.get("senior", "Senior"))
+    ss.tier_labels["consultant"] = tl3.text_input(
+        "Label for 'consultant' tier",
+        value=ss.tier_labels.get("consultant", "Consultant"))
+    subspecs_text = st.text_input(
+        "Sub-specialties (comma-separated, consultants pick one)",
+        value=", ".join(ss.subspecs or DEFAULT_SUBSPECS),
+        help="Weekend coverage rule (H8) requires 1 consultant per sub-spec.")
+    new_subs = [s.strip() for s in subspecs_text.split(",") if s.strip()]
+    if new_subs:
+        ss.subspecs = new_subs
+
+    st.divider()
+    st.subheader("3. Doctors")
+    st.caption("Each row = one doctor. **Tier** drives which stations they "
+               "can work. **Sub-spec** is required for consultants only. "
+               "**Eligible stations** = comma-separated names from the "
+               "Stations table. **Previous workload** is the carry-in score "
+               "from last month. **FTE** is full-time equivalent (0.5 = "
+               "half-time). **Max on-calls** caps their night calls for the "
+               "period (leave blank for no cap).")
+    current_subspec_options = [""] + list(ss.subspecs or DEFAULT_SUBSPECS)
     edited_doctors = st.data_editor(
         ss.doctors_df,
         num_rows="dynamic",
@@ -527,22 +838,30 @@ with tab_configure:
             "tier": st.column_config.SelectboxColumn(
                 "Tier", options=list(TIERS), required=True),
             "subspec": st.column_config.SelectboxColumn(
-                "Sub-spec", options=list(SUBSPEC_CHOICES),
-                help="Required for consultants; leave blank for juniors/seniors."),
+                "Sub-spec", options=current_subspec_options,
+                help="Required for consultants; leave blank otherwise."),
             "eligible_stations": st.column_config.TextColumn(
                 "Eligible stations (comma-separated)",
                 help="Station names must match the Stations list below."),
             "prev_workload": st.column_config.NumberColumn(
                 "Previous workload",
                 min_value=-9999, max_value=9999, step=5, default=0,
-                help="Carry-in from prior period. Defaults 0. Higher = "
-                     "already did more last period → gets less this period."),
+                help="Carry-in from prior period."),
+            "fte": st.column_config.NumberColumn(
+                "FTE", min_value=0.1, max_value=1.0, step=0.1, default=1.0,
+                help="Full-time equivalent. 0.5 = half-time doctor who "
+                     "should carry roughly half the workload."),
+            "max_oncalls": st.column_config.NumberColumn(
+                "Max on-calls", min_value=0, max_value=99, step=1,
+                help="Hard cap on night calls in this period. Leave blank "
+                     "for no cap."),
         },
         key="_editor_doctors",
     )
 
-    with st.expander("Stations (advanced — the default list covers a typical "
-                     "radiology department)"):
+    st.divider()
+    st.subheader("4. Stations")
+    with st.expander("Edit stations (defaults cover a typical radiology dept)"):
         st.caption("Sessions: AM, PM, or both. **Required** = how many doctors "
                    "must be assigned to this station per session. "
                    "**Reporting** stations are rotated to avoid back-to-back days.")
@@ -567,15 +886,16 @@ with tab_configure:
         )
 
     st.divider()
-    st.subheader("3. Leave, blocks, and preferences")
+    st.subheader("5. Leave, blocks, and preferences")
     known_names_display = [str(n).strip() for n in
                            edited_doctors["name"].dropna().tolist()
                            if str(n).strip()]
-    st.caption("One row per block. **Leave** = full day off (no work at all). "
-               "**No on-call** = doctor can still do AM/PM work but won't get "
-               "night call. **No AM / No PM** = doctor opts out of that "
-               "session only. Type the doctor's name exactly as it appears "
-               "above.")
+    st.caption("One row per block. **Date** is the first day; **End date** "
+               "is optional — fill it in for multi-day leave (inclusive range). "
+               "**Type**: *Leave* = whole day off. *No on-call* = call block "
+               "(doctor can still do AM/PM). *No AM / No PM* = session opt-out. "
+               "*Prefer AM / Prefer PM* = soft preference the solver will "
+               "honour if it doesn't conflict with harder goals.")
     if known_names_display:
         st.caption(f"Known doctors: {', '.join(known_names_display)}")
     edited_blocks = st.data_editor(
@@ -585,17 +905,77 @@ with tab_configure:
         column_config={
             "doctor": st.column_config.TextColumn(
                 "Doctor", help="Type the name as it appears in the Doctors table."),
-            "date": st.column_config.DateColumn("Date"),
+            "date": st.column_config.DateColumn("Date (first day)"),
+            "end_date": st.column_config.DateColumn(
+                "End date (optional)",
+                help="Leave blank for a single day. Range is inclusive."),
             "type": st.column_config.SelectboxColumn(
-                "Type", options=list(BLOCK_TYPES), default="Leave",
-                help="Leave = whole day off. No on-call = call block. "
-                     "No AM / No PM = session block."),
+                "Type", options=list(BLOCK_TYPES), default="Leave"),
         },
         key="_editor_blocks",
     )
 
+    with st.expander("Bulk-add blocks from CSV"):
+        st.caption("Paste lines like `Dr A,2026-05-03,2026-05-07,Leave` or "
+                   "`Dr B,2026-05-10,,No on-call` (empty end-date = single "
+                   "day). One row per line. Headers optional.")
+        csv_text = st.text_area("CSV", key="blocks_csv_text",
+                                placeholder="Dr A,2026-05-03,2026-05-07,Leave")
+        if st.button("Append rows", key="blocks_csv_apply"):
+            added = 0
+            rows: list[dict] = []
+            for line in csv_text.strip().splitlines():
+                line = line.strip()
+                if not line or line.lower().startswith("doctor,"):
+                    continue
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) < 3:
+                    continue
+                name = parts[0]
+                try:
+                    d_start = date.fromisoformat(parts[1])
+                except ValueError:
+                    continue
+                if len(parts) == 3:
+                    d_end = None
+                    kind = parts[2] or "Leave"
+                else:
+                    d_end = date.fromisoformat(parts[2]) if parts[2] else None
+                    kind = parts[3] if len(parts) >= 4 and parts[3] else "Leave"
+                rows.append({"doctor": name, "date": d_start,
+                             "end_date": d_end, "type": kind})
+                added += 1
+            if rows:
+                new_df = pd.concat(
+                    [ss.blocks_df, pd.DataFrame(rows)], ignore_index=True)
+                ss.blocks_df = new_df
+                st.session_state["blocks_csv_text"] = ""
+                st.success(f"Appended {added} row(s). Scroll up to verify.")
+                st.rerun()
+            elif csv_text.strip():
+                st.warning("No valid rows parsed. Format: "
+                           "`doctor,start_date,end_date_or_empty,type`.")
+
     st.divider()
-    st.subheader("4. Rules for the roster")
+    st.subheader("6. Manual overrides (lock specific assignments)")
+    st.caption("Force a specific role on a specific day. Treated as a **hard** "
+               "constraint — the solver must honour it. Use this to lock parts "
+               "of the roster and re-solve around them. " + OVERRIDE_ROLES_HELP)
+    edited_overrides = st.data_editor(
+        ss.overrides_df,
+        num_rows="dynamic",
+        use_container_width=True,
+        column_config={
+            "doctor": st.column_config.TextColumn("Doctor"),
+            "date": st.column_config.DateColumn("Date"),
+            "role": st.column_config.TextColumn(
+                "Role", help=OVERRIDE_ROLES_HELP),
+        },
+        key="_editor_overrides",
+    )
+
+    st.divider()
+    st.subheader("7. Rules for the roster")
     st.caption("Turn these on or off to change what the solver is allowed to do. "
                "Each rule's help text explains what it means.")
     cc1, cc2 = st.columns(2)
@@ -644,7 +1024,7 @@ with tab_configure:
              "weekend-consultant only.")
 
     st.divider()
-    st.subheader("5. Hours per shift")
+    st.subheader("8. Hours per shift")
     st.caption("Used to compute each doctor's **hours per week** in the results. "
                "Does **not** affect the solver — only the report. Adjust these "
                "to match your hospital's shift lengths.")
@@ -667,7 +1047,7 @@ with tab_configure:
                     step=1.0, key="h_weekend_consult")
 
     st.divider()
-    st.subheader("6. How 'fairness' is measured")
+    st.subheader("9. How 'fairness' is measured")
     st.caption("These are the **workload weights** — they turn each assignment "
                "into a number, which is then summed into a workload score per "
                "doctor. The solver tries to spread this score evenly across "
@@ -688,7 +1068,7 @@ with tab_configure:
                      key="wl_wconsult")
 
     st.divider()
-    st.subheader("7. Solver priorities (advanced)")
+    st.subheader("10. Solver priorities (advanced)")
     st.caption("How hard the solver tries to achieve each goal. Higher = more "
                "important. Set to 0 to turn a goal off entirely. The defaults "
                "are tuned; you rarely need to touch these.")
@@ -714,14 +1094,16 @@ with tab_configure:
     sc2.number_input(
         "Spread out reporting-desk duty (no back-to-back days)",
         min_value=0, max_value=1000, key="w_report")
+    sc2.number_input(
+        "Honour positive session preferences",
+        min_value=0, max_value=1000, key="w_pref",
+        help="Cost per unmet 'Prefer AM/Prefer PM' wish.")
 
     # END of Configure tab — single commit point for editable tables.
-    # This is the fix for the "edit two cells, only one saves" bug: we
-    # reassign to session_state ONCE per rerun, after all editors rendered,
-    # so no editor is mid-render when another's state updates.
     ss.doctors_df = edited_doctors
     ss.stations_df = edited_stations
     ss.blocks_df = edited_blocks
+    ss.overrides_df = edited_overrides
 
 
 # ============================================================ Solve & Roster
@@ -940,13 +1322,16 @@ with tab_solve:
                    idle_total if has_sol else "—",
                    help="Total doctor-weekdays where the doctor had no role "
                         "and was not on leave / post-call / lieu.")
+        tier_label_map = ss.get("tier_labels", DEFAULT_TIER_LABELS)
         mc4.metric(
             "Avg hours / week (by tier)",
-            (" · ".join(f"{t[0].upper()} {h:.0f}h" for t, h in tier_hours_avg.items())
+            (" · ".join(
+                f"{tier_label_map.get(t, t)[:3]} {h:.0f}h"
+                for t, h in tier_hours_avg.items())
              if tier_hours_avg else "—"),
-            help="J/S/C = junior / senior / consultant average hours per week. "
-                 "A big gap across tiers usually means station eligibility or "
-                 "required_per_session needs tuning."
+            help="First three letters of each tier label + average hours per "
+                 "week. A big gap across tiers usually means station "
+                 "eligibility or required_per_session needs tuning."
         )
         mc5.metric("Penalty score (lower = better)",
                    f"{result.objective:.0f}" if result.objective is not None else "—")
@@ -972,6 +1357,99 @@ with tab_solve:
             st.dataframe(_style_roster_grid(grid_df),
                          use_container_width=True,
                          height=min(600, 40 + 28 * len(grid_df)))
+
+            lock_col, _ = st.columns([1, 3])
+            if lock_col.button(
+                "📌 Copy this roster to overrides",
+                help="Pre-fills the 'Manual overrides' table in Configure "
+                     "with every current assignment, so you can delete the "
+                     "specific rows you want to change and re-solve.",
+            ):
+                override_rows: list[dict] = []
+                d_start = st.session_state.start_date
+                for (did, day, st_name, sess), v in snap.get("stations", {}).items():
+                    if v:
+                        override_rows.append({
+                            "doctor": names.get(did, f"Dr #{did}"),
+                            "date": d_start + timedelta(days=day),
+                            "role": f"STATION_{st_name}_{sess}",
+                        })
+                for (did, day), v in snap.get("oncall", {}).items():
+                    if v:
+                        override_rows.append({
+                            "doctor": names.get(did, f"Dr #{did}"),
+                            "date": d_start + timedelta(days=day),
+                            "role": "ONCALL",
+                        })
+                for (did, day), v in snap.get("ext", {}).items():
+                    if v:
+                        override_rows.append({
+                            "doctor": names.get(did, f"Dr #{did}"),
+                            "date": d_start + timedelta(days=day),
+                            "role": "EXT",
+                        })
+                for (did, day), v in snap.get("wconsult", {}).items():
+                    if v:
+                        override_rows.append({
+                            "doctor": names.get(did, f"Dr #{did}"),
+                            "date": d_start + timedelta(days=day),
+                            "role": "WCONSULT",
+                        })
+                st.session_state.overrides_df = pd.DataFrame(override_rows)
+                st.success(f"Copied {len(override_rows)} rows to overrides. "
+                           "Go to Configure → section 6 to edit, then re-solve.")
+
+            with st.expander("Alternative views"):
+                view_cols = st.columns(3)
+                if view_cols[0].toggle("Station × date", value=False, key="toggle_station_view"):
+                    st.caption("Rows are role / station · session; cells list "
+                               "doctors covering that slot.")
+                    sv = _station_view(inst, snap, names)
+                    st.dataframe(sv, use_container_width=True,
+                                 height=min(500, 40 + 28 * len(sv)))
+                if view_cols[1].toggle("Per-doctor calendar", value=False, key="toggle_doc_cal"):
+                    doc_pick = st.selectbox(
+                        "Doctor", sorted(names.values()),
+                        key="doc_cal_pick")
+                    if doc_pick:
+                        cal = _per_doctor_calendar(inst, snap, names, doc_pick)
+                        st.dataframe(_style_roster_grid(cal),
+                                     use_container_width=True)
+                if view_cols[2].toggle("Today's roster", value=False, key="toggle_today"):
+                    default_day = st.session_state.start_date
+                    picked = st.date_input(
+                        "Date", default_day,
+                        min_value=st.session_state.start_date,
+                        max_value=(st.session_state.start_date
+                                   + timedelta(days=int(st.session_state.n_days) - 1)),
+                        key="today_pick")
+                    tdf = _today_summary(inst, snap, names, picked)
+                    if tdf.empty:
+                        st.info("No assignments on that day.")
+                    else:
+                        st.dataframe(tdf, use_container_width=True, hide_index=True)
+
+            with st.expander("Diff this snapshot against another"):
+                other_options = ["(none)"]
+                for i, e in enumerate(events):
+                    if e.get("assignments"):
+                        other_options.append(f"#{i+1} — t={e['wall_s']:.1f}s, obj={e['objective']}")
+                other_options.append("Final")
+                other_pick = st.selectbox(
+                    "Compare against",
+                    [o for o in other_options if o != pick],
+                    key="diff_pick")
+                if other_pick and other_pick != "(none)":
+                    if other_pick == "Final":
+                        other_snap = result.assignments
+                    else:
+                        oi = int(other_pick.split("—", 1)[0].strip().lstrip("#")) - 1
+                        other_snap = events[oi]["assignments"]
+                    diff = _diff_snapshots(inst, snap, other_snap, names)
+                    changed = int((diff != "").sum().sum())
+                    st.caption(f"{changed} cell(s) differ. Yellow = changed.")
+                    st.dataframe(_style_diff(diff), use_container_width=True,
+                                 height=min(500, 40 + 28 * len(diff)))
 
             head_df, break_df = _workload_tables(
                 inst, snap, names, wl_weights, hours)
@@ -1078,3 +1556,61 @@ with tab_export:
             st.download_button("Download roster (CSV)",
                                data=csv_buf.getvalue(),
                                file_name="roster.csv", mime="text/csv")
+
+            # Print-friendly HTML: browser "Save as PDF" from the preview.
+            st.divider()
+            st.subheader("Print-friendly HTML")
+            st.caption("Download the HTML, open it in your browser, and use "
+                       "**File → Print → Save as PDF** for a paper-ready roster.")
+            grid_df = _snapshot_to_role_grid(inst, result.assignments, names)
+            meta_html = (
+                f"<h1>Roster — {format_date(start_date)} to "
+                f"{format_date(start_date + timedelta(days=inst.n_days-1))}</h1>"
+                f"<p><b>Status:</b> {result.status} · "
+                f"<b>Penalty:</b> {result.objective or 0:.0f}</p>"
+            )
+            style = """
+<style>
+body { font-family: -apple-system, 'Segoe UI', Arial, sans-serif; margin: 24px; color: #111; }
+h1 { margin-bottom: 4px; }
+table { border-collapse: collapse; width: 100%; font-size: 10pt; }
+th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; }
+th { background: #f2f2f2; }
+td.lv { background: #e6e6e6; color: #666; }
+td.oc { background: #e6d0f5; }
+td.ext, td.wc { background: #cfe9f3; }
+td.work { background: #d7f0dd; }
+td.idle { background: #ffe6b3; }
+@media print { body { margin: 0; } table { page-break-inside: auto; } }
+</style>
+"""
+            rows_html = []
+            for doctor_name in grid_df.index:
+                cells = [f"<td><b>{doctor_name}</b></td>"]
+                for col in grid_df.columns:
+                    val = str(grid_df.at[doctor_name, col]).strip()
+                    cls = "idle"
+                    if val == "LV":
+                        cls = "lv"
+                    elif "OC" in val.split():
+                        cls = "oc"
+                    elif ("EXT" in val.split()) or ("WC" in val.split()):
+                        cls = "ext"
+                    elif "AM:" in val or "PM:" in val:
+                        cls = "work"
+                    cells.append(f'<td class="{cls}">{val}</td>')
+                rows_html.append("<tr>" + "".join(cells) + "</tr>")
+            header_row = (
+                "<tr><th>Doctor</th>"
+                + "".join(f"<th>{c}</th>" for c in grid_df.columns)
+                + "</tr>"
+            )
+            table = f"<table>{header_row}{''.join(rows_html)}</table>"
+            html = f"<!doctype html><html><head><meta charset='utf-8'>" \
+                   f"<title>Roster</title>{style}</head><body>" \
+                   f"{meta_html}{table}</body></html>"
+            st.download_button(
+                "📄 Download print-friendly HTML",
+                data=html, file_name=f"roster_{start_date.isoformat()}.html",
+                mime="text/html",
+            )

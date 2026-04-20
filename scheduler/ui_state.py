@@ -11,7 +11,7 @@ converts calendar dates ↔ day indices used by the solver.
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Iterable
+from typing import Iterable, Union
 
 import pandas as pd
 
@@ -24,6 +24,8 @@ from scheduler.instance import (
 )
 
 TIERS = ("junior", "senior", "consultant")
+# Exposed only for legacy default-table scaffolding. The UI re-reads the
+# current subspec list from session_state["subspecs"].
 SUBSPEC_CHOICES = ("", *SUBSPECS)
 
 
@@ -60,14 +62,14 @@ def default_doctors_df(n: int = 20, seed: int = 0) -> pd.DataFrame:
         rows.append(dict(
             name=_name(idx), tier="junior", subspec="",
             eligible_stations=",".join(_default_elig("junior", rng)),
-            prev_workload=0,
+            prev_workload=0, fte=1.0, max_oncalls=None,
         ))
         idx += 1
     for _ in range(n_s):
         rows.append(dict(
             name=_name(idx), tier="senior", subspec="",
             eligible_stations=",".join(_default_elig("senior", rng)),
-            prev_workload=0,
+            prev_workload=0, fte=1.0, max_oncalls=None,
         ))
         idx += 1
     for i in range(n_c):
@@ -75,7 +77,7 @@ def default_doctors_df(n: int = 20, seed: int = 0) -> pd.DataFrame:
         rows.append(dict(
             name=_name(idx), tier="consultant", subspec=ss,
             eligible_stations=",".join(_default_elig("consultant", rng)),
-            prev_workload=0,
+            prev_workload=0, fte=1.0, max_oncalls=None,
         ))
         idx += 1
     return pd.DataFrame(rows)
@@ -133,16 +135,21 @@ def build_instance(
     public_holidays: Iterable[date] = (),
     weekend_am_pm_enabled: bool = False,
     prev_oncall_names: Iterable[str] = (),
-    block_entries: Iterable[tuple[str, date, str]] = (),
+    block_entries: Iterable[tuple[str, date, date | None, str]] = (),
+    override_entries: Iterable[tuple[str, date, str]] = (),
+    subspecs: Iterable[str] | None = None,
 ) -> Instance:
     """Assemble an Instance from editable tables.
 
-    `leave_entries` is an iterable of (doctor_name, date) pairs.
-    `block_entries` is an iterable of (doctor_name, date, kind) where `kind`
-    is one of "LEAVE", "NO_ONCALL", "NO_AM", "NO_PM". If you pass both
-    `leave_entries` and "LEAVE" rows in `block_entries`, they are unioned.
-    `public_holidays` is a list of dates. `prev_oncall_names` is a list of
-    doctor names who were on-call on the day before `start_date`.
+    `block_entries` is an iterable of (doctor_name, start_date, end_date, kind).
+    `end_date` may be None (single-day) or a date; the block applies every day
+    from start_date through end_date inclusive. `kind` is one of "Leave",
+    "No on-call", "No AM", "No PM", "Prefer AM", "Prefer PM" (case/space
+    insensitive).
+    `override_entries` is an iterable of (doctor_name, date, role) where role
+    is a string like "STATION_CT_AM", "ONCALL", "WEEKEND_EXT", "WEEKEND_CONSULT".
+    `subspecs` is the list of consultant sub-spec labels; defaults to the
+    module-level SUBSPECS if None.
     """
     if n_days < 1:
         raise BuildError("n_days must be ≥ 1")
@@ -178,6 +185,13 @@ def build_instance(
     if not stations:
         raise BuildError("At least one station is required.")
 
+    # Subspec list (either user-supplied or module default).
+    subspec_tuple: tuple[str, ...] = tuple(
+        str(s).strip() for s in (subspecs or SUBSPECS) if s and str(s).strip()
+    )
+    if not subspec_tuple:
+        subspec_tuple = tuple(SUBSPECS)
+
     # Doctors.
     doctors: list[Doctor] = []
     name_to_id: dict[str, int] = {}
@@ -196,10 +210,10 @@ def build_instance(
         subspec = subspec_raw if subspec_raw else None
         if tier == "consultant" and subspec is None:
             raise BuildError(
-                f"Consultant {name}: subspec is required (choose {list(SUBSPECS)}).")
-        if subspec is not None and subspec not in SUBSPECS:
+                f"Consultant {name}: subspec is required (choose {list(subspec_tuple)}).")
+        if subspec is not None and subspec not in subspec_tuple:
             raise BuildError(
-                f"Doctor {name}: subspec '{subspec}' not in {SUBSPECS}.")
+                f"Doctor {name}: subspec '{subspec}' not in {list(subspec_tuple)}.")
         elig_s = str(row.get("eligible_stations", "")).strip()
         elig = frozenset(s.strip() for s in elig_s.split(",") if s.strip())
         bad = elig - station_names
@@ -209,8 +223,25 @@ def build_instance(
         if not elig:
             raise BuildError(
                 f"Doctor {name}: eligible_stations is empty — pick at least one.")
+
+        # FTE (0.0–1.0) and max_oncalls (optional int).
+        try:
+            fte_raw = row.get("fte", 1.0)
+            fte = float(fte_raw) if pd.notna(fte_raw) else 1.0
+            fte = max(0.01, min(1.0, fte))
+        except (TypeError, ValueError):
+            fte = 1.0
+        max_oncalls: int | None = None
+        try:
+            mo_raw = row.get("max_oncalls")
+            if mo_raw is not None and pd.notna(mo_raw) and str(mo_raw).strip() != "":
+                max_oncalls = int(mo_raw)
+        except (TypeError, ValueError):
+            max_oncalls = None
+
         new_id = len(doctors)
-        doctors.append(Doctor(new_id, tier, subspec, elig))
+        doctors.append(Doctor(new_id, tier, subspec, elig,
+                              fte=fte, max_oncalls=max_oncalls))
         name_to_id[name] = new_id
         try:
             prev_raw = row.get("prev_workload", 0)
@@ -221,38 +252,109 @@ def build_instance(
     if not doctors:
         raise BuildError("At least one doctor is required.")
 
-    # Leave + blocks: convert named entries → id-keyed dicts.
+    # Leave + blocks + preferences: convert named entries → id-keyed dicts.
     leave: dict[int, set[int]] = {}
     no_oncall: dict[int, set[int]] = {}
     no_session: dict[int, dict[int, set[str]]] = {}
+    prefer_session: dict[int, dict[int, set[str]]] = {}
     for name, d in leave_entries:
         if name not in name_to_id:
             raise BuildError(f"Leave entry for unknown doctor '{name}'.")
         idx = day_index(d, start_date)
         if 0 <= idx < n_days:
             leave.setdefault(name_to_id[name], set()).add(idx)
-    for name, d, kind in block_entries:
+
+    def _daterange_indices(start_d: date, end_d: date | None) -> list[int]:
+        """Inclusive range of day indices within [0, n_days) between start and end."""
+        if end_d is None or end_d < start_d:
+            end_d = start_d
+        days: list[int] = []
+        delta = (end_d - start_d).days
+        for offset in range(delta + 1):
+            idx = day_index(start_d + timedelta(days=offset), start_date)
+            if 0 <= idx < n_days:
+                days.append(idx)
+        return days
+
+    for entry in block_entries:
+        if entry is None:
+            continue
+        # Support (name, date, kind) OR (name, start, end, kind).
+        if len(entry) == 3:
+            name, d_start, kind = entry
+            d_end = None
+        elif len(entry) == 4:
+            name, d_start, d_end, kind = entry
+        else:
+            raise BuildError(f"Block entry has unexpected shape: {entry!r}")
+        if not name:
+            continue
+        name = str(name).strip()
         if not name:
             continue
         if name not in name_to_id:
             raise BuildError(f"Block entry for unknown doctor '{name}'.")
+        did = name_to_id[name]
+        k = (kind or "").strip().upper().replace(" ", "_").replace("-", "_")
+        for idx in _daterange_indices(d_start, d_end):
+            if k in ("LEAVE", "OFF", "ANNUAL_LEAVE"):
+                leave.setdefault(did, set()).add(idx)
+            elif k in ("NO_ONCALL", "CALL_BLOCK", "NO_CALL"):
+                no_oncall.setdefault(did, set()).add(idx)
+            elif k in ("NO_AM", "NO_AM_SESSION"):
+                no_session.setdefault(did, {}).setdefault(idx, set()).add("AM")
+            elif k in ("NO_PM", "NO_PM_SESSION"):
+                no_session.setdefault(did, {}).setdefault(idx, set()).add("PM")
+            elif k in ("PREFER_AM", "PREF_AM"):
+                prefer_session.setdefault(did, {}).setdefault(idx, set()).add("AM")
+            elif k in ("PREFER_PM", "PREF_PM"):
+                prefer_session.setdefault(did, {}).setdefault(idx, set()).add("PM")
+            else:
+                raise BuildError(
+                    f"Block for {name}: unknown type '{kind}'. Use one of: "
+                    "Leave, No on-call, No AM, No PM, Prefer AM, Prefer PM.")
+
+    # Manual overrides.
+    overrides: list[tuple[int, int, str | None, str | None, str]] = []
+    station_name_set = {s.name for s in stations}
+    for entry in override_entries or ():
+        if entry is None:
+            continue
+        name, d, role = entry
+        if not name:
+            continue
+        name = str(name).strip()
+        if name not in name_to_id:
+            raise BuildError(f"Override for unknown doctor '{name}'.")
         idx = day_index(d, start_date)
         if not (0 <= idx < n_days):
             continue
         did = name_to_id[name]
-        k = (kind or "").strip().upper().replace(" ", "_").replace("-", "_")
-        if k in ("LEAVE", "OFF", "ANNUAL_LEAVE"):
-            leave.setdefault(did, set()).add(idx)
-        elif k in ("NO_ONCALL", "CALL_BLOCK", "NO_CALL"):
-            no_oncall.setdefault(did, set()).add(idx)
-        elif k in ("NO_AM", "NO_AM_SESSION"):
-            no_session.setdefault(did, {}).setdefault(idx, set()).add("AM")
-        elif k in ("NO_PM", "NO_PM_SESSION"):
-            no_session.setdefault(did, {}).setdefault(idx, set()).add("PM")
+        r = (role or "").strip().upper()
+        if r.startswith("STATION_"):
+            # STATION_<name>_<session>
+            parts = r[len("STATION_"):].rsplit("_", 1)
+            if len(parts) != 2:
+                raise BuildError(f"Override role '{role}': expected STATION_<name>_<AM|PM>.")
+            st_name, sess = parts
+            # Station names in the UI are upper-case identifiers; look up
+            # case-insensitively against our station set.
+            st_match = next((s for s in station_name_set if s.upper() == st_name), None)
+            if st_match is None:
+                raise BuildError(f"Override for {name}: unknown station '{st_name}'.")
+            if sess not in ("AM", "PM"):
+                raise BuildError(f"Override for {name}: session must be AM or PM.")
+            overrides.append((did, idx, st_match, sess, "STATION"))
+        elif r in ("ONCALL", "OC"):
+            overrides.append((did, idx, None, None, "ONCALL"))
+        elif r in ("EXT", "WEEKEND_EXT", "EXTENDED"):
+            overrides.append((did, idx, None, None, "EXT"))
+        elif r in ("WCONSULT", "WC", "WEEKEND_CONSULT"):
+            overrides.append((did, idx, None, None, "WCONSULT"))
         else:
             raise BuildError(
-                f"Block for {name}: unknown type '{kind}'. "
-                "Use one of: Leave, No on-call, No AM, No PM.")
+                f"Override for {name}: unknown role '{role}'. Use one of: "
+                "STATION_<name>_AM, STATION_<name>_PM, ONCALL, EXT, WCONSULT.")
 
     # Public holidays.
     ph_idx: set[int] = set()
@@ -278,6 +380,9 @@ def build_instance(
         prev_workload=prev_workload_map,
         no_oncall=no_oncall,
         no_session=no_session,
+        prefer_session=prefer_session,
+        overrides=overrides,
+        subspecs=subspec_tuple,
     )
 
 

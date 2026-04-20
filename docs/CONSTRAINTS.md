@@ -66,6 +66,15 @@ update it.
   Prevents assigning the doctor to any station in that session (AM or PM).
   Unlike leave, other sessions and on-call remain available. Input via
   `Instance.no_session[doctor_id][day_idx] → {"AM" | "PM"}`.
+- **H14 — Per-doctor on-call cap.** Optional hard upper bound on the
+  number of on-call nights a given doctor may receive in the horizon.
+  `Doctor.max_oncalls: int | None` (None = no cap). Policy-driven —
+  e.g., part-timers or doctors with medical restrictions.
+- **H15 — Manual overrides.** Per-assignment hard constraint that forces
+  a specific (doctor, day, role) combination. Used by the "lock this and
+  re-solve" workflow. Input via
+  `Instance.overrides: list[(doctor_id, day, station_or_None, session_or_None, role)]`
+  where role ∈ {"STATION", "ONCALL", "EXT", "WCONSULT"}.
 
 ## 3. Soft constraints (objective terms, weights configurable)
 
@@ -92,10 +101,20 @@ All penalties are summed, multiplied by their weight, and minimized.
   naturally given less work this period.
 - **S5 — Idle-weekday penalty (H11).** Per idle doctor-weekday (no station,
   no on-call, no excuse). Default weight 100 — heavy, so the solver will
-  eliminate idles wherever capacity allows.
+  eliminate idles wherever capacity allows. **FTE-scaled**: a 0.5-FTE
+  doctor's idle day costs half as much, so the solver tolerates more idle
+  for part-timers.
+- **S6 — Unmet positive preferences.** Per (doctor, day, session) in
+  `Instance.prefer_session` that the solver chose not to honour. Default
+  weight 5 — soft; the solver honours preferences when doing so doesn't
+  conflict with heavier goals.
+
+S0 also FTE-scales: the per-doctor balance target is
+`weighted_workload[d] × (100 / fte_pct[d]) + prev_workload[d]`, so a 0.5-
+FTE doctor's score is doubled for balance purposes (solver gives them less).
 
 Default weights: `balance_workload=40`, `balance_sessions=5`, `balance_oncall=10`,
-`balance_weekend=10`, `reporting_spread=5`, `idle_weekday=100`.
+`balance_weekend=10`, `reporting_spread=5`, `idle_weekday=100`, `preference=5`.
 
 ## 4. Inputs expected by the model
 
@@ -119,6 +138,16 @@ Additional inputs on `Instance`:
 - `prev_workload: dict[doctor_id, int]` — carry-in from prior period for S0.
 - `no_oncall: dict[doctor_id, set[day_idx]]` — H12 call blocks.
 - `no_session: dict[doctor_id, dict[day_idx, set[session]]]` — H13 session blocks.
+- `prefer_session: dict[doctor_id, dict[day_idx, set[session]]]` — S6 positive
+  preferences (soft).
+- `overrides: list[(did, day, station|None, session|None, role)]` — H15
+  manual assignment locks.
+- `subspecs: tuple[str, ...]` — consultant sub-spec labels (defaults to
+  `("Neuro", "Body", "MSK")`).
+
+Additional inputs on `Doctor`:
+- `fte: float` — full-time equivalent in [0.01, 1.0], default 1.0.
+- `max_oncalls: int | None` — H14 hard cap on on-call count, default None.
 
 Additional inputs on `solve(...)`:
 - `constraints: ConstraintConfig` — toggle each hard constraint on/off and

@@ -114,7 +114,6 @@ def verify(inst: Instance, result) -> list[str]:
                 violations.append(f"H7 junior {did} on oncall day {day} PM={pm} (should be 1)")
 
     # H8 — weekend coverage.
-    from scheduler.instance import SUBSPECS
     for day in range(inst.n_days):
         if not inst.is_weekend(day):
             continue
@@ -126,7 +125,7 @@ def verify(inst: Instance, result) -> list[str]:
                                   (1, j_oc, "junior_oncall"), (1, s_oc, "senior_oncall")):
             if want != got:
                 violations.append(f"H8 day={day} {label}: {got} (want {want})")
-        for ss in SUBSPECS:
+        for ss in inst.subspecs:
             cnt = sum(1 for (did, dy) in wconsult
                       if dy == day and doc_by_id[did].subspec == ss)
             if cnt != 1:

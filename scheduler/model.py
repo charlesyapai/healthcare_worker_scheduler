@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 from ortools.sat.python import cp_model
 
-from scheduler.instance import SESSIONS, SUBSPECS, Instance
+from scheduler.instance import SESSIONS, Instance
 
 
 @dataclass
@@ -95,6 +95,7 @@ class Weights:
     reporting_spread: int = 5
     balance_workload: int = 40       # S0 — weighted total workload balance
     idle_weekday: int = 100          # S5 — per-idle-doctor-weekday penalty
+    preference: int = 5              # S6 — penalty per unmet positive preference
 
 
 IntermediateCallback = Callable[[dict[str, Any]], None]
@@ -401,7 +402,7 @@ def solve(
             _exact_one(model, ext_s_vars)
             _exact_one(model, oc_j_vars)
             _exact_one(model, oc_s_vars)
-            for ss in SUBSPECS:
+            for ss in inst.subspecs:
                 wc_vars = [
                     wconsult[(d.id, day)]
                     for d in inst.doctors
@@ -455,6 +456,35 @@ def solve(
                 if blocked_vars:
                     model.Add(sum(blocked_vars) == 0)
 
+    # H14 — Per-doctor on-call cap (max_oncalls).
+    for d in inst.doctors:
+        if d.max_oncalls is None or d.tier == "consultant":
+            continue
+        doc_oncalls = [oncall[(d.id, day)] for day in range(inst.n_days)
+                       if (d.id, day) in oncall]
+        if doc_oncalls:
+            model.Add(sum(doc_oncalls) <= int(d.max_oncalls))
+
+    # H15 — Manual overrides (force specific assignments).
+    for override in inst.overrides:
+        did, day, station, sess, role = override
+        if role == "STATION" and station and sess:
+            v = assign.get((did, day, station, sess))
+            if v is not None:
+                model.Add(v == 1)
+        elif role == "ONCALL":
+            v = oncall.get((did, day))
+            if v is not None:
+                model.Add(v == 1)
+        elif role == "EXT":
+            v = ext.get((did, day))
+            if v is not None:
+                model.Add(v == 1)
+        elif role == "WCONSULT":
+            v = wconsult.get((did, day))
+            if v is not None:
+                model.Add(v == 1)
+
     # ----------------------------------------------------------- Soft objective
     penalties: list[cp_model.IntVar | int] = []
     # name -> (var, weight) for the real-time callback and SolveResult.
@@ -483,39 +513,37 @@ def solve(
     # ---- H11 / S5 — mandatory weekday assignment (soft, heavy weight).
     # Per-weekday-per-doctor "idle" indicator: 1 if the doctor is neither
     # assigned a station, nor on junior-oncall, nor excused (leave / post-call
-    # / senior-oncall-day / lieu-day). Summed and weighted.
+    # / senior-oncall-day / lieu-day). FTE-scaled: a 0.5-FTE doctor's idle
+    # day costs half as much, so the solver tolerates more idle for part-timers.
     idle_vars: list[cp_model.IntVar] = []
     if cfg.h11_mandatory_weekday_enabled and weights.idle_weekday:
         for d in inst.doctors:
             leave_days = inst.leave.get(d.id, set())
+            fte_pct = max(1, int(round(d.fte * 100)))
+            per_day_weight = max(1, weights.idle_weekday * fte_pct // 100)
             for day in range(inst.n_days):
                 if inst.is_weekend(day):
                     continue
                 if day in leave_days:
                     continue  # excused by H10
-                # Terms whose sum being ≥ 1 means "not idle":
                 working = list(assign_by_dday.get((d.id, day), []))
                 if (d.id, day) in oncall:
-                    # On-call itself is work (night shift). Juniors also work
-                    # PM per H7; seniors get day off per H6. Either way, the
-                    # on-call indicator counts as "not idle".
                     working.append(oncall[(d.id, day)])
                 excused: list[cp_model.IntVar] = []
                 if (d.id, day) in post_call:
                     excused.append(post_call[(d.id, day)])
                 if (d.id, day) in lieu_taken:
                     excused.append(lieu_taken[(d.id, day)])
-                # idle ≥ 1 − sum(working) − sum(excused)
                 idle = model.NewBoolVar(f"idle_{d.id}_{day}")
                 model.Add(idle + sum(working) + sum(excused) >= 1)
                 idle_vars.append(idle)
-        if idle_vars:
+                if not feasibility_only:
+                    penalties.append(idle * per_day_weight)
+        if idle_vars and not feasibility_only:
             idle_total = model.NewIntVar(0, len(idle_vars), "idle_total")
             model.Add(idle_total == sum(idle_vars))
-            if not feasibility_only:
-                penalties.append(idle_total * weights.idle_weekday)
-                penalty_components["S5_idle_weekday_count"] = (
-                    idle_total, weights.idle_weekday)
+            penalty_components["S5_idle_weekday_count"] = (
+                idle_total, weights.idle_weekday)
 
     if not feasibility_only:
         session_count: dict[int, cp_model.IntVar] = {}
@@ -602,19 +630,23 @@ def solve(
             if not tier_ids:
                 continue
 
-            # S0 — weighted-workload balance including prev_workload carry-in.
+            # S0 — weighted-workload balance including prev_workload carry-in
+            # AND per-doctor FTE scaling. FTE-adjusted score is
+            # weighted_workload[d] × (100 / fte_pct[d]) so a 0.5-FTE doctor's
+            # score is doubled for balance purposes (solver gives them less).
             if weights.balance_workload:
-                # Per-doctor "adjusted workload" = weighted_workload[d] + prev[d].
-                prev_max = max(
-                    (int(inst.prev_workload.get(i, 0)) for i in tier_ids), default=0)
-                prev_min = min(
-                    (int(inst.prev_workload.get(i, 0)) for i in tier_ids), default=0)
-                adj_upper = max(1, horizon_upper * 40 + max(0, prev_max))
-                adj_lower = min(0, prev_min)
+                doc_by_id = {d.id: d for d in inst.doctors}
+                adj_upper = max(1, horizon_upper * 40 * 10)  # 10x slack for FTE
+                adj_lower = 0
                 adj_vars: list[cp_model.IntVar] = []
                 for i in tier_ids:
+                    fte_pct = max(1, int(round(doc_by_id[i].fte * 100)))
+                    # multiplier K = round(100 / fte_pct). K=1 for fte=1.0;
+                    # K=2 for fte=0.5; K=1 for fte=0.8 (12% rounding error).
+                    K = max(1, round(100 / fte_pct))
+                    prev = int(inst.prev_workload.get(i, 0))
                     adj = model.NewIntVar(adj_lower, adj_upper, f"adj_{tier}_{i}")
-                    model.Add(adj == weighted_workload[i] + int(inst.prev_workload.get(i, 0)))
+                    model.Add(adj == weighted_workload[i] * K + prev)
                     adj_vars.append(adj)
                 mx = model.NewIntVar(adj_lower, adj_upper, f"mx_wl_{tier}")
                 mn = model.NewIntVar(adj_lower, adj_upper, f"mn_wl_{tier}")
@@ -658,6 +690,32 @@ def solve(
                 model.Add(gap == mx - mn)
                 penalties.append(gap * weights.balance_weekend)
                 penalty_components[f"S3_weekend_gap_{tier}"] = (gap, weights.balance_weekend)
+
+        # S6 — Positive preferences (soft bonus for assigning preferred session).
+        # Each (doctor, day, session) the doctor asked for costs `preference`
+        # when the solver doesn't honour it.
+        if weights.preference and inst.prefer_session:
+            unmet_prefs: list[cp_model.IntVar] = []
+            for did, per_day in inst.prefer_session.items():
+                for day, sessions in per_day.items():
+                    for sess in sessions:
+                        sess_vars = [
+                            v for (d, d_day, _, s), v in assign.items()
+                            if d == did and d_day == day and s == sess
+                        ]
+                        if not sess_vars:
+                            continue
+                        unmet = model.NewBoolVar(f"pref_miss_{did}_{day}_{sess}")
+                        # unmet = 1 - sum(sess_vars), bounded to [0,1]. Since
+                        # sess_vars is bool-set summing to 0 or 1 under H2.
+                        model.Add(sum(sess_vars) + unmet == 1)
+                        unmet_prefs.append(unmet)
+            if unmet_prefs:
+                pref_total = model.NewIntVar(0, len(unmet_prefs), "pref_total")
+                model.Add(pref_total == sum(unmet_prefs))
+                penalties.append(pref_total * weights.preference)
+                penalty_components["S6_unmet_preferences"] = (
+                    pref_total, weights.preference)
 
         # S4 reporting-station consecutive-day spread.
         if weights.reporting_spread:

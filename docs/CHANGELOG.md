@@ -2,6 +2,73 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-20 — v0.7 Persistence, FTE, preferences, overrides, views
+
+**What:** Four-phase rosterer-UX overhaul shipped in a single release.
+
+**Why:** The v0.6.x tool was usable but missing the things a real roster
+coordinator does every day — saving config across sessions, entering
+multi-day leave, modeling part-timers and per-doctor call caps,
+handling preferences, locking parts of the roster and re-solving, and
+viewing the output in more than one orientation.
+
+**Phase 1 — Persistence & data entry:**
+- New `scheduler/persistence.py`: `dump_state(ss) -> YAML string`, `load_state
+  (yaml_text) -> dict of session updates`, `prev_workload_from_roster_json`.
+- Sidebar "💾 Save YAML" / "Load YAML" buttons for config round-trip.
+- Sidebar "Import prior-period workload" expander: upload last month's
+  JSON export, auto-fills each doctor's `prev_workload` column.
+- Blocks table gains an `end_date` column; a single row can now represent
+  a multi-day leave span (inclusive).
+- "Bulk-add blocks from CSV" expander in Configure: paste
+  `doctor,start,end,type` lines, one per row.
+
+**Phase 2 — Fit your hospital:**
+- **Editable tier labels** (new Configure section 2): map Junior/Senior/
+  Consultant to your hospital's terminology (e.g. Registrar / Fellow /
+  Consultant). Labels flow through the workload table, metric strip, and
+  verdict banner. Internal solver logic still reasons about the three
+  semantic tiers.
+- **Editable sub-specialty list** (same section): comma-separated list;
+  defaults to `Neuro, Body, MSK`. Flows through `Instance.subspecs` and
+  the H8 weekend coverage rule.
+- **Per-doctor FTE** column on the Doctors table (default 1.0). Scales
+  the S0 workload-balance target so a 0.5-FTE doctor is balanced against
+  half a full-timer's score, and the S5 idle-weekday penalty so part-
+  timers aren't forced into full utilisation.
+- **Per-doctor `max_oncalls`** column (new H14 hard constraint). Caps a
+  doctor's on-call count for the horizon.
+- **Positive preferences**: new block types "Prefer AM" / "Prefer PM".
+  Soft bonus (new S6 penalty term, default weight 5) for honouring them.
+
+**Phase 3 — Iterate on the roster:**
+- **Manual overrides table** in Configure section 6. Each row is a
+  `(doctor, date, role)` that becomes a hard constraint in the solver
+  (new H15). Supports `STATION_<name>_AM|PM`, `ONCALL`, `EXT`, `WCONSULT`.
+- **"📌 Copy this roster to overrides"** button on the Solve & Roster tab.
+  Dumps every current assignment into the overrides table so users can
+  delete the specific rows they want to change and re-solve. This is the
+  lock-and-re-solve workflow: everything stays fixed except what you
+  explicitly free.
+- **Diff view** between two snapshots (expander). Cells that differ are
+  highlighted yellow with `old → new` text; bottom-count tells you how
+  many cells changed.
+
+**Phase 4 — Views & publishing:**
+- **Alternative views** expander with three toggles:
+  - **Station × date**: transposed grid, rows are station·session, cells
+    list doctors covering.
+  - **Per-doctor calendar**: pick a doctor → see their horizon as weekly
+    rows × Mon–Sun columns. What you'd hand a doctor.
+  - **Today's roster**: pick any date → summary table of who's doing what.
+- **Print-friendly HTML export** in the Export tab. Single-file HTML
+  with embedded CSS, colour-coded cells, print media rules. Open in your
+  browser and use File → Print → Save as PDF.
+
+**Infrastructure:**
+- Solver time-limit max raised from 600s to 3600s.
+- Tests green (6/6); streamlit boot verified.
+
 ## 2026-04-20 — v0.6.1 Rebalance defaults, colour-code roster, cross-tier hint
 
 **What:** Fix the "consultants work 50h/week but juniors only work 10h/week"

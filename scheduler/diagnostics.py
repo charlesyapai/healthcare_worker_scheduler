@@ -19,7 +19,7 @@ from typing import Any
 
 from ortools.sat.python import cp_model
 
-from scheduler.instance import SESSIONS, SUBSPECS, Instance
+from scheduler.instance import SESSIONS, Instance
 
 
 @dataclass
@@ -79,7 +79,7 @@ def presolve_feasibility(inst: Instance) -> list[FeasibilityIssue]:
                 "error", "no_seniors",
                 "Weekend days require senior on-call and senior extended duty, "
                 "but there are no senior doctors."))
-        for ss in SUBSPECS:
+        for ss in inst.subspecs:
             if subspec_counts.get(ss, 0) < 1:
                 issues.append(FeasibilityIssue(
                     "error", "no_subspec",
@@ -114,7 +114,7 @@ def presolve_feasibility(inst: Instance) -> list[FeasibilityIssue]:
 
     # Check 3: subspec coverage on each weekend day.
     for day in weekend_days:
-        for ss in SUBSPECS:
+        for ss in inst.subspecs:
             available = sum(1 for d in inst.doctors
                             if d.tier == "consultant" and d.subspec == ss
                             and day not in inst.leave.get(d.id, set()))
@@ -343,7 +343,7 @@ def explain_infeasibility(inst: Instance, *, time_limit_s: float = 30.0,
             loc = f"day {day} {label}"
             slacks.append((f"{label}_under", loc, up))
             slacks.append((f"{label}_over",  loc, dn))
-        for ss in SUBSPECS:
+        for ss in inst.subspecs:
             vars_for = [wconsult[(d.id, day)] for d in inst.doctors
                         if d.tier == "consultant" and d.subspec == ss
                         and (d.id, day) in wconsult]

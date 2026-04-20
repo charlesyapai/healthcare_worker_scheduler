@@ -11,7 +11,10 @@ import random
 from dataclasses import dataclass, field
 
 TIERS = ("junior", "senior", "consultant")
-SUBSPECS = ("A", "B", "C")
+# Default sub-spec labels. The actual list is configurable per Instance via
+# Instance.subspecs. This module-level tuple is only used for synthetic
+# instance generation (benchmarks / tests).
+SUBSPECS = ("Neuro", "Body", "MSK")
 SESSIONS = ("AM", "PM")
 
 
@@ -30,6 +33,12 @@ class Doctor:
     tier: str
     subspec: str | None
     eligible_stations: frozenset[str]
+    # FTE = full-time equivalent, 0.0–1.0. 0.5 means the doctor is half-time
+    # and should carry roughly half the workload of a full-timer.
+    fte: float = 1.0
+    # Hard cap on the number of on-call nights this doctor can take in the
+    # horizon. None = no cap.
+    max_oncalls: int | None = None
 
 
 @dataclass
@@ -51,6 +60,17 @@ class Instance:
     # no_session — doctor can't be assigned to a specific session on these days.
     no_oncall: dict[int, set[int]] = field(default_factory=dict)
     no_session: dict[int, dict[int, set[str]]] = field(default_factory=dict)
+    # Soft positive preferences: doctor prefers a particular session on a day.
+    # {doctor_id: {day_idx: {"AM", "PM"}}}. Rewarded via objective.
+    prefer_session: dict[int, dict[int, set[str]]] = field(default_factory=dict)
+    # Manual overrides: force a specific assignment. Treated as hard constraints.
+    # Each item is (doctor_id, day, station_name_or_None, session_or_None, role)
+    # where role is one of "STATION" / "ONCALL" / "EXT" / "WCONSULT".
+    overrides: list[tuple[int, int, str | None, str | None, str]] = field(
+        default_factory=list)
+    # Sub-specialty labels. Consultants each have one of these. Defaults to
+    # the three-item list below; editable in the UI.
+    subspecs: tuple[str, ...] = ("Neuro", "Body", "MSK")
 
     def is_weekend(self, day: int) -> bool:
         wd = (self.start_weekday + day) % 7

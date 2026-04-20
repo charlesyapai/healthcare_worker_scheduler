@@ -1,4 +1,4 @@
-# Features — Healthcare Roster Scheduler (v0.6)
+# Features — Healthcare Roster Scheduler (v0.7)
 
 A comprehensive reference for every feature currently in the app. Written for
 clinicians, roster coordinators, and anyone else who wants to know what each
@@ -53,7 +53,19 @@ mode) and two diagnostic tools.
 - **Public holidays in this period** — multi-select from the dates in the
   horizon. Treated like Sundays (weekend coverage rules apply).
 
-### 3.2 Doctors
+### 3.2 Tier labels & sub-specialties
+
+Small section to rename the three internal tiers (`junior`, `senior`,
+`consultant`) to your hospital's terminology (e.g. "Registrar", "Fellow",
+"Consultant"). The labels flow through the workload table, metric strip,
+and verdict banner; internal constraint logic still targets the three
+semantic tiers.
+
+Sub-specialties are a comma-separated list that defaults to
+`Neuro, Body, MSK`. Weekend coverage rule (H8) requires one consultant
+per sub-spec on weekends, so edit this to match your actual sub-spec mix.
+
+### 3.3 Doctors
 
 One row per doctor. Columns:
 
@@ -61,12 +73,13 @@ One row per doctor. Columns:
 |---|---|
 | **Name** | Display name. Must be unique. |
 | **Tier** | `junior`, `senior`, or `consultant`. Drives station eligibility and which on-call roles apply. |
-| **Sub-spec** | Required for consultants (`A`, `B`, `C`); leave blank for juniors/seniors. Used by the weekend consultant-rotation rule. |
-| **Eligible stations** | Comma-separated list of station names the doctor can work. Example: `CT,MR,US`. |
-| **Previous workload** | Integer carry-in from the prior period. Higher = did more last period → solver gives them less this period. Default 0. |
+| **Sub-spec** | Required for consultants; dropdown sourced from the sub-specialty list. Leave blank for juniors/seniors. |
+| **Eligible stations** | Comma-separated list of station names. Example: `CT,MR,US`. |
+| **Previous workload** | Integer carry-in from the prior period. Higher = did more last period → less this period. Auto-fillable from the "Import prior-period workload" sidebar uploader. |
+| **FTE** | Full-time equivalent, 0.1–1.0, default 1.0. A 0.5-FTE doctor carries ≈ half a full-timer's workload score and is allowed to be idle more. |
+| **Max on-calls** | Optional hard cap on this doctor's night-call count for the horizon. Leave blank for no cap. |
 
-Click the **+** at the bottom of the table to add doctors. Rows can also
-be deleted via the table controls.
+Click the **+** at the bottom of the table to add doctors.
 
 ### 3.3 Stations (in an expander)
 
@@ -101,30 +114,41 @@ One row per station:
 | **Eligible tiers** | Comma-separated. Example: `consultant` means consultant-only. |
 | **Reporting?** | If true, the solver tries to avoid assigning the same doctor to this station on back-to-back days. |
 
-### 3.4 Leave, blocks, and preferences
+### 3.5 Leave, blocks, and preferences
 
 One row per "block". Columns:
 
 | Column | What it is |
 |---|---|
 | **Doctor** | Type the doctor's name exactly as in the Doctors table. The app shows a "Known doctors: …" caption above the table for reference. |
-| **Date** | The date of the block. Dates outside the horizon are silently ignored. |
-| **Type** | Dropdown: `Leave`, `No on-call`, `No AM`, `No PM`. |
+| **Date (first day)** | Start of the block. Dates outside the horizon are silently ignored. |
+| **End date (optional)** | Last day of the block. Blank = single day. Range is inclusive. |
+| **Type** | Dropdown: `Leave`, `No on-call`, `No AM`, `No PM`, `Prefer AM`, `Prefer PM`. |
 
 **Block type meanings:**
 
-- **Leave** — doctor does not work at all that day (no AM, no PM, no on-call,
-  no weekend role).
-- **No on-call** — "call block". Doctor will not be given on-call that day,
-  but can still be assigned to AM/PM stations.
-- **No AM** — doctor will not be assigned to any AM station that day. They
-  can still do PM and on-call.
-- **No PM** — mirror of No AM.
+- **Leave** (hard) — doctor does not work at all that day (no AM, no PM, no on-call, no weekend role).
+- **No on-call** (hard) — "call block". Doctor will not be given on-call, but can still do AM/PM stations.
+- **No AM** / **No PM** (hard) — session opt-out for that day.
+- **Prefer AM** / **Prefer PM** (soft) — positive preference. The solver honours it if doing so doesn't break a heavier goal; each unmet preference adds a small penalty (default weight 5).
 
-Use Leave for annual leave / sick days. Use No on-call for protected call
-blocks. Use No AM / No PM for specific session preferences.
+**Bulk CSV paste:** expand the "Bulk-add blocks from CSV" section and paste
+lines of the form `doctor,start_date,end_date,type` (end_date optional).
+Lets you dump a list of leave requests from email in one go.
 
-### 3.5 Rules for the roster
+### 3.6 Manual overrides (lock specific assignments)
+
+Separate table for **hard overrides** that force a specific role on a
+specific day. Columns: Doctor, Date, Role (e.g. `STATION_CT_AM`,
+`STATION_XR_REPORT_PM`, `ONCALL`, `EXT`, `WCONSULT` — case-insensitive).
+
+**Workflow**: solve once, then on the Solve & Roster tab click **📌 Copy
+this roster to overrides** — this fills this table with every current
+assignment. Go back to section 6 in Configure, delete the specific rows
+you want the solver to re-compute (e.g. the day Dr A called in sick),
+and re-solve. The rest of the roster stays identical.
+
+### 3.7 Rules for the roster
 
 Each rule is toggleable. Defaults match the formal spec in `CONSTRAINTS.md`.
 
@@ -139,7 +163,7 @@ Each rule is toggleable. Defaults match the formal spec in `CONSTRAINTS.md`.
 | **Every doctor has a duty every weekday** | Soft constraint with a penalty per idle day. Excuses: leave, post-call, lieu. High penalty = solver forces full utilisation. |
 | **Also roster AM/PM stations on weekends** | Off by default. Only enable if your hospital staffs weekday-style stations on weekends. |
 
-### 3.6 Hours per shift
+### 3.8 Hours per shift
 
 Used for the **Hours / week** column in the results. Adjust to match your
 hospital's shift lengths. **Does not affect solver decisions.** Defaults:
@@ -155,7 +179,7 @@ hospital's shift lengths. **Does not affect solver decisions.** Defaults:
 | Weekend extended-duty | 12.0 |
 | Weekend consultant | 8.0 |
 
-### 3.7 How "fairness" is measured (workload weights)
+### 3.9 How "fairness" is measured (workload weights)
 
 These turn each assignment into a number. The sum becomes the doctor's
 workload score. The solver balances this score across doctors in the same
@@ -173,7 +197,7 @@ work than weekday call. Defaults:
 
 Set any weight to 0 to ignore that role in fairness.
 
-### 3.8 Solver priorities (advanced)
+### 3.10 Solver priorities (advanced)
 
 How hard the solver tries to achieve each goal. Higher = more important.
 Set to 0 to turn off. Defaults:
@@ -186,19 +210,34 @@ Set to 0 to turn off. Defaults:
 | Balance on-call counts | 10 | Secondary — absolute on-call spread per tier. |
 | Balance weekend-duty counts | 10 | Secondary — absolute weekend spread per tier. |
 | Spread out reporting-desk duty | 5 | Avoids back-to-back reporting days. |
+| Honour positive session preferences | 5 | Cost per unmet "Prefer AM/PM" wish. |
 
 ---
 
 ## 4. Sidebar
 
-### 4.1 Solver settings
+### 4.1 Save / Load configuration
 
-- **Time limit (s)** — how long to run. 5–600. Default 60.
+Hugging Face Spaces storage is ephemeral — a restart wipes session state.
+
+- **💾 Save YAML** — downloads `{doctors, stations, blocks, overrides, weights,
+  hours, constraints, tier_labels, subspecs, horizon}` as a single YAML
+  file. Filename includes today's date.
+- **Load YAML** — file-uploader. Replaces your current state entirely.
+  Missing sections in older files fall back to defaults.
+- **Import prior-period workload** (expander) — upload last month's
+  JSON export (from the Export tab). The app parses assignments, re-runs
+  the weighted-workload formula, and fills each doctor's `prev_workload`
+  column. Gives you a turnkey carry-in setup month-over-month.
+
+### 4.2 Solver settings
+
+- **Time limit (s)** — how long to run. 5–3600. Default 60.
 - **CP-SAT workers** — parallel search threads. 1–16. Default 8.
 - **Feasibility only** — skip the fairness objective, just find any valid
   roster. Fastest mode.
 
-### 4.2 Diagnostics
+### 4.3 Diagnostics
 
 - **Diagnose (L1 pre-solve)** — millisecond necessary-condition checks:
   tier headcount, per-station eligibility, weekend sub-spec coverage,
@@ -329,7 +368,34 @@ The detailed view, for anyone who wants to see the underlying counts:
 | **This-period score** | Weighted sum of this period's assignments only. |
 | **Total (with carry-in)** | = **Workload score** in the headline. |
 
-### 5.9 Advanced analytics (expander)
+### 5.9 Alternative views
+
+Three toggles inside the "Alternative views" expander:
+
+- **Station × date** — transposes the grid. Rows are role / station·session;
+  cells list the doctors covering that slot. Good for verifying coverage.
+- **Per-doctor calendar** — pick a doctor → see their horizon as week rows ×
+  Mon–Sun columns. What you'd hand an individual doctor.
+- **Today's roster** — pick any date in the horizon → table of who's doing
+  what on that day.
+
+### 5.10 Diff against another snapshot
+
+Expander below the roster grid. Pick an intermediate solution (or the
+Final one) to compare against. The diff grid shows only cells that
+differ, with the text `old → new` and a yellow highlight. A line at the
+top reports how many cells changed.
+
+### 5.11 Lock and re-solve
+
+Click **📌 Copy this roster to overrides** above the grid to push every
+current assignment into the Manual-overrides table on the Configure tab.
+From there you can delete just the rows you want to re-compute (e.g. the
+day Dr A called in sick) and hit **▶ Solve** again. Everything you didn't
+delete stays exactly as it was. Use this for sick-day coverage, last-minute
+changes, or stress-testing the roster.
+
+### 5.12 Advanced analytics (expander)
 
 For power users:
 
@@ -343,13 +409,18 @@ For power users:
 
 ## 6. Export tab
 
-Two download buttons:
+Three download buttons:
 
 - **Download roster (JSON)** — one file with `meta` (status, objective,
   wall_time, start_date, n_days, penalty_components) and `assignments`
-  (list of `{doctor, date, role}` rows, dates as ISO strings).
+  (list of `{doctor, date, role}` rows, dates as ISO strings). Feed this
+  to next month's "Import prior-period workload" sidebar to carry the
+  score forward.
 - **Download roster (CSV)** — the same assignments flattened into a CSV
-  (columns: `doctor`, `date`, `role`).
+  (columns: `doctor`, `date`, `role`). Paste into Excel or Google Sheets.
+- **📄 Download print-friendly HTML** — single-file HTML with embedded CSS,
+  colour-coded cells, and print-media rules. Open in your browser and
+  use **File → Print → Save as PDF** for a paper-ready monthly roster.
 
 Role strings in exports:
 - `STATION_<name>_<session>` — e.g. `STATION_CT_AM`.
@@ -359,15 +430,18 @@ Role strings in exports:
 
 ## 7. What's NOT in the app (yet)
 
-- **Positive preferences** (e.g. "Dr X prefers AM on Tuesday"). Only the
-  negative form (No AM / No PM / No on-call) is currently supported.
-- **Save/load of the whole instance to disk**. HF Spaces storage is
-  ephemeral, so state is lost across Space restarts. Work-in-progress.
-- **Per-doctor calendar grid** for entering leave/blocks. Today it's one
-  row per (doctor, date, type).
-- **Mid-month re-solve** with locked past assignments.
-- **End-user definable new hard constraints**. New rules require a code
-  change; existing rules are all toggleable.
+- **Drag-and-drop cell editing** on the roster grid. For now, use "Copy
+  this roster to overrides" + delete rows + re-solve.
+- **Multi-user collaboration** (two rosterers editing simultaneously).
+- **Real PDF output** — today we emit print-ready HTML; you click "Save
+  as PDF" in the browser.
+- **Direct email / calendar invite publishing** to doctors.
+- **Top-3 alternative solutions** side by side. (Was on the roadmap but
+  deprioritised — the snapshot picker lets you scrub through the solver's
+  intermediate solutions, which covers 80% of that use case.)
+- **End-user definable new hard constraints** (DSL). New rules require
+  a code change; existing rules are all toggleable.
+- **Mobile-optimised layout**. Streamlit's data editors are wide-only.
 
 ---
 
