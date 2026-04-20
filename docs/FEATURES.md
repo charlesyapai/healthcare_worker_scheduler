@@ -70,8 +70,28 @@ be deleted via the table controls.
 
 ### 3.3 Stations (in an expander)
 
-Rarely changed — defaults cover a typical radiology department. One row per
-station:
+Defaults cover a typical radiology department and are chosen so juniors,
+seniors, and consultants all have roughly comparable weekday workload.
+Defaults as of v0.6.1:
+
+| Station | Sessions | Required | Eligible tiers | Reporting? |
+|---|---|---:|---|:---:|
+| CT | AM, PM | 1 | senior, consultant | no |
+| MR | AM, PM | 1 | senior, consultant | no |
+| US | AM, PM | 2 | all | no |
+| XR_REPORT | AM, PM | 2 | all | yes |
+| IR | AM, PM | 1 | consultant | no |
+| FLUORO | AM, PM | 1 | consultant | no |
+| GEN_AM | AM only | 1 | all | no |
+| GEN_PM | PM only | 1 | all | no |
+
+That's 18 slot-assignments per weekday in total. If you have ~20 doctors,
+each averages ~1 session per weekday (plus on-call rotations and weekend
+duty) — realistic clinical time for a typical department. Edit freely to
+match your hospital; the **Avg hours / week (by tier)** metric after solve
+tells you if your config produces balanced workload.
+
+One row per station:
 
 | Column | What it is |
 |---|---|
@@ -227,6 +247,10 @@ verdict at the top of the results:
 - Extra line if any **idle doctor-weekdays** — yellow. Tells you the
   solver couldn't give every doctor a duty every weekday; raise the
   "Penalty per day a doctor has no duty" weight or expand capacity.
+- Extra line if there's a **cross-tier hours gap** — yellow. Fires when
+  the lowest-hours tier averages under 60% of the highest. Almost always
+  means station eligibility or `required_per_session` needs tuning — one
+  tier has far fewer eligible slots than the others.
 - **INFEASIBLE** — red. No roster satisfies your constraints. Use
   *Explain infeasibility (L3)* in the sidebar to see why.
 
@@ -238,9 +262,9 @@ Five numbers at a glance:
 |---|---|
 | **Status** | OPTIMAL / FEASIBLE / INFEASIBLE / UNKNOWN. |
 | **Solve time** | Wall-clock seconds the solver ran. |
-| **First valid roster found at** | Seconds until the first feasible solution. |
-| **Penalty score (lower = better)** | The sum of all weighted penalties. 0 = every soft goal satisfied. |
 | **Days without duty** | Total doctor-weekdays where a doctor was idle with no excuse. |
+| **Avg hours / week (by tier)** | `J 45h · S 48h · C 43h`-style summary. Spot imbalances across tiers at a glance. |
+| **Penalty score (lower = better)** | The sum of all weighted penalties. 0 = every soft goal satisfied. |
 
 ### 5.5 Snapshot picker
 
@@ -250,7 +274,17 @@ intermediate if you preferred an earlier one.
 
 ### 5.6 Roster grid
 
-Doctor × date table. Cells show the role codes:
+Doctor × date table. Cells are **colour-coded** for quick scanning:
+
+| Colour | Meaning |
+|---|---|
+| 🟢 green (darker if AM+PM both) | Station work |
+| 🟣 purple | On-call (night) |
+| 🔵 teal | Weekend EXT or WC |
+| ⚪ grey | Leave |
+| 🟡 amber | No duty on a weekday — **something to investigate** (tighten capacity or relax constraints) |
+
+Role codes shown in each cell:
 
 | Code | Meaning |
 |---|---|

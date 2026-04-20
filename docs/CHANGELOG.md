@@ -2,6 +2,50 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-20 — v0.6.1 Rebalance defaults, colour-code roster, cross-tier hint
+
+**What:** Fix the "consultants work 50h/week but juniors only work 10h/week"
+default-config bug, colour-code the roster grid by role, and surface a
+cross-tier-hours warning in the verdict banner + metric strip.
+
+**Why:** User ran a solve and saw consultants scheduled every weekday +
+weekends while juniors/seniors were idle most days. Root cause: the default
+station list had only 6 junior/senior-eligible slots per weekday (US, XR,
+GEN_AM, GEN_PM at required=1) vs 14 consultant-eligible slots (all 8
+stations × 2 sessions). With ~10 juniors/seniors, that's a guaranteed
+4 idle per day. The solver was doing its job — the defaults were wrong.
+
+**Changed — defaults:**
+- `DEFAULT_STATIONS` now puts CT and MR in `{senior, consultant}` (were
+  consultant-only). Seniors can read cross-sectional in this hospital.
+- `US` and `XR_REPORT` go from `required=1` to `required=2` each (high-
+  volume reading stations).
+- `GEN_AM` and `GEN_PM` stay at required=1.
+- Net: 18 slot-assignments per weekday (was 14). Junior-eligible slots
+  go from 6 to 10; senior-eligible from 6 to 14. For ~20 doctors, each
+  doctor averages ~1 session per weekday plus on-call — realistic clinical
+  time across all tiers.
+
+**Added — UI:**
+- **Colour-coded roster grid.** Cells are tinted: 🟢 green for station
+  work (darker when AM+PM), 🟣 purple for on-call, 🔵 teal for weekend
+  EXT/WC, ⚪ grey for leave, 🟡 amber for no-duty weekdays. Legend line
+  above the grid. Applies to both the live roster (during solve) and the
+  final roster.
+- **Avg hours / week (by tier)** in the metric strip: shows a
+  `J 45h · S 48h · C 43h` summary. Makes cross-tier imbalance visible
+  at a glance.
+- **Cross-tier gap warning** in the verdict banner when the lowest-hours
+  tier averages under 60% of the highest. Points the user at station
+  eligibility / required_per_session as the likely fix.
+
+**Docs:**
+- FEATURES.md updated: default-stations table, colour key for the roster
+  grid, cross-tier warning behaviour, metric-strip refresh.
+
+**Tests:** 6/6 pass (test_smoke's 12-doctor capacity + test_h11's 22-
+doctor scenarios both remain feasible under the new station defaults).
+
 ## 2026-04-20 — v0.6 Blocks + hours/week + workload headline + plain-English UI
 
 **What:** Second UX pass. Add call blocks + session blocks (distinct from

@@ -318,6 +318,41 @@ def _workload_tables(inst, assignments: dict, names: dict[int, str],
     return headline, pd.DataFrame(breakdown_rows)
 
 
+def _style_roster_grid(grid_df: pd.DataFrame):
+    """Colour cells by role so leave / on-call / station / idle are at-a-glance."""
+    if grid_df.empty:
+        return grid_df
+
+    def _cell_css(val):
+        v = str(val).strip() if val else ""
+        if not v:
+            # No duty — amber so it stands out as "something to fix".
+            return "background-color: rgba(255, 215, 130, 0.35); color: #8a5a00"
+        # Leave — muted grey.
+        if v == "LV":
+            return "background-color: rgba(180, 180, 180, 0.35); color: #555"
+        has_oc = "OC" in v.split()
+        has_ext = "EXT" in v.split()
+        has_wc = "WC" in v.split()
+        has_stations = ("AM:" in v) or ("PM:" in v)
+        # Weekend EXT / WC — teal.
+        if has_ext or has_wc:
+            return "background-color: rgba(120, 200, 220, 0.4); color: #0a3a4a"
+        # On-call (possibly + PM station for juniors) — purple.
+        if has_oc:
+            return "background-color: rgba(190, 140, 220, 0.4); color: #2a1040"
+        # Station work (AM and/or PM) — green; darker if both.
+        if has_stations:
+            both = ("AM:" in v) and ("PM:" in v)
+            alpha = 0.45 if both else 0.3
+            return f"background-color: rgba(130, 210, 150, {alpha}); color: #0a3a1a"
+        return ""
+
+    styler = grid_df.style
+    mapfn = getattr(styler, "map", None) or styler.applymap
+    return mapfn(_cell_css)
+
+
 def _style_headline(df: pd.DataFrame):
     """Colour Δ-vs-median red (over) / blue (under), and format numbers."""
     if df.empty or "Δ vs. tier median" not in df.columns:
@@ -346,7 +381,8 @@ def _style_headline(df: pd.DataFrame):
     })
 
 
-def _verdict(result, events, idle_total: int, has_coverage_viol: bool) -> tuple[str, str]:
+def _verdict(result, events, idle_total: int, has_coverage_viol: bool,
+             tier_hours: dict[str, float] | None = None) -> tuple[str, str]:
     """Returns (severity, message) where severity ∈ {'success','info','warning','error'}."""
     status = result.status
     gap_pct = None
@@ -362,10 +398,23 @@ def _verdict(result, events, idle_total: int, has_coverage_viol: bool) -> tuple[
     # OPTIMAL or FEASIBLE.
     issues: list[str] = []
     if idle_total > 0:
-        issues.append(f"{idle_total} idle doctor-weekday(s) — capacity may be tight "
-                      "(or raise the 'Idle weekday' penalty if you want zero).")
+        issues.append(f"{idle_total} doctor-weekday(s) with no duty — capacity is "
+                      "tight. Add more stations, raise required_per_session, or "
+                      "raise the 'no-duty' penalty.")
     if has_coverage_viol:
         issues.append("coverage violations detected (solver bug — report this)")
+    if tier_hours:
+        non_zero = {t: h for t, h in tier_hours.items() if h > 0}
+        if len(non_zero) >= 2:
+            lo_t, lo = min(non_zero.items(), key=lambda kv: kv[1])
+            hi_t, hi = max(non_zero.items(), key=lambda kv: kv[1])
+            if hi > 0 and lo / hi < 0.6:
+                issues.append(
+                    f"**Cross-tier gap**: {hi_t}s average {hi:.0f}h/week but "
+                    f"{lo_t}s only {lo:.0f}h/week. Usually means your stations "
+                    "give one tier far fewer eligible slots — check the Stations "
+                    "editor (required_per_session, eligible_tiers)."
+                )
     if status == "OPTIMAL":
         head = "**OPTIMAL.** Solver proved this is the best possible roster under your constraints."
     else:
@@ -376,7 +425,7 @@ def _verdict(result, events, idle_total: int, has_coverage_viol: bool) -> tuple[
         else:
             head = "**FEASIBLE.**"
     if issues:
-        return ("warning", head + " " + " · ".join(issues))
+        return ("warning", head + "\n\n" + "\n\n".join(f"• {i}" for i in issues))
     return ("success", head)
 
 
@@ -803,11 +852,13 @@ with tab_solve:
             # --- LIVE ROSTER: render the latest snapshot's doctor × date grid.
             if latest.get("assignments") and "last_inst" in ss:
                 st.subheader(f"Current best roster — #{len(events)} (live)")
-                st.caption("Updates each time the solver finds an improving "
+                st.caption("🟢 station work  ·  🟣 on-call  ·  🔵 weekend EXT/WC  "
+                           "·  ⚪ leave  ·  🟡 no duty. "
+                           "Updates each time the solver finds an improving "
                            "solution. Click **Stop** above to accept this one.")
                 grid = _snapshot_to_role_grid(
                     ss.last_inst, latest["assignments"], ss.last_doctor_names)
-                st.dataframe(grid, use_container_width=True,
+                st.dataframe(_style_roster_grid(grid), use_container_width=True,
                              height=min(500, 40 + 28 * len(grid)))
 
                 # Live fairness peek — headline table only (breakdown skipped
@@ -861,13 +912,22 @@ with tab_solve:
         has_sol = result.status in ("OPTIMAL", "FEASIBLE")
         idle_total = 0
         has_cov_viol = False
+        tier_hours_avg: dict[str, float] = {}
         if has_sol:
             idle_total = sum(
                 count_idle_weekdays(inst, result.assignments).values())
             sm = solution_metrics(inst, result)
             has_cov_viol = bool(sm.get("coverage_violations"))
+            hrs = hours_per_doctor(inst, result.assignments, hours)
+            for tier in ("junior", "senior", "consultant"):
+                tier_doctors = [d.id for d in inst.doctors if d.tier == tier]
+                if tier_doctors:
+                    avg = sum(hrs.get(did, {}).get("hours_per_week", 0.0)
+                              for did in tier_doctors) / len(tier_doctors)
+                    tier_hours_avg[tier] = avg
 
-        severity, message = _verdict(result, events, idle_total, has_cov_viol)
+        severity, message = _verdict(result, events, idle_total, has_cov_viol,
+                                     tier_hours_avg)
         banner = {"success": st.success, "warning": st.warning,
                   "error": st.error, "info": st.info}[severity]
         banner(message)
@@ -876,14 +936,20 @@ with tab_solve:
         mc1, mc2, mc3, mc4, mc5 = st.columns(5)
         mc1.metric("Status", result.status)
         mc2.metric("Solve time", f"{result.wall_time_s:.2f}s")
-        mc3.metric("First valid roster found at",
-                   f"{(result.first_feasible_s or 0):.2f}s" if result.first_feasible_s else "—")
-        mc4.metric("Penalty score (lower = better)",
-                   f"{result.objective:.0f}" if result.objective is not None else "—")
-        mc5.metric("Days without duty",
+        mc3.metric("Days without duty",
                    idle_total if has_sol else "—",
                    help="Total doctor-weekdays where the doctor had no role "
                         "and was not on leave / post-call / lieu.")
+        mc4.metric(
+            "Avg hours / week (by tier)",
+            (" · ".join(f"{t[0].upper()} {h:.0f}h" for t, h in tier_hours_avg.items())
+             if tier_hours_avg else "—"),
+            help="J/S/C = junior / senior / consultant average hours per week. "
+                 "A big gap across tiers usually means station eligibility or "
+                 "required_per_session needs tuning."
+        )
+        mc5.metric("Penalty score (lower = better)",
+                   f"{result.objective:.0f}" if result.objective is not None else "—")
 
         if has_sol:
             snap_options = ["Final (best)"]
@@ -900,8 +966,11 @@ with tab_solve:
                 snap = events[idx]["assignments"]
 
             st.subheader("Roster — doctor × date")
+            st.caption("🟢 station work  ·  🟣 on-call  ·  🔵 weekend EXT/WC  "
+                       "·  ⚪ leave  ·  🟡 no duty")
             grid_df = _snapshot_to_role_grid(inst, snap, names)
-            st.dataframe(grid_df, use_container_width=True,
+            st.dataframe(_style_roster_grid(grid_df),
+                         use_container_width=True,
                          height=min(600, 40 + 28 * len(grid_df)))
 
             head_df, break_df = _workload_tables(

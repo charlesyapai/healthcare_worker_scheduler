@@ -61,13 +61,17 @@ class Instance:
 
 
 DEFAULT_STATIONS: tuple[Station, ...] = (
-    Station("CT", ("AM", "PM"), 1, frozenset({"consultant"})),
-    Station("MR", ("AM", "PM"), 1, frozenset({"consultant"})),
-    Station("US", ("AM", "PM"), 1, frozenset({"junior", "senior", "consultant"})),
-    Station("XR_REPORT", ("AM", "PM"), 1,
+    # Cross-sectional reading — consultant-led but senior-eligible too.
+    Station("CT", ("AM", "PM"), 1, frozenset({"senior", "consultant"})),
+    Station("MR", ("AM", "PM"), 1, frozenset({"senior", "consultant"})),
+    # High-volume reading stations staffed by all tiers (2 doctors per session).
+    Station("US", ("AM", "PM"), 2, frozenset({"junior", "senior", "consultant"})),
+    Station("XR_REPORT", ("AM", "PM"), 2,
             frozenset({"junior", "senior", "consultant"}), is_reporting=True),
+    # Interventional — consultant only.
     Station("IR", ("AM", "PM"), 1, frozenset({"consultant"})),
     Station("FLUORO", ("AM", "PM"), 1, frozenset({"consultant"})),
+    # Ward / general reading — single-session cover, all tiers.
     Station("GEN_AM", ("AM",), 1, frozenset({"junior", "senior", "consultant"})),
     Station("GEN_PM", ("PM",), 1, frozenset({"junior", "senior", "consultant"})),
 )
