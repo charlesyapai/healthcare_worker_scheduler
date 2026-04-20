@@ -774,13 +774,19 @@ with st.sidebar:
                "consultant, **LV**=leave.")
 
 
-tab_configure, tab_solve, tab_export = st.tabs(
-    ["Configure", "Solve & Roster", "Export"]
+tab_setup, tab_dept, tab_solve, tab_export = st.tabs(
+    ["Setup", "Department rules", "Solve & Roster", "Export"]
 )
 
-# ================================================================ Configure
-with tab_configure:
+# ==================================================================== Setup
+# Things you adjust every roster period: dates, doctors, leave/blocks, overrides.
+with tab_setup:
     ss = st.session_state
+    st.caption("**Setup** is what you fill in each roster period: the dates, "
+               "the doctors on the team, leave/blocks, and any manual "
+               "overrides. Department-wide policy (stations, rules, hours, "
+               "fairness weights) lives on the **Department rules** tab — "
+               "you rarely need to touch that.")
     st.subheader("1. When")
     c1, c2 = st.columns(2)
     ss.start_date = c1.date_input("Roster start date", ss.start_date)
@@ -799,28 +805,7 @@ with tab_configure:
     )
 
     st.divider()
-    st.subheader("2. Tier labels & sub-specialties")
-    st.caption("Rename the three tiers to match your hospital (e.g. "
-               "Registrar / Fellow / Consultant). Internal rules still apply "
-               "to the three semantic tiers.")
-    tl1, tl2, tl3 = st.columns(3)
-    ss.tier_labels["junior"] = tl1.text_input(
-        "Label for 'junior' tier", value=ss.tier_labels.get("junior", "Junior"))
-    ss.tier_labels["senior"] = tl2.text_input(
-        "Label for 'senior' tier", value=ss.tier_labels.get("senior", "Senior"))
-    ss.tier_labels["consultant"] = tl3.text_input(
-        "Label for 'consultant' tier",
-        value=ss.tier_labels.get("consultant", "Consultant"))
-    subspecs_text = st.text_input(
-        "Sub-specialties (comma-separated, consultants pick one)",
-        value=", ".join(ss.subspecs or DEFAULT_SUBSPECS),
-        help="Weekend coverage rule (H8) requires 1 consultant per sub-spec.")
-    new_subs = [s.strip() for s in subspecs_text.split(",") if s.strip()]
-    if new_subs:
-        ss.subspecs = new_subs
-
-    st.divider()
-    st.subheader("3. Doctors")
+    st.subheader("2. Doctors")
     st.caption("Each row = one doctor. **Tier** drives which stations they "
                "can work. **Sub-spec** is required for consultants only. "
                "**Eligible stations** = comma-separated names from the "
@@ -860,33 +845,7 @@ with tab_configure:
     )
 
     st.divider()
-    st.subheader("4. Stations")
-    with st.expander("Edit stations (defaults cover a typical radiology dept)"):
-        st.caption("Sessions: AM, PM, or both. **Required** = how many doctors "
-                   "must be assigned to this station per session. "
-                   "**Reporting** stations are rotated to avoid back-to-back days.")
-        edited_stations = st.data_editor(
-            ss.stations_df,
-            num_rows="dynamic",
-            use_container_width=True,
-            column_config={
-                "name": st.column_config.TextColumn("Name", required=True),
-                "sessions": st.column_config.TextColumn(
-                    "Sessions", help="AM, PM, or AM,PM"),
-                "required_per_session": st.column_config.NumberColumn(
-                    "Required", min_value=1),
-                "eligible_tiers": st.column_config.TextColumn(
-                    "Eligible tiers",
-                    help="Comma-separated: junior, senior, consultant"),
-                "is_reporting": st.column_config.CheckboxColumn(
-                    "Reporting?",
-                    help="Reporting desks are spread out to avoid back-to-back."),
-            },
-            key="_editor_stations",
-        )
-
-    st.divider()
-    st.subheader("5. Leave, blocks, and preferences")
+    st.subheader("3. Leave, blocks, and preferences")
     known_names_display = [str(n).strip() for n in
                            edited_doctors["name"].dropna().tolist()
                            if str(n).strip()]
@@ -957,7 +916,7 @@ with tab_configure:
                            "`doctor,start_date,end_date_or_empty,type`.")
 
     st.divider()
-    st.subheader("6. Manual overrides (lock specific assignments)")
+    st.subheader("4. Manual overrides (lock specific assignments)")
     st.caption("Force a specific role on a specific day. Treated as a **hard** "
                "constraint — the solver must honour it. Use this to lock parts "
                "of the roster and re-solve around them. " + OVERRIDE_ROLES_HELP)
@@ -974,10 +933,75 @@ with tab_configure:
         key="_editor_overrides",
     )
 
+    # END of Setup tab — commit the per-period editors to session_state.
+    ss.doctors_df = edited_doctors
+    ss.blocks_df = edited_blocks
+    ss.overrides_df = edited_overrides
+
+
+# ======================================================== Department rules
+# Things you set once when configuring your department, then rarely touch:
+# station layout, tier labels & sub-specs, constraint rules, shift lengths,
+# fairness weights, solver priorities.
+with tab_dept:
+    ss = st.session_state
+    st.caption("Department-wide policy. Set it up once for your hospital; "
+               "you'll rarely change anything here from one roster period to "
+               "the next.")
+
+    st.subheader("A. Tier labels")
+    st.caption("Rename the three tiers to match your hospital (e.g. "
+               "Registrar / Fellow / Consultant). Internal rules still apply "
+               "to the three semantic tiers.")
+    tl1, tl2, tl3 = st.columns(3)
+    ss.tier_labels["junior"] = tl1.text_input(
+        "Label for 'junior' tier", value=ss.tier_labels.get("junior", "Junior"))
+    ss.tier_labels["senior"] = tl2.text_input(
+        "Label for 'senior' tier", value=ss.tier_labels.get("senior", "Senior"))
+    ss.tier_labels["consultant"] = tl3.text_input(
+        "Label for 'consultant' tier",
+        value=ss.tier_labels.get("consultant", "Consultant"))
+
     st.divider()
-    st.subheader("7. Rules for the roster")
-    st.caption("Turn these on or off to change what the solver is allowed to do. "
-               "Each rule's help text explains what it means.")
+    st.subheader("B. Sub-specialties")
+    subspecs_text = st.text_input(
+        "Sub-specialties (comma-separated, consultants pick one)",
+        value=", ".join(ss.subspecs or DEFAULT_SUBSPECS),
+        help="Weekend coverage rule requires 1 consultant per sub-spec.")
+    new_subs = [s.strip() for s in subspecs_text.split(",") if s.strip()]
+    if new_subs:
+        ss.subspecs = new_subs
+
+    st.divider()
+    st.subheader("C. Stations")
+    st.caption("Sessions: AM, PM, or both. **Required** = how many doctors "
+               "must cover this station per session. **Reporting** stations "
+               "are rotated to avoid back-to-back days. Defaults cover a "
+               "typical radiology department.")
+    edited_stations = st.data_editor(
+        ss.stations_df,
+        num_rows="dynamic",
+        use_container_width=True,
+        column_config={
+            "name": st.column_config.TextColumn("Name", required=True),
+            "sessions": st.column_config.TextColumn(
+                "Sessions", help="AM, PM, or AM,PM"),
+            "required_per_session": st.column_config.NumberColumn(
+                "Required", min_value=1),
+            "eligible_tiers": st.column_config.TextColumn(
+                "Eligible tiers",
+                help="Comma-separated: junior, senior, consultant"),
+            "is_reporting": st.column_config.CheckboxColumn(
+                "Reporting?",
+                help="Reporting desks are spread out to avoid back-to-back."),
+        },
+        key="_editor_stations",
+    )
+
+    st.divider()
+    st.subheader("D. Rules for the roster")
+    st.caption("Turn these on or off to change what the solver is allowed "
+               "to do. Each rule's help text explains what it means.")
     cc1, cc2 = st.columns(2)
     with cc1:
         st.checkbox(
@@ -1024,10 +1048,10 @@ with tab_configure:
              "weekend-consultant only.")
 
     st.divider()
-    st.subheader("8. Hours per shift")
-    st.caption("Used to compute each doctor's **hours per week** in the results. "
-               "Does **not** affect the solver — only the report. Adjust these "
-               "to match your hospital's shift lengths.")
+    st.subheader("E. Hours per shift")
+    st.caption("Used to compute each doctor's **hours per week** in the "
+               "results. Does **not** affect the solver — only the report. "
+               "Adjust these to match your hospital's shift lengths.")
     h1, h2, h3, h4 = st.columns(4)
     h1.number_input("Weekday AM (hours)", min_value=0.0, max_value=24.0,
                     step=0.5, key="h_weekday_am")
@@ -1047,12 +1071,13 @@ with tab_configure:
                     step=1.0, key="h_weekend_consult")
 
     st.divider()
-    st.subheader("9. How 'fairness' is measured")
-    st.caption("These are the **workload weights** — they turn each assignment "
-               "into a number, which is then summed into a workload score per "
-               "doctor. The solver tries to spread this score evenly across "
-               "doctors in the same tier. Weekend roles are weighted more so "
-               "weekend call counts as more work than weekday call.")
+    st.subheader("F. How 'fairness' is measured")
+    st.caption("These are the **workload weights** — they turn each "
+               "assignment into a number, which is then summed into a "
+               "workload score per doctor. The solver tries to spread this "
+               "score evenly across doctors in the same tier. Weekend roles "
+               "are weighted more so weekend call counts as more work than "
+               "weekday call.")
     ww1, ww2, ww3 = st.columns(3)
     ww1.number_input("Weekday session", min_value=0, max_value=100,
                      key="wl_wd_session")
@@ -1068,15 +1093,15 @@ with tab_configure:
                      key="wl_wconsult")
 
     st.divider()
-    st.subheader("10. Solver priorities (advanced)")
-    st.caption("How hard the solver tries to achieve each goal. Higher = more "
-               "important. Set to 0 to turn a goal off entirely. The defaults "
-               "are tuned; you rarely need to touch these.")
+    st.subheader("G. Solver priorities (advanced)")
+    st.caption("How hard the solver tries to achieve each goal. Higher = "
+               "more important. Set to 0 to turn a goal off entirely. The "
+               "defaults are tuned; you rarely need to touch these.")
     sc1, sc2 = st.columns(2)
     sc1.number_input(
         "Fairness: balance weighted workload across each tier",
         min_value=0, max_value=1000, key="w_workload",
-        help="The primary fairness term — uses the weights from section 6.")
+        help="The primary fairness term — uses the weights from section F.")
     sc1.number_input(
         "Penalty per day a doctor has no duty",
         min_value=0, max_value=1000, key="w_idle",
@@ -1099,11 +1124,8 @@ with tab_configure:
         min_value=0, max_value=1000, key="w_pref",
         help="Cost per unmet 'Prefer AM/Prefer PM' wish.")
 
-    # END of Configure tab — single commit point for editable tables.
-    ss.doctors_df = edited_doctors
+    # END of Department rules tab — commit the stations editor.
     ss.stations_df = edited_stations
-    ss.blocks_df = edited_blocks
-    ss.overrides_df = edited_overrides
 
 
 # ============================================================ Solve & Roster

@@ -2,6 +2,41 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-20 — v0.7.1 Split Configure into Setup + Department rules
+
+**What:** The single "Configure" tab is now two tabs — **Setup** (per-
+period) and **Department rules** (per-department). Four top-level tabs
+total: Setup · Department rules · Solve & Roster · Export.
+
+**Why:** User asked for the split because the things you touch every
+period (doctors, leave, overrides) were mixed in with the things you
+set up once (stations, rules, hours, fairness weights). Keeping them on
+separate tabs reduces scroll distance on the common path.
+
+**Setup** (frequently edited, 4 sections):
+1. When — dates + horizon + public holidays.
+2. Doctors — the per-period roster.
+3. Leave, blocks, and preferences (+ CSV bulk-paste).
+4. Manual overrides.
+
+**Department rules** (rarely edited, 7 sections A–G):
+- A. Tier labels — rename junior/senior/consultant.
+- B. Sub-specialties — comma-separated list.
+- C. Stations — name, sessions, required, eligible tiers, reporting.
+- D. Rules for the roster — H4–H11 toggles + H4's N parameter.
+- E. Hours per shift — 8 adjustable shift lengths.
+- F. How fairness is measured — workload weights.
+- G. Solver priorities — objective weights.
+
+The Department rules are preserved across save/load of the YAML config,
+so a hospital's setup transfers to next period's Setup tab automatically.
+
+**Docs:** FEATURES.md restructured — section 3 is now Setup (per-period
+only), new section 4 is Department rules (A–G). Sidebar renumbered to 5,
+Solve & Roster to 6, Export to 7, What's NOT to 8, Architecture to 9.
+
+**Tests:** unchanged (6/6 pass — no schema or solver changes).
+
 ## 2026-04-20 — v0.7 Persistence, FTE, preferences, overrides, views
 
 **What:** Four-phase rosterer-UX overhaul shipped in a single release.

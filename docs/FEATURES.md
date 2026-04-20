@@ -32,19 +32,26 @@ the roster get better in real time and stop early once it looks good.
 
 ## 2. The flow
 
-Three tabs, one sidebar:
+Four tabs, one sidebar:
 
-1. **Configure** — set up everything.
-2. **Solve & Roster** — run the solver, watch it stream, review the final
-   roster and workload.
-3. **Export** — download JSON or CSV.
+1. **Setup** — what you fill in *each roster period*: dates, doctors, leave
+   and blocks, manual overrides.
+2. **Department rules** — set up *once per department*, then rarely touch:
+   tier labels, sub-specialties, stations, constraint rules, hours per
+   shift, fairness weights, solver priorities.
+3. **Solve & Roster** — run the solver, watch it stream, review the
+   final roster and workload.
+4. **Export** — download JSON, CSV, or a print-friendly HTML.
 
-The sidebar has solver settings (time limit, CPU workers, feasibility-only
-mode) and two diagnostic tools.
+The sidebar has save / load, solver settings (time limit, CPU workers,
+feasibility-only mode), and two diagnostic tools.
 
 ---
 
-## 3. Configure tab — section by section
+## 3. Setup tab — per-period inputs
+
+What you edit every time you produce a new roster: dates, the doctors on
+the team, their leave/blocks, and any manual overrides. Four sections.
 
 ### 3.1 When
 
@@ -53,19 +60,7 @@ mode) and two diagnostic tools.
 - **Public holidays in this period** — multi-select from the dates in the
   horizon. Treated like Sundays (weekend coverage rules apply).
 
-### 3.2 Tier labels & sub-specialties
-
-Small section to rename the three internal tiers (`junior`, `senior`,
-`consultant`) to your hospital's terminology (e.g. "Registrar", "Fellow",
-"Consultant"). The labels flow through the workload table, metric strip,
-and verdict banner; internal constraint logic still targets the three
-semantic tiers.
-
-Sub-specialties are a comma-separated list that defaults to
-`Neuro, Body, MSK`. Weekend coverage rule (H8) requires one consultant
-per sub-spec on weekends, so edit this to match your actual sub-spec mix.
-
-### 3.3 Doctors
+### 3.2 Doctors
 
 One row per doctor. Columns:
 
@@ -81,7 +76,61 @@ One row per doctor. Columns:
 
 Click the **+** at the bottom of the table to add doctors.
 
-### 3.3 Stations (in an expander)
+### 3.3 Leave, blocks, and preferences
+
+One row per "block". Columns:
+
+| Column | What it is |
+|---|---|
+| **Doctor** | Type the doctor's name exactly as in the Doctors table. The app shows a "Known doctors: …" caption above the table for reference. |
+| **Date (first day)** | Start of the block. Dates outside the horizon are silently ignored. |
+| **End date (optional)** | Last day of the block. Blank = single day. Range is inclusive. |
+| **Type** | Dropdown: `Leave`, `No on-call`, `No AM`, `No PM`, `Prefer AM`, `Prefer PM`. |
+
+**Block type meanings:**
+
+- **Leave** (hard) — doctor does not work at all that day (no AM, no PM, no on-call, no weekend role).
+- **No on-call** (hard) — "call block". Doctor will not be given on-call, but can still do AM/PM stations.
+- **No AM** / **No PM** (hard) — session opt-out for that day.
+- **Prefer AM** / **Prefer PM** (soft) — positive preference. The solver honours it if doing so doesn't break a heavier goal; each unmet preference adds a small penalty (default weight 5).
+
+**Bulk CSV paste:** expand the "Bulk-add blocks from CSV" section and paste
+lines of the form `doctor,start_date,end_date,type` (end_date optional).
+Lets you dump a list of leave requests from email in one go.
+
+### 3.4 Manual overrides (lock specific assignments)
+
+Separate table for **hard overrides** that force a specific role on a
+specific day. Columns: Doctor, Date, Role (e.g. `STATION_CT_AM`,
+`STATION_XR_REPORT_PM`, `ONCALL`, `EXT`, `WCONSULT` — case-insensitive).
+
+**Workflow**: solve once, then on the Solve & Roster tab click **📌 Copy
+this roster to overrides** — this fills this table with every current
+assignment. Go back to this section, delete the specific rows you want
+the solver to re-compute (e.g. the day Dr A called in sick), and
+re-solve. The rest of the roster stays identical.
+
+## 4. Department rules tab — set once per department
+
+These are the rules and defaults for your whole department. You typically
+set them up once, save them via **💾 Save YAML** in the sidebar, and reuse
+across roster periods. Seven sections (A–G).
+
+### 4.A Tier labels
+
+Small section to rename the three internal tiers (`junior`, `senior`,
+`consultant`) to your hospital's terminology (e.g. "Registrar", "Fellow",
+"Consultant"). Labels flow through the workload table, metric strip, and
+verdict banner. Internal constraint logic still targets the three semantic
+tiers.
+
+### 4.B Sub-specialties
+
+Comma-separated list; default `Neuro, Body, MSK`. Weekend coverage rule
+(H8) requires one consultant per sub-spec on Sat/Sun, so this must match
+your actual sub-spec mix.
+
+### 4.C Stations
 
 Defaults cover a typical radiology department and are chosen so juniors,
 seniors, and consultants all have roughly comparable weekday workload.
@@ -114,41 +163,7 @@ One row per station:
 | **Eligible tiers** | Comma-separated. Example: `consultant` means consultant-only. |
 | **Reporting?** | If true, the solver tries to avoid assigning the same doctor to this station on back-to-back days. |
 
-### 3.5 Leave, blocks, and preferences
-
-One row per "block". Columns:
-
-| Column | What it is |
-|---|---|
-| **Doctor** | Type the doctor's name exactly as in the Doctors table. The app shows a "Known doctors: …" caption above the table for reference. |
-| **Date (first day)** | Start of the block. Dates outside the horizon are silently ignored. |
-| **End date (optional)** | Last day of the block. Blank = single day. Range is inclusive. |
-| **Type** | Dropdown: `Leave`, `No on-call`, `No AM`, `No PM`, `Prefer AM`, `Prefer PM`. |
-
-**Block type meanings:**
-
-- **Leave** (hard) — doctor does not work at all that day (no AM, no PM, no on-call, no weekend role).
-- **No on-call** (hard) — "call block". Doctor will not be given on-call, but can still do AM/PM stations.
-- **No AM** / **No PM** (hard) — session opt-out for that day.
-- **Prefer AM** / **Prefer PM** (soft) — positive preference. The solver honours it if doing so doesn't break a heavier goal; each unmet preference adds a small penalty (default weight 5).
-
-**Bulk CSV paste:** expand the "Bulk-add blocks from CSV" section and paste
-lines of the form `doctor,start_date,end_date,type` (end_date optional).
-Lets you dump a list of leave requests from email in one go.
-
-### 3.6 Manual overrides (lock specific assignments)
-
-Separate table for **hard overrides** that force a specific role on a
-specific day. Columns: Doctor, Date, Role (e.g. `STATION_CT_AM`,
-`STATION_XR_REPORT_PM`, `ONCALL`, `EXT`, `WCONSULT` — case-insensitive).
-
-**Workflow**: solve once, then on the Solve & Roster tab click **📌 Copy
-this roster to overrides** — this fills this table with every current
-assignment. Go back to section 6 in Configure, delete the specific rows
-you want the solver to re-compute (e.g. the day Dr A called in sick),
-and re-solve. The rest of the roster stays identical.
-
-### 3.7 Rules for the roster
+### 4.D Rules for the roster
 
 Each rule is toggleable. Defaults match the formal spec in `CONSTRAINTS.md`.
 
@@ -163,7 +178,7 @@ Each rule is toggleable. Defaults match the formal spec in `CONSTRAINTS.md`.
 | **Every doctor has a duty every weekday** | Soft constraint with a penalty per idle day. Excuses: leave, post-call, lieu. High penalty = solver forces full utilisation. |
 | **Also roster AM/PM stations on weekends** | Off by default. Only enable if your hospital staffs weekday-style stations on weekends. |
 
-### 3.8 Hours per shift
+### 4.E Hours per shift
 
 Used for the **Hours / week** column in the results. Adjust to match your
 hospital's shift lengths. **Does not affect solver decisions.** Defaults:
@@ -179,7 +194,7 @@ hospital's shift lengths. **Does not affect solver decisions.** Defaults:
 | Weekend extended-duty | 12.0 |
 | Weekend consultant | 8.0 |
 
-### 3.9 How "fairness" is measured (workload weights)
+### 4.F How "fairness" is measured (workload weights)
 
 These turn each assignment into a number. The sum becomes the doctor's
 workload score. The solver balances this score across doctors in the same
@@ -197,7 +212,7 @@ work than weekday call. Defaults:
 
 Set any weight to 0 to ignore that role in fairness.
 
-### 3.10 Solver priorities (advanced)
+### 4.G Solver priorities (advanced)
 
 How hard the solver tries to achieve each goal. Higher = more important.
 Set to 0 to turn off. Defaults:
@@ -214,9 +229,9 @@ Set to 0 to turn off. Defaults:
 
 ---
 
-## 4. Sidebar
+## 5. Sidebar
 
-### 4.1 Save / Load configuration
+### 5.1 Save / Load configuration
 
 Hugging Face Spaces storage is ephemeral — a restart wipes session state.
 
@@ -230,14 +245,14 @@ Hugging Face Spaces storage is ephemeral — a restart wipes session state.
   the weighted-workload formula, and fills each doctor's `prev_workload`
   column. Gives you a turnkey carry-in setup month-over-month.
 
-### 4.2 Solver settings
+### 5.2 Solver settings
 
 - **Time limit (s)** — how long to run. 5–3600. Default 60.
 - **CP-SAT workers** — parallel search threads. 1–16. Default 8.
 - **Feasibility only** — skip the fairness objective, just find any valid
   roster. Fastest mode.
 
-### 4.3 Diagnostics
+### 5.3 Diagnostics
 
 - **Diagnose (L1 pre-solve)** — millisecond necessary-condition checks:
   tier headcount, per-station eligibility, weekend sub-spec coverage,
@@ -251,9 +266,9 @@ Hugging Face Spaces storage is ephemeral — a restart wipes session state.
 
 ---
 
-## 5. Solve & Roster tab
+## 6. Solve & Roster tab
 
-### 5.1 Running a solve
+### 6.1 Running a solve
 
 Click **▶ Solve**. The solver runs in a background thread. The UI updates
 every ~0.2 s with:
@@ -269,13 +284,13 @@ every ~0.2 s with:
 - An **intermediate solutions log** expander — full table of every
   improving solution with their penalty-component breakdown.
 
-### 5.2 Stop button
+### 6.2 Stop button
 
 Click **⏹ Stop solve (accept current best)** at any time. The solver
 exits on its next callback boundary and returns with `FEASIBLE` status
 (if any solution was found) or the time-limit behavior otherwise.
 
-### 5.3 Verdict banner
+### 6.3 Verdict banner
 
 Once the solver stops (naturally or via Stop), you get a one-sentence
 verdict at the top of the results:
@@ -293,7 +308,7 @@ verdict at the top of the results:
 - **INFEASIBLE** — red. No roster satisfies your constraints. Use
   *Explain infeasibility (L3)* in the sidebar to see why.
 
-### 5.4 Metric strip
+### 6.4 Metric strip
 
 Five numbers at a glance:
 
@@ -305,13 +320,13 @@ Five numbers at a glance:
 | **Avg hours / week (by tier)** | `J 45h · S 48h · C 43h`-style summary. Spot imbalances across tiers at a glance. |
 | **Penalty score (lower = better)** | The sum of all weighted penalties. 0 = every soft goal satisfied. |
 
-### 5.5 Snapshot picker
+### 6.5 Snapshot picker
 
 Any improving solution the solver found during search is available via
 "Which roster to view". Pick `Final (best)` for the final result, or an
 intermediate if you preferred an earlier one.
 
-### 5.6 Roster grid
+### 6.6 Roster grid
 
 Doctor × date table. Cells are **colour-coded** for quick scanning:
 
@@ -336,7 +351,7 @@ Role codes shown in each cell:
 | `LV` | Leave. |
 | *(blank)* | No duty — a "day without duty" unless excused. |
 
-### 5.7 Per-doctor workload — headline
+### 6.7 Per-doctor workload — headline
 
 The headline table is your at-a-glance fairness view:
 
@@ -351,7 +366,7 @@ The headline table is your at-a-glance fairness view:
 | **Leave days** | Count of leave days in this period. |
 | **Days without duty** | Weekday count where the doctor had no role AND wasn't on leave. |
 
-### 5.8 Per-doctor workload — full breakdown (expander)
+### 6.8 Per-doctor workload — full breakdown (expander)
 
 The detailed view, for anyone who wants to see the underlying counts:
 
@@ -368,7 +383,7 @@ The detailed view, for anyone who wants to see the underlying counts:
 | **This-period score** | Weighted sum of this period's assignments only. |
 | **Total (with carry-in)** | = **Workload score** in the headline. |
 
-### 5.9 Alternative views
+### 6.9 Alternative views
 
 Three toggles inside the "Alternative views" expander:
 
@@ -379,14 +394,14 @@ Three toggles inside the "Alternative views" expander:
 - **Today's roster** — pick any date in the horizon → table of who's doing
   what on that day.
 
-### 5.10 Diff against another snapshot
+### 6.10 Diff against another snapshot
 
 Expander below the roster grid. Pick an intermediate solution (or the
 Final one) to compare against. The diff grid shows only cells that
 differ, with the text `old → new` and a yellow highlight. A line at the
 top reports how many cells changed.
 
-### 5.11 Lock and re-solve
+### 6.11 Lock and re-solve
 
 Click **📌 Copy this roster to overrides** above the grid to push every
 current assignment into the Manual-overrides table on the Configure tab.
@@ -395,7 +410,7 @@ day Dr A called in sick) and hit **▶ Solve** again. Everything you didn't
 delete stays exactly as it was. Use this for sick-day coverage, last-minute
 changes, or stress-testing the roster.
 
-### 5.12 Advanced analytics (expander)
+### 6.12 Advanced analytics (expander)
 
 For power users:
 
@@ -407,7 +422,7 @@ For power users:
 
 ---
 
-## 6. Export tab
+## 7. Export tab
 
 Three download buttons:
 
@@ -428,7 +443,7 @@ Role strings in exports:
 
 ---
 
-## 7. What's NOT in the app (yet)
+## 8. What's NOT in the app (yet)
 
 - **Drag-and-drop cell editing** on the roster grid. For now, use "Copy
   this roster to overrides" + delete rows + re-solve.
@@ -445,7 +460,7 @@ Role strings in exports:
 
 ---
 
-## 8. Architecture (one-paragraph version)
+## 9. Architecture (one-paragraph version)
 
 Python + OR-Tools CP-SAT for the solver, Streamlit for the UI, deployed as
 a Docker Space on Hugging Face. `scheduler.model.solve(inst, constraints,
