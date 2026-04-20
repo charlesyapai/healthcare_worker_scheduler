@@ -25,12 +25,19 @@ from scheduler import plots
 from scheduler.diagnostics import explain_infeasibility, presolve_feasibility
 from scheduler.metrics import (
     count_idle_weekdays,
+    hours_per_doctor,
     problem_metrics,
     solution_metrics,
     solve_metrics,
     workload_breakdown,
 )
-from scheduler.model import ConstraintConfig, Weights, WorkloadWeights, solve
+from scheduler.model import (
+    ConstraintConfig,
+    HoursConfig,
+    Weights,
+    WorkloadWeights,
+    solve,
+)
 from scheduler.ui_state import (
     BuildError,
     SUBSPEC_CHOICES,
@@ -58,33 +65,48 @@ def _next_monday(today: date) -> date:
     return today + timedelta(days=offset)
 
 
+BLOCK_TYPES = ("Leave", "No on-call", "No AM", "No PM")
+
+
 def _ensure_defaults() -> None:
     ss = st.session_state
     if "doctors_df" not in ss:
         ss.doctors_df = default_doctors_df(20)
     if "stations_df" not in ss:
         ss.stations_df = default_stations_df()
-    if "leave_df" not in ss:
-        ss.leave_df = pd.DataFrame({"doctor": pd.Series(dtype="object"),
-                                    "date": pd.Series(dtype="object")})
+    if "blocks_df" not in ss:
+        ss.blocks_df = pd.DataFrame({
+            "doctor": pd.Series(dtype="object"),
+            "date": pd.Series(dtype="object"),
+            "type": pd.Series(dtype="object"),
+        })
     ss.setdefault("start_date", _next_monday(date.today()))
     ss.setdefault("n_days", 21)
     ss.setdefault("public_holidays", [])
-    # Objective weights (Weights dataclass).
+    # Objective weights.
     ss.setdefault("w_workload", 40)
     ss.setdefault("w_sessions", 5)
     ss.setdefault("w_oncall", 10)
     ss.setdefault("w_weekend", 10)
     ss.setdefault("w_report", 5)
     ss.setdefault("w_idle", 100)
-    # Workload weights (WorkloadWeights dataclass).
+    # Workload weights.
     ss.setdefault("wl_wd_session", 10)
     ss.setdefault("wl_we_session", 15)
     ss.setdefault("wl_wd_oncall", 20)
     ss.setdefault("wl_we_oncall", 35)
     ss.setdefault("wl_ext", 20)
     ss.setdefault("wl_wconsult", 25)
-    # Constraint toggles (ConstraintConfig).
+    # Hours per shift (for "hours per week" display only — does not affect solver).
+    ss.setdefault("h_weekday_am", 4.0)
+    ss.setdefault("h_weekday_pm", 4.0)
+    ss.setdefault("h_weekend_am", 4.0)
+    ss.setdefault("h_weekend_pm", 4.0)
+    ss.setdefault("h_weekday_oncall", 12.0)
+    ss.setdefault("h_weekend_oncall", 16.0)
+    ss.setdefault("h_weekend_ext", 12.0)
+    ss.setdefault("h_weekend_consult", 8.0)
+    # Constraint toggles.
     ss.setdefault("h4_enabled", True)
     ss.setdefault("h4_gap", 3)
     ss.setdefault("h5_enabled", True)
@@ -103,10 +125,11 @@ def _ensure_defaults() -> None:
 # ========================================================== Instance build
 def _build_inst():
     ss = st.session_state
-    leave_entries: list[tuple[str, date]] = []
-    for _, row in ss.leave_df.iterrows():
+    block_entries: list[tuple[str, date, str]] = []
+    for _, row in ss.blocks_df.iterrows():
         doctor = row.get("doctor")
         d = row.get("date")
+        kind = row.get("type") or "Leave"
         if doctor is None or d is None:
             continue
         if pd.isna(doctor) or (hasattr(d, "__class__") and pd.isna(d)):
@@ -116,14 +139,17 @@ def _build_inst():
                 d = date.fromisoformat(d)
             except ValueError:
                 continue
-        leave_entries.append((str(doctor), d))
+        name = str(doctor).strip()
+        if not name:
+            continue
+        block_entries.append((name, d, str(kind)))
 
     return build_instance(
         start_date=ss.start_date,
         n_days=int(ss.n_days),
         doctors_df=ss.doctors_df,
         stations_df=ss.stations_df,
-        leave_entries=leave_entries,
+        block_entries=block_entries,
         public_holidays=list(ss.public_holidays or []),
         weekend_am_pm_enabled=bool(ss.weekend_am_pm),
     )
@@ -164,6 +190,20 @@ def _current_constraints() -> ConstraintConfig:
         h8_weekend_coverage_enabled=bool(ss.h8_enabled),
         h9_lieu_day_enabled=bool(ss.h9_enabled),
         h11_mandatory_weekday_enabled=bool(ss.h11_enabled),
+    )
+
+
+def _current_hours() -> HoursConfig:
+    ss = st.session_state
+    return HoursConfig(
+        weekday_am=float(ss.h_weekday_am),
+        weekday_pm=float(ss.h_weekday_pm),
+        weekend_am=float(ss.h_weekend_am),
+        weekend_pm=float(ss.h_weekend_pm),
+        weekday_oncall=float(ss.h_weekday_oncall),
+        weekend_oncall=float(ss.h_weekend_oncall),
+        weekend_ext=float(ss.h_weekend_ext),
+        weekend_consult=float(ss.h_weekend_consult),
     )
 
 
@@ -219,65 +259,90 @@ def _snapshot_to_role_grid(inst, assignments: dict, names: dict[int, str]) -> pd
     return df
 
 
-def _workload_table(inst, assignments: dict, names: dict[int, str],
-                    wl_weights: WorkloadWeights) -> pd.DataFrame:
-    """Rich per-doctor workload table with weighted score + distance from tier median."""
+def _workload_tables(inst, assignments: dict, names: dict[int, str],
+                     wl_weights: WorkloadWeights,
+                     hours: HoursConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Return (headline_df, breakdown_df).
+
+    Headline: the numbers that matter at a glance — workload score, distance
+    from tier median, hours per week, leave days, unassigned days.
+    Breakdown: the full per-role counts for users who want to dig in.
+    """
     breakdown = workload_breakdown(inst, assignments, wl_weights)
     idle_counts = count_idle_weekdays(inst, assignments)
-    rows: list[dict] = []
+    hours_by_did = hours_per_doctor(inst, assignments, hours)
+
+    headline_rows: list[dict] = []
+    breakdown_rows: list[dict] = []
     for d in inst.doctors:
         b = breakdown[d.id]
-        rows.append({
-            "Doctor": names.get(d.id, f"Dr #{d.id}"),
+        nm = names.get(d.id, f"Dr #{d.id}")
+        subspec = d.subspec or ""
+        hrs = hours_by_did.get(d.id, {}).get("hours_per_week", 0.0)
+        idle = idle_counts.get(d.id, 0)
+        headline_rows.append({
+            "Doctor": nm,
             "Tier": d.tier,
-            "Sub-spec": d.subspec or "",
-            "Wd sess": b["weekday_sessions"],
-            "We sess": b["weekend_sessions"],
-            "Wd call": b["weekday_oncall"],
-            "We call": b["weekend_oncall"],
-            "EXT": b["ext"],
-            "WC": b["wconsult"],
-            "Leave": b["leave_days"],
-            "Idle wd": idle_counts.get(d.id, 0),
-            "Prev": b["prev_workload"],
-            "Score": b["score"],
+            "Sub-spec": subspec,
+            "Workload score": b["score"],
+            "Δ vs. tier median": 0.0,   # filled below
+            "Hours / week": hrs,
+            "Leave days": b["leave_days"],
+            "Days without duty": idle,
         })
-    df = pd.DataFrame(rows)
-    # Distance from tier median: colour the "Score" column.
-    if not df.empty:
-        df["Δ median"] = 0.0
+        breakdown_rows.append({
+            "Doctor": nm,
+            "Tier": d.tier,
+            "Sub-spec": subspec,
+            "Weekday sessions": b["weekday_sessions"],
+            "Weekend sessions": b["weekend_sessions"],
+            "Weekday on-call": b["weekday_oncall"],
+            "Weekend on-call": b["weekend_oncall"],
+            "Weekend extended": b["ext"],
+            "Weekend consultant": b["wconsult"],
+            "Leave days": b["leave_days"],
+            "Prev-period score": b["prev_workload"],
+            "This-period score": b["score"] - b["prev_workload"],
+            "Total (with carry-in)": b["score"],
+        })
+
+    headline = pd.DataFrame(headline_rows)
+    if not headline.empty:
         for tier in ("junior", "senior", "consultant"):
-            mask = df["Tier"] == tier
+            mask = headline["Tier"] == tier
             if mask.sum() < 2:
                 continue
-            median_score = df.loc[mask, "Score"].median()
-            df.loc[mask, "Δ median"] = df.loc[mask, "Score"] - median_score
-    return df
+            med = headline.loc[mask, "Workload score"].median()
+            headline.loc[mask, "Δ vs. tier median"] = \
+                headline.loc[mask, "Workload score"] - med
+    return headline, pd.DataFrame(breakdown_rows)
 
 
-def _style_workload(df: pd.DataFrame):
-    if df.empty or "Δ median" not in df.columns:
+def _style_headline(df: pd.DataFrame):
+    """Colour Δ-vs-median red (over) / blue (under), and format numbers."""
+    if df.empty or "Δ vs. tier median" not in df.columns:
         return df
-    max_abs = max(df["Δ median"].abs().max(), 1)
+    col = df["Δ vs. tier median"]
+    max_abs = max(col.abs().max(), 1)
 
     def _color(val):
         try:
             v = float(val)
         except (TypeError, ValueError):
             return ""
-        # Red = over median (overworked), Blue = under median (underworked).
         intensity = min(1.0, abs(v) / max_abs)
-        if v > 0:
+        if v > 0.5:
             return f"background-color: rgba(220, 50, 50, {0.15 + 0.35*intensity:.2f})"
-        if v < 0:
+        if v < -0.5:
             return f"background-color: rgba(50, 120, 220, {0.15 + 0.35*intensity:.2f})"
         return ""
 
     styler = df.style
-    # pandas ≥ 2.1 renamed Styler.applymap to Styler.map.
     mapfn = getattr(styler, "map", None) or styler.applymap
-    return mapfn(_color, subset=["Δ median"]).format({
-        "Δ median": "{:+.1f}", "Score": "{:.0f}",
+    return mapfn(_color, subset=["Δ vs. tier median"]).format({
+        "Δ vs. tier median": "{:+.1f}",
+        "Workload score": "{:.0f}",
+        "Hours / week": "{:.1f}",
     })
 
 
@@ -378,135 +443,236 @@ tab_configure, tab_solve, tab_export = st.tabs(
 
 # ================================================================ Configure
 with tab_configure:
-    st.subheader("When")
+    ss = st.session_state
+    st.subheader("1. When")
     c1, c2 = st.columns(2)
-    st.session_state.start_date = c1.date_input("Start date", st.session_state.start_date)
-    st.session_state.n_days = c2.number_input(
-        "Horizon (days)", min_value=1, max_value=90, value=int(st.session_state.n_days), step=1)
-    end_date = st.session_state.start_date + timedelta(days=int(st.session_state.n_days) - 1)
-    st.caption(f"Covers **{format_date(st.session_state.start_date)}** → "
-               f"**{format_date(end_date)}** ({st.session_state.n_days} days)")
-    horizon_dates = dates_for_horizon(st.session_state.start_date, int(st.session_state.n_days))
-    kept = [d for d in st.session_state.public_holidays if d in horizon_dates]
-    st.session_state.public_holidays = st.multiselect(
-        "Public holidays (treated as weekends)",
+    ss.start_date = c1.date_input("Roster start date", ss.start_date)
+    ss.n_days = c2.number_input(
+        "Number of days to roster", min_value=1, max_value=90,
+        value=int(ss.n_days), step=1)
+    end_date = ss.start_date + timedelta(days=int(ss.n_days) - 1)
+    st.caption(f"Covers **{format_date(ss.start_date)}** → "
+               f"**{format_date(end_date)}** ({ss.n_days} days, "
+               f"{ss.n_days/7:.1f} weeks)")
+    horizon_dates = dates_for_horizon(ss.start_date, int(ss.n_days))
+    kept = [d for d in ss.public_holidays if d in horizon_dates]
+    ss.public_holidays = st.multiselect(
+        "Public holidays in this period (treated like Sundays)",
         options=horizon_dates, default=kept, format_func=format_date,
     )
 
     st.divider()
-    st.subheader("Doctors")
-    st.caption("Name, tier, sub-spec (consultants only), eligible stations, "
-               "and **prev_workload** (weighted score from last period — "
-               "doctors with higher numbers get less work this period).")
-    st.session_state.doctors_df = st.data_editor(
-        st.session_state.doctors_df,
+    st.subheader("2. Doctors")
+    st.caption("Each row = one doctor. **Tier** drives which stations they can "
+               "work. **Sub-spec** is required for consultants only. "
+               "**Eligible stations** are comma-separated names from the "
+               "Stations table. **Previous workload** is their carry-in "
+               "score from last month — higher means they did more last "
+               "period, so they'll get less this period.")
+    edited_doctors = st.data_editor(
+        ss.doctors_df,
         num_rows="dynamic",
         use_container_width=True,
         column_config={
             "name": st.column_config.TextColumn("Name", required=True),
-            "tier": st.column_config.SelectboxColumn("Tier", options=list(TIERS), required=True),
+            "tier": st.column_config.SelectboxColumn(
+                "Tier", options=list(TIERS), required=True),
             "subspec": st.column_config.SelectboxColumn(
-                "Sub-spec (consultants only)", options=list(SUBSPEC_CHOICES)),
+                "Sub-spec", options=list(SUBSPEC_CHOICES),
+                help="Required for consultants; leave blank for juniors/seniors."),
             "eligible_stations": st.column_config.TextColumn(
-                "Eligible stations (comma-sep)",
-                help="Names must match the Stations table below."),
+                "Eligible stations (comma-separated)",
+                help="Station names must match the Stations list below."),
             "prev_workload": st.column_config.NumberColumn(
-                "Prev workload",
+                "Previous workload",
                 min_value=-9999, max_value=9999, step=5, default=0,
-                help="Carry-in from the prior period. Defaults 0. "
-                     "Same units as the workload score in the Roster tab."),
+                help="Carry-in from prior period. Defaults 0. Higher = "
+                     "already did more last period → gets less this period."),
         },
         key="_editor_doctors",
     )
 
-    with st.expander("Stations (advanced — defaults cover the CGH-style setup)"):
-        st.session_state.stations_df = st.data_editor(
-            st.session_state.stations_df,
+    with st.expander("Stations (advanced — the default list covers a typical "
+                     "radiology department)"):
+        st.caption("Sessions: AM, PM, or both. **Required** = how many doctors "
+                   "must be assigned to this station per session. "
+                   "**Reporting** stations are rotated to avoid back-to-back days.")
+        edited_stations = st.data_editor(
+            ss.stations_df,
             num_rows="dynamic",
             use_container_width=True,
             column_config={
                 "name": st.column_config.TextColumn("Name", required=True),
-                "sessions": st.column_config.TextColumn("Sessions", help="AM, PM, or AM,PM"),
-                "required_per_session": st.column_config.NumberColumn("Required", min_value=1),
+                "sessions": st.column_config.TextColumn(
+                    "Sessions", help="AM, PM, or AM,PM"),
+                "required_per_session": st.column_config.NumberColumn(
+                    "Required", min_value=1),
                 "eligible_tiers": st.column_config.TextColumn(
-                    "Eligible tiers", help="Comma-sep: junior, senior, consultant"),
-                "is_reporting": st.column_config.CheckboxColumn("Reporting"),
+                    "Eligible tiers",
+                    help="Comma-separated: junior, senior, consultant"),
+                "is_reporting": st.column_config.CheckboxColumn(
+                    "Reporting?",
+                    help="Reporting desks are spread out to avoid back-to-back."),
             },
             key="_editor_stations",
         )
 
     st.divider()
-    st.subheader("Leave")
-    st.caption("One row per doctor × leave date. Dates outside the horizon are ignored.")
-    known_names = [n for n in st.session_state.doctors_df["name"].dropna().tolist() if str(n).strip()]
-    st.session_state.leave_df = st.data_editor(
-        st.session_state.leave_df,
+    st.subheader("3. Leave, blocks, and preferences")
+    known_names_display = [str(n).strip() for n in
+                           edited_doctors["name"].dropna().tolist()
+                           if str(n).strip()]
+    st.caption("One row per block. **Leave** = full day off (no work at all). "
+               "**No on-call** = doctor can still do AM/PM work but won't get "
+               "night call. **No AM / No PM** = doctor opts out of that "
+               "session only. Type the doctor's name exactly as it appears "
+               "above.")
+    if known_names_display:
+        st.caption(f"Known doctors: {', '.join(known_names_display)}")
+    edited_blocks = st.data_editor(
+        ss.blocks_df,
         num_rows="dynamic",
         use_container_width=True,
         column_config={
-            "doctor": st.column_config.SelectboxColumn("Doctor", options=known_names),
+            "doctor": st.column_config.TextColumn(
+                "Doctor", help="Type the name as it appears in the Doctors table."),
             "date": st.column_config.DateColumn("Date"),
+            "type": st.column_config.SelectboxColumn(
+                "Type", options=list(BLOCK_TYPES), default="Leave",
+                help="Leave = whole day off. No on-call = call block. "
+                     "No AM / No PM = session block."),
         },
-        key="_editor_leave",
+        key="_editor_blocks",
     )
 
     st.divider()
-    st.subheader("Hard constraints")
-    st.caption("Each H-rule is toggleable. Defaults match `docs/CONSTRAINTS.md`.")
+    st.subheader("4. Rules for the roster")
+    st.caption("Turn these on or off to change what the solver is allowed to do. "
+               "Each rule's help text explains what it means.")
     cc1, cc2 = st.columns(2)
     with cc1:
-        st.checkbox("**H4** — On-call cap (1-in-N rolling)", key="h4_enabled")
-        st.number_input("H4 — N (days)", min_value=2, max_value=14, key="h4_gap",
-                        help="At most one on-call in any N-day window.")
-        st.checkbox("**H5** — Post-call day off", key="h5_enabled")
-        st.checkbox("**H6** — Senior on-call = full day off", key="h6_enabled")
-    with cc2:
-        st.checkbox("**H7** — Junior on-call works PM", key="h7_enabled")
-        st.checkbox("**H8** — Weekend coverage (EXT/OC/WC)", key="h8_enabled")
-        st.checkbox("**H9** — Lieu day after weekend EXT", key="h9_enabled")
         st.checkbox(
-            "**H11** — Mandatory weekday assignment (soft, penalised)",
-            key="h11_enabled",
-            help="Penalises any doctor who is idle on a weekday without a valid "
-                 "excuse (leave / post-call / lieu). Weight set below."
+            "Cap on-call frequency (no more than once every N days)",
+            key="h4_enabled",
+            help="Any N-day window has at most one on-call per doctor."
         )
+        st.number_input(
+            "N (days) for the on-call cap",
+            min_value=2, max_value=14, key="h4_gap",
+            help="3 = 'no more than one on-call every 3 days'.")
+        st.checkbox(
+            "Day off after a night on-call (post-call off)",
+            key="h5_enabled",
+            help="A doctor who is on call overnight is off the following day.")
+        st.checkbox(
+            "Seniors on-call get the whole day off",
+            key="h6_enabled",
+            help="On their on-call day, seniors do no AM or PM station work.")
+    with cc2:
+        st.checkbox(
+            "Juniors on-call work the PM session",
+            key="h7_enabled",
+            help="Juniors cover a PM station on their on-call day.")
+        st.checkbox(
+            "Weekend coverage (extended-duty + on-call + consultant-on-call)",
+            key="h8_enabled",
+            help="Saturdays and Sundays must have: 1 junior EXT, 1 senior EXT, "
+                 "1 junior on-call, 1 senior on-call, 1 consultant per sub-spec.")
+        st.checkbox(
+            "Day off in lieu after weekend extended-duty",
+            key="h9_enabled",
+            help="If a doctor works weekend EXT, they get a Friday-before or "
+                 "Monday-after off.")
+        st.checkbox(
+            "Every doctor has a duty every weekday (unless excused)",
+            key="h11_enabled",
+            help="Excuses: leave, post-call, day-in-lieu. Soft constraint — "
+                 "penalty per day a doctor has no duty. Controls idle time.")
     st.checkbox(
-        "Weekend AM/PM station coverage (off by default — weekends are "
-        "covered by EXT + on-call + weekend-consultant only)",
+        "Also roster AM/PM stations on weekends",
         key="weekend_am_pm",
-    )
+        help="Off by default. Weekends are usually covered by EXT + on-call + "
+             "weekend-consultant only.")
 
     st.divider()
-    st.subheader("Workload weighting")
-    st.caption("Turns each assignment into a number. Drives the per-doctor "
-               "'workload score' in the Roster tab AND the solver's fairness "
-               "objective (S0). Weekend roles default to higher weights.")
+    st.subheader("5. Hours per shift")
+    st.caption("Used to compute each doctor's **hours per week** in the results. "
+               "Does **not** affect the solver — only the report. Adjust these "
+               "to match your hospital's shift lengths.")
+    h1, h2, h3, h4 = st.columns(4)
+    h1.number_input("Weekday AM (hours)", min_value=0.0, max_value=24.0,
+                    step=0.5, key="h_weekday_am")
+    h1.number_input("Weekday PM (hours)", min_value=0.0, max_value=24.0,
+                    step=0.5, key="h_weekday_pm")
+    h2.number_input("Weekend AM (hours)", min_value=0.0, max_value=24.0,
+                    step=0.5, key="h_weekend_am")
+    h2.number_input("Weekend PM (hours)", min_value=0.0, max_value=24.0,
+                    step=0.5, key="h_weekend_pm")
+    h3.number_input("Weekday on-call (hours)", min_value=0.0, max_value=24.0,
+                    step=1.0, key="h_weekday_oncall")
+    h3.number_input("Weekend on-call (hours)", min_value=0.0, max_value=24.0,
+                    step=1.0, key="h_weekend_oncall")
+    h4.number_input("Weekend extended (hours)", min_value=0.0, max_value=24.0,
+                    step=1.0, key="h_weekend_ext")
+    h4.number_input("Weekend consultant (hours)", min_value=0.0, max_value=24.0,
+                    step=1.0, key="h_weekend_consult")
+
+    st.divider()
+    st.subheader("6. How 'fairness' is measured")
+    st.caption("These are the **workload weights** — they turn each assignment "
+               "into a number, which is then summed into a workload score per "
+               "doctor. The solver tries to spread this score evenly across "
+               "doctors in the same tier. Weekend roles are weighted more so "
+               "weekend call counts as more work than weekday call.")
     ww1, ww2, ww3 = st.columns(3)
-    ww1.number_input("Weekday session", min_value=0, max_value=100, key="wl_wd_session")
-    ww1.number_input("Weekend session", min_value=0, max_value=100, key="wl_we_session")
-    ww2.number_input("Weekday on-call", min_value=0, max_value=100, key="wl_wd_oncall")
-    ww2.number_input("Weekend on-call", min_value=0, max_value=100, key="wl_we_oncall")
-    ww3.number_input("Weekend EXT", min_value=0, max_value=100, key="wl_ext")
-    ww3.number_input("Weekend consultant", min_value=0, max_value=100, key="wl_wconsult")
+    ww1.number_input("Weekday session", min_value=0, max_value=100,
+                     key="wl_wd_session")
+    ww1.number_input("Weekend session", min_value=0, max_value=100,
+                     key="wl_we_session")
+    ww2.number_input("Weekday on-call", min_value=0, max_value=100,
+                     key="wl_wd_oncall")
+    ww2.number_input("Weekend on-call", min_value=0, max_value=100,
+                     key="wl_we_oncall")
+    ww3.number_input("Weekend extended", min_value=0, max_value=100,
+                     key="wl_ext")
+    ww3.number_input("Weekend consultant", min_value=0, max_value=100,
+                     key="wl_wconsult")
 
     st.divider()
-    st.subheader("Soft-objective weights")
-    st.caption("How hard the solver tries to minimise each term. Set to 0 to ignore.")
+    st.subheader("7. Solver priorities (advanced)")
+    st.caption("How hard the solver tries to achieve each goal. Higher = more "
+               "important. Set to 0 to turn a goal off entirely. The defaults "
+               "are tuned; you rarely need to touch these.")
     sc1, sc2 = st.columns(2)
-    sc1.number_input("S0 — weighted workload balance (primary fairness term)",
-                     min_value=0, max_value=1000, key="w_workload")
-    sc1.number_input("S1 — raw sessions balance (per tier)",
-                     min_value=0, max_value=1000, key="w_sessions")
-    sc1.number_input("S2 — on-call balance (per tier)",
-                     min_value=0, max_value=1000, key="w_oncall")
-    sc2.number_input("S3 — weekend-duty balance (per tier)",
-                     min_value=0, max_value=1000, key="w_weekend")
-    sc2.number_input("S4 — reporting-desk spread",
-                     min_value=0, max_value=1000, key="w_report")
-    sc2.number_input("S5 — idle-weekday penalty (H11)",
-                     min_value=0, max_value=1000, key="w_idle",
-                     help="Per-doctor-per-weekday cost when a doctor is idle "
-                          "without an excuse. High = forces full utilisation.")
+    sc1.number_input(
+        "Fairness: balance weighted workload across each tier",
+        min_value=0, max_value=1000, key="w_workload",
+        help="The primary fairness term — uses the weights from section 6.")
+    sc1.number_input(
+        "Penalty per day a doctor has no duty",
+        min_value=0, max_value=1000, key="w_idle",
+        help="Drives the 'every doctor has a duty every weekday' rule. "
+             "High value = forces full utilisation.")
+    sc1.number_input(
+        "Balance raw session counts (secondary)",
+        min_value=0, max_value=1000, key="w_sessions")
+    sc2.number_input(
+        "Balance on-call counts (secondary)",
+        min_value=0, max_value=1000, key="w_oncall")
+    sc2.number_input(
+        "Balance weekend-duty counts (secondary)",
+        min_value=0, max_value=1000, key="w_weekend")
+    sc2.number_input(
+        "Spread out reporting-desk duty (no back-to-back days)",
+        min_value=0, max_value=1000, key="w_report")
+
+    # END of Configure tab — single commit point for editable tables.
+    # This is the fix for the "edit two cells, only one saves" bug: we
+    # reassign to session_state ONCE per rerun, after all editors rendered,
+    # so no editor is mid-render when another's state updates.
+    ss.doctors_df = edited_doctors
+    ss.stations_df = edited_stations
+    ss.blocks_df = edited_blocks
 
 
 # ============================================================ Solve & Roster
@@ -596,6 +762,7 @@ with tab_solve:
                 ss.last_inst = inst
                 ss.last_doctor_names = names
                 ss.last_wl_weights = _current_workload_weights()
+                ss.last_hours = _current_hours()
                 ss.last_result = None
                 worker = threading.Thread(
                     target=_solve_worker,
@@ -643,13 +810,14 @@ with tab_solve:
                 st.dataframe(grid, use_container_width=True,
                              height=min(500, 40 + 28 * len(grid)))
 
-                # Brief workload peek — just Score + Δ median so the user can
-                # judge fairness at a glance without leaving the solve tab.
-                wl_df = _workload_table(
+                # Live fairness peek — headline table only (breakdown skipped
+                # during solve to save render time).
+                hours = ss.get("last_hours", HoursConfig())
+                head_df, _ = _workload_tables(
                     ss.last_inst, latest["assignments"],
-                    ss.last_doctor_names, ss.last_wl_weights)
+                    ss.last_doctor_names, ss.last_wl_weights, hours)
                 with st.expander("Workload peek (current best)"):
-                    st.dataframe(_style_workload(wl_df),
+                    st.dataframe(_style_headline(head_df),
                                  use_container_width=True, hide_index=True)
 
             with st.expander("Intermediate solutions log"):
@@ -688,6 +856,7 @@ with tab_solve:
         events = st.session_state.last_events
         names = st.session_state.last_doctor_names
         wl_weights = st.session_state.last_wl_weights
+        hours = st.session_state.get("last_hours", HoursConfig())
 
         has_sol = result.status in ("OPTIMAL", "FEASIBLE")
         idle_total = 0
@@ -703,24 +872,28 @@ with tab_solve:
                   "error": st.error, "info": st.info}[severity]
         banner(message)
 
-        # Metric strip.
+        # Metric strip — labels use plain English.
         mc1, mc2, mc3, mc4, mc5 = st.columns(5)
         mc1.metric("Status", result.status)
-        mc2.metric("Wall", f"{result.wall_time_s:.2f}s")
-        mc3.metric("First feasible",
+        mc2.metric("Solve time", f"{result.wall_time_s:.2f}s")
+        mc3.metric("First valid roster found at",
                    f"{(result.first_feasible_s or 0):.2f}s" if result.first_feasible_s else "—")
-        mc4.metric("Objective",
+        mc4.metric("Penalty score (lower = better)",
                    f"{result.objective:.0f}" if result.objective is not None else "—")
-        mc5.metric("Idle weekdays", idle_total if has_sol else "—")
+        mc5.metric("Days without duty",
+                   idle_total if has_sol else "—",
+                   help="Total doctor-weekdays where the doctor had no role "
+                        "and was not on leave / post-call / lieu.")
 
         if has_sol:
-            snap_options = ["Final"]
+            snap_options = ["Final (best)"]
             for i, e in enumerate(events):
                 if e.get("assignments"):
                     snap_options.append(f"#{i+1} — t={e['wall_s']:.1f}s, obj={e['objective']}")
-            pick = st.selectbox("Snapshot", snap_options, index=0,
-                                help="Any improving solution CP-SAT found during search.")
-            if pick == "Final":
+            pick = st.selectbox(
+                "Which roster to view", snap_options, index=0,
+                help="Pick any improving solution the solver found during search.")
+            if pick == "Final (best)":
                 snap = result.assignments
             else:
                 idx = int(pick.split("—", 1)[0].strip().lstrip("#")) - 1
@@ -731,13 +904,25 @@ with tab_solve:
             st.dataframe(grid_df, use_container_width=True,
                          height=min(600, 40 + 28 * len(grid_df)))
 
-            st.subheader("Per-doctor workload")
-            st.caption("**Score** = weighted sum of assignments + prev_workload. "
-                       "**Δ median** = how far this doctor is from the tier median "
-                       "(red = over-worked, blue = under-worked).")
-            wl_df = _workload_table(inst, snap, names, wl_weights)
-            st.dataframe(_style_workload(wl_df),
+            head_df, break_df = _workload_tables(
+                inst, snap, names, wl_weights, hours)
+
+            st.subheader("Per-doctor workload — headline")
+            st.caption(
+                "**Workload score** = weighted sum of this doctor's "
+                "assignments + their previous-period carry-in. "
+                "**Δ vs. tier median** highlights fairness: red means this "
+                "doctor is doing more than the tier median; blue means less. "
+                "**Hours / week** is computed from the shift-length settings "
+                "in the Configure tab."
+            )
+            st.dataframe(_style_headline(head_df),
                          use_container_width=True, hide_index=True)
+
+            with st.expander("Workload — full breakdown by shift type"):
+                st.caption("All the raw counts. 'Total (with carry-in)' should "
+                           "match the headline **Workload score**.")
+                st.dataframe(break_df, use_container_width=True, hide_index=True)
 
             with st.expander("Advanced analytics (convergence, penalty breakdown, heatmaps)"):
                 fig, md = plots.convergence(events, objective=result.objective)

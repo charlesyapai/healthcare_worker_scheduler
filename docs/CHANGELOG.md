@@ -2,6 +2,89 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-20 — v0.6 Blocks + hours/week + workload headline + plain-English UI
+
+**What:** Second UX pass. Add call blocks + session blocks (distinct from
+leave), add hours-per-week display with adjustable shift lengths, split the
+per-doctor workload table into a headline (Score + Δ median + Hours/week)
+plus a detailed breakdown expander, rewrite all Configure-tab labels in
+plain English, and fix the data_editor "edit two cells, only one saves" bug.
+
+**Why:** User feedback — (1) the UI still reads too "engineering"; numbers
+like *idle-weekday penalty* don't tell a non-engineer what they mean; (2)
+the per-doctor workload table buries the most important numbers (score, Δ
+median) underneath the per-role counts; (3) hospitals also want an "hours
+per week" view; (4) *call block* and *session block* are real requirements
+distinct from leave — a doctor can be unavailable for on-call while still
+doing station work; (5) the data editor was losing cell commits when users
+edited two cells quickly.
+
+**Added — model:**
+- `HoursConfig` dataclass with 8 adjustable shift lengths (weekday AM/PM,
+  weekend AM/PM, weekday/weekend on-call, weekend EXT, weekend consultant).
+  Does not affect solver — feeds the 'Hours / week' report column only.
+- `Instance.no_oncall: dict[doctor_id, set[day]]` — per-doctor call blocks.
+- `Instance.no_session: dict[doctor_id, dict[day, set[session]]]` — per-doctor
+  AM/PM session blocks.
+- **H12** (call block) and **H13** (session block) hard constraints in
+  `scheduler/model.py`.
+
+**Added — metrics:**
+- `metrics.hours_per_doctor(inst, assignments, hours)` — total hours and
+  average hours per week, per doctor.
+
+**Changed — ui_state.py:**
+- `build_instance(...)` now accepts `block_entries` (iterable of
+  `(name, date, kind)`) in addition to `leave_entries`. Parses kind into
+  the appropriate Instance field. Accepted kinds: `Leave`, `No on-call`,
+  `No AM`, `No PM` (+ synonyms).
+
+**Changed — app.py (Configure tab rewrite):**
+- Section-numbered layout: **1. When**, **2. Doctors**, **3. Leave, blocks,
+  and preferences**, **4. Rules for the roster**, **5. Hours per shift**,
+  **6. How 'fairness' is measured**, **7. Solver priorities (advanced)**.
+- Unified **Blocks** table replaces the Leave-only table. Columns: Doctor
+  (TextColumn — type the name), Date, Type (Leave / No on-call / No AM / No PM).
+  Eliminates the dynamic SelectboxColumn that was triggering editor rebuilds
+  on every doctors_df edit.
+- All constraint toggles rewritten in plain English (e.g. "Cap on-call
+  frequency (no more than once every N days)" instead of "H4 — On-call cap
+  (1-in-N rolling)").
+- Soft-objective weights labelled by what they *do*, not by S0-S5.
+- New **5. Hours per shift** form (8 numeric inputs).
+
+**Changed — app.py (Solve & Roster result display):**
+- Per-doctor workload table split into two:
+  - **Headline** (always visible): Doctor, Tier, Sub-spec, **Workload score**,
+    **Δ vs. tier median** (red/blue colour), **Hours / week**, Leave days,
+    Days without duty.
+  - **Full breakdown by shift type** (expander): per-role counts, prev-period
+    score, this-period score, total.
+- Metric strip renames: "Idle weekdays" → "Days without duty", "Objective"
+  → "Penalty score (lower = better)", "First feasible" → "First valid
+  roster found at".
+- Snapshot picker label: "Which roster to view" (was "Snapshot").
+
+**Fixed:**
+- **data_editor "edit two cells, only one saves" bug.** Root cause: the old
+  pattern `ss.X = st.data_editor(ss.X, ...)` reassigned session state
+  mid-render for multiple interdependent editors, and the Leave table's
+  Doctor SelectboxColumn rebuilt on every doctors_df change. New pattern:
+  capture each editor's return value as a local, and assign all three
+  back to session_state in a single block at the **end** of the Configure
+  tab. Blocks' Doctor column is now a plain TextColumn (with a "Known
+  doctors: …" caption above for reference) — no more dependent dropdown.
+
+**Tests:**
+- 6/6 pass (test_smoke + test_h11 unchanged; the new constraints are
+  no-ops when `no_oncall` and `no_session` are empty, which is the default).
+
+**Known follow-ups:**
+- Positive preferences ("Dr X prefers AM on Tuesday") — a soft-preference
+  term. Deferred: adds scope and isn't yet requested as hard need.
+- Save/load instance to YAML/JSON for persistence across HF Space rebuilds.
+- Per-doctor calendar grid for leave/blocks (currently: one row per entry).
+
 ## 2026-04-20 — v0.5 H11 + constraint toggles + weighted workload + carry-in + UX rework
 
 **What:** Fix the "solver said OPTIMAL but 3 doctors did zero coverage" bug

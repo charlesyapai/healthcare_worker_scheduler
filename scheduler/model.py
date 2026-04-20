@@ -70,6 +70,24 @@ class ConstraintConfig:
 
 
 @dataclass
+class HoursConfig:
+    """Hours worked per role — used for the 'hours per week' display metric.
+
+    Adjustable so each hospital can set its own shift lengths. The numbers
+    do NOT affect solver decisions (only the workload weights do); they are
+    a reporting convenience so the UI can show 'Dr X works ~42h/week'.
+    """
+    weekday_am: float = 4.0
+    weekday_pm: float = 4.0
+    weekend_am: float = 4.0
+    weekend_pm: float = 4.0
+    weekday_oncall: float = 12.0     # night shift + on-call coverage
+    weekend_oncall: float = 16.0     # longer on weekend nights
+    weekend_ext: float = 12.0        # extended-duty day shift
+    weekend_consult: float = 8.0     # consultant weekend cover
+
+
+@dataclass
 class Weights:
     balance_sessions: int = 5
     balance_oncall: int = 10
@@ -418,6 +436,24 @@ def solve(
                 model.AddImplication(lt, v.Not())
 
     # H10 — Leave: enforced by omitting vars on leave days.
+
+    # H12 — Call blocks (soft-block: doctor can't take on-call that day).
+    # Unlike leave, doesn't prevent station/AM/PM work.
+    for did, days in inst.no_oncall.items():
+        for day in days:
+            if (did, day) in oncall:
+                model.Add(oncall[(did, day)] == 0)
+
+    # H13 — Session blocks (doctor opts out of a specific AM or PM on a day).
+    for did, per_day in inst.no_session.items():
+        for day, sessions in per_day.items():
+            for sess in sessions:
+                blocked_vars = [
+                    v for (d, d_day, _, s), v in assign.items()
+                    if d == did and d_day == day and s == sess
+                ]
+                if blocked_vars:
+                    model.Add(sum(blocked_vars) == 0)
 
     # ----------------------------------------------------------- Soft objective
     penalties: list[cp_model.IntVar | int] = []

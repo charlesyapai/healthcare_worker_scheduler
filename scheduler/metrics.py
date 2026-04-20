@@ -16,7 +16,7 @@ from statistics import mean, median, pstdev
 from typing import Any
 
 from scheduler.instance import SESSIONS, Instance
-from scheduler.model import SolveResult, WorkloadWeights
+from scheduler.model import HoursConfig, SolveResult, WorkloadWeights
 
 
 # ----------------------------------------------------------------- Problem
@@ -336,4 +336,47 @@ def count_idle_weekdays(inst: Instance, assignments: dict) -> dict[int, int]:
                 continue
             if not busy.get((d.id, day), False):
                 out[d.id] += 1
+    return out
+
+
+def hours_per_doctor(
+    inst: Instance,
+    assignments: dict,
+    hours: HoursConfig | None = None,
+) -> dict[int, dict[str, float]]:
+    """Per-doctor hours total + average per week across the horizon.
+
+    Returns `{doctor_id: {total_hours, hours_per_week}}`. `hours_per_week` is
+    total / (n_days / 7) so a 21-day horizon averages across 3 weeks. Default
+    shift lengths come from `HoursConfig` (AM=4h, PM=4h, weekday on-call=12h,
+    weekend on-call=16h, EXT=12h, weekend-consult=8h).
+    """
+    h = hours or HoursConfig()
+    out: dict[int, dict[str, float]] = {d.id: {"total_hours": 0.0} for d in inst.doctors}
+
+    for (did, day, _st, sess), v in assignments.get("stations", {}).items():
+        if not v:
+            continue
+        if inst.is_weekend(day):
+            hrs = h.weekend_am if sess == "AM" else h.weekend_pm
+        else:
+            hrs = h.weekday_am if sess == "AM" else h.weekday_pm
+        out[did]["total_hours"] += hrs
+
+    for (did, day), v in assignments.get("oncall", {}).items():
+        if not v:
+            continue
+        out[did]["total_hours"] += h.weekend_oncall if inst.is_weekend(day) else h.weekday_oncall
+
+    for (did, _), v in assignments.get("ext", {}).items():
+        if v:
+            out[did]["total_hours"] += h.weekend_ext
+    for (did, _), v in assignments.get("wconsult", {}).items():
+        if v:
+            out[did]["total_hours"] += h.weekend_consult
+
+    n_weeks = max(1.0, inst.n_days / 7.0)
+    for did, row in out.items():
+        row["hours_per_week"] = round(row["total_hours"] / n_weeks, 1)
+        row["total_hours"] = round(row["total_hours"], 1)
     return out

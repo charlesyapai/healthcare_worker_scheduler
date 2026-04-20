@@ -133,10 +133,14 @@ def build_instance(
     public_holidays: Iterable[date] = (),
     weekend_am_pm_enabled: bool = False,
     prev_oncall_names: Iterable[str] = (),
+    block_entries: Iterable[tuple[str, date, str]] = (),
 ) -> Instance:
     """Assemble an Instance from editable tables.
 
     `leave_entries` is an iterable of (doctor_name, date) pairs.
+    `block_entries` is an iterable of (doctor_name, date, kind) where `kind`
+    is one of "LEAVE", "NO_ONCALL", "NO_AM", "NO_PM". If you pass both
+    `leave_entries` and "LEAVE" rows in `block_entries`, they are unioned.
     `public_holidays` is a list of dates. `prev_oncall_names` is a list of
     doctor names who were on-call on the day before `start_date`.
     """
@@ -217,14 +221,38 @@ def build_instance(
     if not doctors:
         raise BuildError("At least one doctor is required.")
 
-    # Leave: convert (name, date) → {doctor_id: {day_index, ...}}.
+    # Leave + blocks: convert named entries → id-keyed dicts.
     leave: dict[int, set[int]] = {}
+    no_oncall: dict[int, set[int]] = {}
+    no_session: dict[int, dict[int, set[str]]] = {}
     for name, d in leave_entries:
         if name not in name_to_id:
             raise BuildError(f"Leave entry for unknown doctor '{name}'.")
         idx = day_index(d, start_date)
         if 0 <= idx < n_days:
             leave.setdefault(name_to_id[name], set()).add(idx)
+    for name, d, kind in block_entries:
+        if not name:
+            continue
+        if name not in name_to_id:
+            raise BuildError(f"Block entry for unknown doctor '{name}'.")
+        idx = day_index(d, start_date)
+        if not (0 <= idx < n_days):
+            continue
+        did = name_to_id[name]
+        k = (kind or "").strip().upper().replace(" ", "_").replace("-", "_")
+        if k in ("LEAVE", "OFF", "ANNUAL_LEAVE"):
+            leave.setdefault(did, set()).add(idx)
+        elif k in ("NO_ONCALL", "CALL_BLOCK", "NO_CALL"):
+            no_oncall.setdefault(did, set()).add(idx)
+        elif k in ("NO_AM", "NO_AM_SESSION"):
+            no_session.setdefault(did, {}).setdefault(idx, set()).add("AM")
+        elif k in ("NO_PM", "NO_PM_SESSION"):
+            no_session.setdefault(did, {}).setdefault(idx, set()).add("PM")
+        else:
+            raise BuildError(
+                f"Block for {name}: unknown type '{kind}'. "
+                "Use one of: Leave, No on-call, No AM, No PM.")
 
     # Public holidays.
     ph_idx: set[int] = set()
@@ -248,6 +276,8 @@ def build_instance(
         prev_oncall=prev_oncall_ids,
         weekend_am_pm_enabled=weekend_am_pm_enabled,
         prev_workload=prev_workload_map,
+        no_oncall=no_oncall,
+        no_session=no_session,
     )
 
 

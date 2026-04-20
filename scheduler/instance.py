@@ -46,6 +46,11 @@ class Instance:
     # this horizon. The solver adds this to its own weighted workload when
     # balancing fairness (higher = did more last period → gets less this one).
     prev_workload: dict[int, int] = field(default_factory=dict)
+    # Per-doctor hard blocks that are NOT whole-day leave:
+    # no_oncall — doctor can't take on-call on these days (can still do AM/PM).
+    # no_session — doctor can't be assigned to a specific session on these days.
+    no_oncall: dict[int, set[int]] = field(default_factory=dict)
+    no_session: dict[int, dict[int, set[str]]] = field(default_factory=dict)
 
     def is_weekend(self, day: int) -> bool:
         wd = (self.start_weekday + day) % 7

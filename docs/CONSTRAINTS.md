@@ -59,6 +59,13 @@ update it.
   Enforced as a soft constraint S5 with a large default weight so that idle
   doctor-weekdays are minimised when capacity allows, and surfaced as a
   penalty when capacity is insufficient.
+- **H12 — Call block.** Per-doctor, per-day hard block on being assigned
+  on-call. Unlike leave, the doctor may still be assigned AM/PM stations
+  that day. Input via `Instance.no_oncall[doctor_id] → set[day_idx]`.
+- **H13 — Session block.** Per-doctor, per-day, per-session hard block.
+  Prevents assigning the doctor to any station in that session (AM or PM).
+  Unlike leave, other sessions and on-call remain available. Input via
+  `Instance.no_session[doctor_id][day_idx] → {"AM" | "PM"}`.
 
 ## 3. Soft constraints (objective terms, weights configurable)
 
@@ -108,14 +115,23 @@ Station(name, sessions: {"AM"|"PM"}, required_per_session: int,
         eligible_tiers: set[str], is_reporting: bool = False)
 ```
 
-Additional input on `Instance`:
+Additional inputs on `Instance`:
 - `prev_workload: dict[doctor_id, int]` — carry-in from prior period for S0.
+- `no_oncall: dict[doctor_id, set[day_idx]]` — H12 call blocks.
+- `no_session: dict[doctor_id, dict[day_idx, set[session]]]` — H13 session blocks.
 
 Additional inputs on `solve(...)`:
 - `constraints: ConstraintConfig` — toggle each hard constraint on/off and
   parameterise H4's `oncall_gap_days` (default 3).
 - `workload_weights: WorkloadWeights` — per-role weights for the S0 balance
   term (and mirrored in the UI's workload score).
+- `stop_event: threading.Event | None` — caller-set flag; when set, solver
+  stops at the next callback opportunity and returns with FEASIBLE status.
+
+The UI also accepts `HoursConfig` (weekday AM/PM, weekend AM/PM, weekday/
+weekend on-call, weekend EXT, weekend consultant) for the **hours / week**
+report column. HoursConfig does not affect solver decisions — it's a
+display convenience only.
 
 ## 5. Defaults used when inputs are not specified (gaps #1–9)
 
