@@ -6,6 +6,7 @@ below is tagged with the H#/S# label from that doc.
 
 from __future__ import annotations
 
+import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -90,12 +91,14 @@ class _IntermediateLogger(cp_model.CpSolverSolutionCallback):
         callback: IntermediateCallback,
         components: dict[str, tuple[cp_model.IntVar, int]] | None = None,
         snapshot_vars: dict[str, dict[tuple, cp_model.IntVar]] | None = None,
+        stop_event: threading.Event | None = None,
     ) -> None:
         super().__init__()
         self._start = start
         self._cb = callback
         self._components = components or {}
         self._snapshot_vars = snapshot_vars or {}
+        self._stop_event = stop_event
 
     def on_solution_callback(self) -> None:  # noqa: D401 — CP-SAT API
         try:
@@ -129,6 +132,10 @@ class _IntermediateLogger(cp_model.CpSolverSolutionCallback):
                 snap[key] = taken
             event["assignments"] = snap
         self._cb(event)
+        # Caller-requested early stop (e.g. UI "Stop" button): exit the search
+        # with whatever the current best solution is. CP-SAT returns FEASIBLE.
+        if self._stop_event is not None and self._stop_event.is_set():
+            self.StopSearch()
 
 
 def solve(
@@ -143,6 +150,7 @@ def solve(
     feasibility_only: bool = False,
     on_intermediate: IntermediateCallback | None = None,
     snapshot_assignments: bool = False,
+    stop_event: threading.Event | None = None,
 ) -> SolveResult:
     """Build and solve the CP-SAT model for `inst`.
 
@@ -666,7 +674,16 @@ def solve(
             "wconsult": wconsult,
         }
     if not feasibility_only:
-        logger = _IntermediateLogger(t0, _dispatch, penalty_components, snapshot_maps)
+        logger = _IntermediateLogger(
+            t0, _dispatch, penalty_components, snapshot_maps,
+            stop_event=stop_event,
+        )
+        status_int = solver.Solve(model, logger)
+    elif stop_event is not None:
+        # Even in feasibility-only mode, honour the stop signal by attaching
+        # a minimal callback whose only job is to call StopSearch().
+        logger = _IntermediateLogger(
+            t0, lambda _e: None, None, None, stop_event=stop_event)
         status_int = solver.Solve(model, logger)
     else:
         status_int = solver.Solve(model)

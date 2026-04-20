@@ -273,7 +273,10 @@ def _style_workload(df: pd.DataFrame):
             return f"background-color: rgba(50, 120, 220, {0.15 + 0.35*intensity:.2f})"
         return ""
 
-    return df.style.applymap(_color, subset=["Δ median"]).format({
+    styler = df.style
+    # pandas ≥ 2.1 renamed Styler.applymap to Styler.map.
+    mapfn = getattr(styler, "map", None) or styler.applymap
+    return mapfn(_color, subset=["Δ median"]).format({
         "Δ median": "{:+.1f}", "Score": "{:.0f}",
     })
 
@@ -508,7 +511,7 @@ with tab_configure:
 
 # ============================================================ Solve & Roster
 def _solve_worker(inst, time_limit_s, weights, wl_weights, cfg,
-                  num_workers, feasibility_only, q):
+                  num_workers, feasibility_only, q, stop_event):
     def on_event(e):
         q.put(("event", e))
     try:
@@ -522,107 +525,164 @@ def _solve_worker(inst, time_limit_s, weights, wl_weights, cfg,
             feasibility_only=feasibility_only,
             on_intermediate=on_event,
             snapshot_assignments=True,
+            stop_event=stop_event,
         )
         q.put(("done", result))
     except Exception as exc:  # pragma: no cover
         q.put(("error", exc))
 
 
-with tab_solve:
-    bc1, bc2 = st.columns([1, 1])
-    solve_btn = bc1.button("Solve", type="primary", use_container_width=True)
-    clear_btn = bc2.button("Clear last result", use_container_width=True)
-
-    if clear_btn:
-        for k in ("last_result", "last_inst", "last_events", "last_doctor_names",
-                  "last_wl_weights"):
-            st.session_state.pop(k, None)
-        st.rerun()
-
-    if solve_btn:
+def _drain_solve_queue() -> None:
+    """Pull every event currently on the queue into session_state."""
+    ss = st.session_state
+    q: Queue = ss.solve_queue
+    while True:
         try:
-            inst = _build_inst()
-            names = doctor_name_map(st.session_state.doctors_df, inst)
-        except BuildError as e:
-            st.error(f"Setup issue: {e}")
-        else:
-            q: Queue = Queue()
-            worker = threading.Thread(
-                target=_solve_worker,
-                args=(inst, float(st.session_state.time_limit),
-                      _current_weights(), _current_workload_weights(),
-                      _current_constraints(),
-                      int(st.session_state.num_workers),
-                      bool(st.session_state.feasibility_only), q),
-                daemon=True,
+            kind, payload = q.get_nowait()
+        except Empty:
+            return
+        if kind == "event":
+            ss.solve_events.append(payload)
+        elif kind == "done":
+            ss.last_result = payload
+            ss.last_events = list(ss.solve_events)
+            ss.solving = False
+        elif kind == "error":
+            ss.solve_error = payload
+            ss.solving = False
+
+
+with tab_solve:
+    ss = st.session_state
+    ss.setdefault("solving", False)
+    ss.setdefault("solve_events", [])
+    ss.setdefault("solve_error", None)
+
+    # -------------------------------------------------------- Buttons row
+    if ss.solving:
+        bc1, bc2 = st.columns([1, 3])
+        stop_btn = bc1.button(
+            "⏹ Stop solve (accept current best)", type="primary",
+            use_container_width=True,
+            help="Signals the solver to exit after its current solution. "
+                 "Returns with FEASIBLE status if any solution was found.")
+        if stop_btn:
+            if "solve_stop" in ss:
+                ss.solve_stop.set()
+            bc2.info("Stop signal sent — waiting for solver to exit…")
+    else:
+        bc1, bc2 = st.columns([1, 1])
+        solve_btn = bc1.button("▶ Solve", type="primary", use_container_width=True)
+        clear_btn = bc2.button("Clear last result", use_container_width=True)
+
+        if clear_btn:
+            for k in ("last_result", "last_inst", "last_events",
+                      "last_doctor_names", "last_wl_weights",
+                      "solve_events", "solve_error"):
+                ss.pop(k, None)
+            st.rerun()
+
+        if solve_btn:
+            try:
+                inst = _build_inst()
+                names = doctor_name_map(ss.doctors_df, inst)
+            except BuildError as e:
+                st.error(f"Setup issue: {e}")
+            else:
+                ss.solve_queue = Queue()
+                ss.solve_stop = threading.Event()
+                ss.solve_events = []
+                ss.solve_error = None
+                ss.last_inst = inst
+                ss.last_doctor_names = names
+                ss.last_wl_weights = _current_workload_weights()
+                ss.last_result = None
+                worker = threading.Thread(
+                    target=_solve_worker,
+                    args=(inst, float(ss.time_limit),
+                          _current_weights(), _current_workload_weights(),
+                          _current_constraints(),
+                          int(ss.num_workers),
+                          bool(ss.feasibility_only),
+                          ss.solve_queue, ss.solve_stop),
+                    daemon=True,
+                )
+                worker.start()
+                ss.solve_thread = worker
+                ss.solving = True
+                st.rerun()
+
+    # -------------------------------------------------------- Live progress
+    if ss.solving:
+        _drain_solve_queue()
+        events = ss.solve_events
+        if events:
+            latest = events[-1]
+            obj = latest.get("objective")
+            bnd = latest.get("best_bound")
+            gap = None
+            if obj and bnd is not None and obj > 0:
+                gap = max(0.0, (obj - bnd) / obj * 100)
+            st.info(
+                f"Solving… {latest['wall_s']:.1f}s — "
+                f"**{len(events)}** improving solution(s), obj **{obj}** "
+                f"(bound {bnd})"
+                + (f", gap **{gap:.1f}%**" if gap is not None else "")
             )
-            worker.start()
 
-            st.subheader("Live solve")
-            status_slot = st.empty()
-            chart_slot = st.empty()
-            list_slot = st.empty()
+            fig, _ = plots.convergence(events)
+            st.plotly_chart(fig, use_container_width=True)
 
-            events: list[dict] = []
-            final = None
-            error = None
-            t0 = time.perf_counter()
+            # --- LIVE ROSTER: render the latest snapshot's doctor × date grid.
+            if latest.get("assignments") and "last_inst" in ss:
+                st.subheader(f"Current best roster — #{len(events)} (live)")
+                st.caption("Updates each time the solver finds an improving "
+                           "solution. Click **Stop** above to accept this one.")
+                grid = _snapshot_to_role_grid(
+                    ss.last_inst, latest["assignments"], ss.last_doctor_names)
+                st.dataframe(grid, use_container_width=True,
+                             height=min(500, 40 + 28 * len(grid)))
 
-            while True:
-                try:
-                    kind, payload = q.get(timeout=POLL_INTERVAL_S)
-                except Empty:
-                    status_slot.info(f"Solving… {time.perf_counter()-t0:.1f}s, "
-                                     f"{len(events)} solutions so far.")
-                    if not worker.is_alive() and q.empty():
-                        break
-                    continue
+                # Brief workload peek — just Score + Δ median so the user can
+                # judge fairness at a glance without leaving the solve tab.
+                wl_df = _workload_table(
+                    ss.last_inst, latest["assignments"],
+                    ss.last_doctor_names, ss.last_wl_weights)
+                with st.expander("Workload peek (current best)"):
+                    st.dataframe(_style_workload(wl_df),
+                                 use_container_width=True, hide_index=True)
 
-                if kind == "event":
-                    events.append(payload)
-                    obj = payload.get("objective")
-                    bnd = payload.get("best_bound")
-                    gap = None
-                    if obj and bnd is not None and obj > 0:
-                        gap = max(0.0, (obj - bnd) / obj * 100)
-                    status_slot.info(
-                        f"Solving… {payload['wall_s']:.1f}s — "
-                        f"**#{len(events)}** obj **{obj}** "
-                        f"(bound {bnd})"
-                        + (f", gap **{gap:.1f}%**" if gap is not None else "")
-                    )
-                    fig, _ = plots.convergence(events)
-                    chart_slot.plotly_chart(fig, use_container_width=True)
+            with st.expander("Intermediate solutions log"):
+                sol_rows = []
+                for i, e in enumerate(events):
+                    row = {"#": i + 1, "t (s)": round(e["wall_s"], 2),
+                           "objective": e["objective"], "bound": e["best_bound"]}
+                    for k, v in (e.get("components") or {}).items():
+                        row[k] = v
+                    sol_rows.append(row)
+                st.dataframe(pd.DataFrame(sol_rows),
+                             use_container_width=True, hide_index=True)
+        else:
+            st.info("Solving… waiting for first solution.")
 
-                    sol_rows = []
-                    for i, e in enumerate(events):
-                        row = {"#": i + 1,
-                               "t (s)": round(e["wall_s"], 2),
-                               "objective": e["objective"],
-                               "bound": e["best_bound"]}
-                        for k, v in (e.get("components") or {}).items():
-                            row[k] = v
-                        sol_rows.append(row)
-                    list_slot.dataframe(pd.DataFrame(sol_rows),
-                                        use_container_width=True, hide_index=True)
-                elif kind == "done":
-                    final = payload
-                    break
-                elif kind == "error":
-                    error = payload
-                    break
+        # Schedule the next rerun so the UI keeps updating. The sleep gives
+        # the user a chance to click Stop between reruns (Streamlit buttons
+        # only fire on rerun boundaries).
+        if ss.solving:
+            if ss.solve_thread.is_alive():
+                time.sleep(POLL_INTERVAL_S)
+                st.rerun()
+            else:
+                # Thread exited; one more drain to collect any tail events.
+                _drain_solve_queue()
+                ss.solving = False
+                st.rerun()
 
-            if error is not None:
-                st.error(f"Solve raised: {error!r}")
-            elif final is not None:
-                st.session_state.last_result = final
-                st.session_state.last_inst = inst
-                st.session_state.last_events = events
-                st.session_state.last_doctor_names = names
-                st.session_state.last_wl_weights = _current_workload_weights()
+    # -------------------------------------------------------- Final display
+    if (not ss.solving) and ss.get("solve_error") is not None:
+        st.error(f"Solve raised: {ss.solve_error!r}")
 
-    # -------------------------------------------------------- Result display
-    if "last_result" in st.session_state:
+    if (not ss.solving) and "last_result" in ss and ss.last_result is not None:
         result = st.session_state.last_result
         inst = st.session_state.last_inst
         events = st.session_state.last_events
@@ -699,8 +759,9 @@ with tab_solve:
                 fig, md = plots.coverage_heatmap(inst, result)
                 st.plotly_chart(fig, use_container_width=True)
                 st.caption(md)
-    else:
-        st.info("Configure on the Configure tab, then click Solve above.")
+    elif (not ss.solving) and ss.get("solve_error") is None \
+            and ss.get("last_result") is None:
+        st.info("Configure on the Configure tab, then click ▶ Solve above.")
 
 # ================================================================ Export
 with tab_export:
