@@ -908,8 +908,8 @@ with tab_setup:
                 new_df = pd.concat(
                     [ss.blocks_df, pd.DataFrame(rows)], ignore_index=True)
                 ss.blocks_df = new_df
-                st.session_state["blocks_csv_text"] = ""
-                st.success(f"Appended {added} row(s). Scroll up to verify.")
+                st.success(f"Appended {added} row(s). Scroll up to verify, "
+                           "then clear the text area above.")
                 st.rerun()
             elif csv_text.strip():
                 st.warning("No valid rows parsed. Format: "
