@@ -1,8 +1,9 @@
-"""Streamlit UI for the healthcare roster scheduler (v0.4).
+"""Streamlit UI for the healthcare roster scheduler (v0.5).
 
-Configure real doctors, a real calendar, and constraints in the UI.
-Watch intermediate solutions stream in. Pick any snapshot to view its
-roster keyed by name × date.
+Three-tab flow: **Configure** (doctors, stations, dates, leave, constraints,
+weights), **Solve & Roster** (streaming solve, verdict banner, doctor×date
+grid, weighted workload breakdown), **Export** (JSON/CSV download). Sidebar
+holds solver settings and diagnostics.
 
 Run locally:    streamlit run app.py
 HF Spaces:      deploy via the Docker frontmatter in README.md.
@@ -22,8 +23,14 @@ import streamlit as st
 
 from scheduler import plots
 from scheduler.diagnostics import explain_infeasibility, presolve_feasibility
-from scheduler.metrics import problem_metrics, solution_metrics, solve_metrics
-from scheduler.model import Weights, solve
+from scheduler.metrics import (
+    count_idle_weekdays,
+    problem_metrics,
+    solution_metrics,
+    solve_metrics,
+    workload_breakdown,
+)
+from scheduler.model import ConstraintConfig, Weights, WorkloadWeights, solve
 from scheduler.ui_state import (
     BuildError,
     SUBSPEC_CHOICES,
@@ -63,10 +70,30 @@ def _ensure_defaults() -> None:
     ss.setdefault("start_date", _next_monday(date.today()))
     ss.setdefault("n_days", 21)
     ss.setdefault("public_holidays", [])
-    ss.setdefault("w_sessions", 10)
-    ss.setdefault("w_oncall", 20)
-    ss.setdefault("w_weekend", 20)
+    # Objective weights (Weights dataclass).
+    ss.setdefault("w_workload", 40)
+    ss.setdefault("w_sessions", 5)
+    ss.setdefault("w_oncall", 10)
+    ss.setdefault("w_weekend", 10)
     ss.setdefault("w_report", 5)
+    ss.setdefault("w_idle", 100)
+    # Workload weights (WorkloadWeights dataclass).
+    ss.setdefault("wl_wd_session", 10)
+    ss.setdefault("wl_we_session", 15)
+    ss.setdefault("wl_wd_oncall", 20)
+    ss.setdefault("wl_we_oncall", 35)
+    ss.setdefault("wl_ext", 20)
+    ss.setdefault("wl_wconsult", 25)
+    # Constraint toggles (ConstraintConfig).
+    ss.setdefault("h4_enabled", True)
+    ss.setdefault("h4_gap", 3)
+    ss.setdefault("h5_enabled", True)
+    ss.setdefault("h6_enabled", True)
+    ss.setdefault("h7_enabled", True)
+    ss.setdefault("h8_enabled", True)
+    ss.setdefault("h9_enabled", True)
+    ss.setdefault("h11_enabled", True)
+    # Misc.
     ss.setdefault("weekend_am_pm", False)
     ss.setdefault("time_limit", 60)
     ss.setdefault("num_workers", 8)
@@ -102,21 +129,54 @@ def _build_inst():
     )
 
 
+def _current_weights() -> Weights:
+    ss = st.session_state
+    return Weights(
+        balance_sessions=int(ss.w_sessions),
+        balance_oncall=int(ss.w_oncall),
+        balance_weekend=int(ss.w_weekend),
+        reporting_spread=int(ss.w_report),
+        balance_workload=int(ss.w_workload),
+        idle_weekday=int(ss.w_idle),
+    )
+
+
+def _current_workload_weights() -> WorkloadWeights:
+    ss = st.session_state
+    return WorkloadWeights(
+        weekday_session=int(ss.wl_wd_session),
+        weekend_session=int(ss.wl_we_session),
+        weekday_oncall=int(ss.wl_wd_oncall),
+        weekend_oncall=int(ss.wl_we_oncall),
+        weekend_ext=int(ss.wl_ext),
+        weekend_consult=int(ss.wl_wconsult),
+    )
+
+
+def _current_constraints() -> ConstraintConfig:
+    ss = st.session_state
+    return ConstraintConfig(
+        h4_oncall_cap_enabled=bool(ss.h4_enabled),
+        h4_oncall_gap_days=int(ss.h4_gap),
+        h5_post_call_off_enabled=bool(ss.h5_enabled),
+        h6_senior_oncall_full_off_enabled=bool(ss.h6_enabled),
+        h7_junior_oncall_pm_enabled=bool(ss.h7_enabled),
+        h8_weekend_coverage_enabled=bool(ss.h8_enabled),
+        h9_lieu_day_enabled=bool(ss.h9_enabled),
+        h11_mandatory_weekday_enabled=bool(ss.h11_enabled),
+    )
+
+
 # ========================================================== Roster render
 def _snapshot_to_role_grid(inst, assignments: dict, names: dict[int, str]) -> pd.DataFrame:
     """Row per doctor, column per date. Cell = role string."""
-    dates = dates_for_horizon(inst.start_weekday_date(), inst.n_days) \
-        if hasattr(inst, "start_weekday_date") else None
-    # We don't store start_date on Instance; pass it separately via session.
     start_date = st.session_state.start_date
     dates = [start_date + timedelta(days=t) for t in range(inst.n_days)]
     date_labels = [format_date(d) for d in dates]
 
-    # Init grid with empty strings.
     doc_order = [names.get(d.id, f"Dr #{d.id}") for d in inst.doctors]
     grid = {name: [""] * inst.n_days for name in doc_order}
 
-    # Leave first (so station assignments can overwrite if there's a model bug).
     for did, days in inst.leave.items():
         nm = names.get(did, f"Dr #{did}")
         for t in days:
@@ -124,7 +184,6 @@ def _snapshot_to_role_grid(inst, assignments: dict, names: dict[int, str]) -> pd
                 grid[nm][t] = ROLE_CODES["leave"]
 
     stations = assignments.get("stations", {})
-    # Key format: (did, day, station_name, session). Value presence = assigned.
     per_cell: dict[tuple[int, int], list[str]] = {}
     for key in stations:
         if not stations.get(key):
@@ -160,38 +219,97 @@ def _snapshot_to_role_grid(inst, assignments: dict, names: dict[int, str]) -> pd
     return df
 
 
-def _snapshot_workload(inst, assignments: dict, names: dict[int, str]) -> pd.DataFrame:
-    rows = []
-    stations = assignments.get("stations", {})
-    sess_by_doc: dict[int, int] = {}
-    for key, v in stations.items():
-        if v:
-            did = key[0]
-            sess_by_doc[did] = sess_by_doc.get(did, 0) + 1
-    oc_by_doc: dict[int, int] = {}
-    for (did, _), v in assignments.get("oncall", {}).items():
-        if v:
-            oc_by_doc[did] = oc_by_doc.get(did, 0) + 1
-    wk_by_doc: dict[int, int] = {}
-    for key_set in ("ext", "wconsult"):
-        for (did, _), v in assignments.get(key_set, {}).items():
-            if v:
-                wk_by_doc[did] = wk_by_doc.get(did, 0) + 1
-    for (did, day), v in assignments.get("oncall", {}).items():
-        if v and inst.is_weekend(day):
-            wk_by_doc[did] = wk_by_doc.get(did, 0) + 1
-
+def _workload_table(inst, assignments: dict, names: dict[int, str],
+                    wl_weights: WorkloadWeights) -> pd.DataFrame:
+    """Rich per-doctor workload table with weighted score + distance from tier median."""
+    breakdown = workload_breakdown(inst, assignments, wl_weights)
+    idle_counts = count_idle_weekdays(inst, assignments)
+    rows: list[dict] = []
     for d in inst.doctors:
+        b = breakdown[d.id]
         rows.append({
             "Doctor": names.get(d.id, f"Dr #{d.id}"),
             "Tier": d.tier,
             "Sub-spec": d.subspec or "",
-            "Sessions": sess_by_doc.get(d.id, 0),
-            "On-call": oc_by_doc.get(d.id, 0),
-            "Weekend": wk_by_doc.get(d.id, 0),
-            "Leave days": len(inst.leave.get(d.id, set())),
+            "Wd sess": b["weekday_sessions"],
+            "We sess": b["weekend_sessions"],
+            "Wd call": b["weekday_oncall"],
+            "We call": b["weekend_oncall"],
+            "EXT": b["ext"],
+            "WC": b["wconsult"],
+            "Leave": b["leave_days"],
+            "Idle wd": idle_counts.get(d.id, 0),
+            "Prev": b["prev_workload"],
+            "Score": b["score"],
         })
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    # Distance from tier median: colour the "Score" column.
+    if not df.empty:
+        df["Δ median"] = 0.0
+        for tier in ("junior", "senior", "consultant"):
+            mask = df["Tier"] == tier
+            if mask.sum() < 2:
+                continue
+            median_score = df.loc[mask, "Score"].median()
+            df.loc[mask, "Δ median"] = df.loc[mask, "Score"] - median_score
+    return df
+
+
+def _style_workload(df: pd.DataFrame):
+    if df.empty or "Δ median" not in df.columns:
+        return df
+    max_abs = max(df["Δ median"].abs().max(), 1)
+
+    def _color(val):
+        try:
+            v = float(val)
+        except (TypeError, ValueError):
+            return ""
+        # Red = over median (overworked), Blue = under median (underworked).
+        intensity = min(1.0, abs(v) / max_abs)
+        if v > 0:
+            return f"background-color: rgba(220, 50, 50, {0.15 + 0.35*intensity:.2f})"
+        if v < 0:
+            return f"background-color: rgba(50, 120, 220, {0.15 + 0.35*intensity:.2f})"
+        return ""
+
+    return df.style.applymap(_color, subset=["Δ median"]).format({
+        "Δ median": "{:+.1f}", "Score": "{:.0f}",
+    })
+
+
+def _verdict(result, events, idle_total: int, has_coverage_viol: bool) -> tuple[str, str]:
+    """Returns (severity, message) where severity ∈ {'success','info','warning','error'}."""
+    status = result.status
+    gap_pct = None
+    if result.objective and result.best_bound is not None and result.objective > 0:
+        gap_pct = max(0.0, (result.objective - result.best_bound) / result.objective * 100)
+
+    if status == "INFEASIBLE":
+        return "error", ("**INFEASIBLE.** No roster satisfies your hard constraints. "
+                         "Use the **Diagnose** button in the sidebar to see which "
+                         "constraints are conflicting.")
+    if status in ("UNKNOWN", "MODEL_INVALID"):
+        return "error", f"**{status}** — solver could not complete. Raise the time limit and retry."
+    # OPTIMAL or FEASIBLE.
+    issues: list[str] = []
+    if idle_total > 0:
+        issues.append(f"{idle_total} idle doctor-weekday(s) — capacity may be tight "
+                      "(or raise the 'Idle weekday' penalty if you want zero).")
+    if has_coverage_viol:
+        issues.append("coverage violations detected (solver bug — report this)")
+    if status == "OPTIMAL":
+        head = "**OPTIMAL.** Solver proved this is the best possible roster under your constraints."
+    else:
+        if gap_pct is not None and gap_pct < 5:
+            head = f"**FEASIBLE, gap {gap_pct:.1f}%** — probably good enough; raise the time limit to try to prove optimal."
+        elif gap_pct is not None:
+            head = f"**FEASIBLE, gap {gap_pct:.1f}%** — solver ran out of time before proving optimality."
+        else:
+            head = "**FEASIBLE.**"
+    if issues:
+        return ("warning", head + " " + " · ".join(issues))
+    return ("success", head)
 
 
 # ========================================================== App shell
@@ -199,15 +317,65 @@ st.set_page_config(page_title="Healthcare Roster Scheduler", layout="wide")
 _ensure_defaults()
 
 st.title("Healthcare Roster Scheduler")
-st.caption("Configure doctors, dates, and constraints; stream solutions in real time. "
-           "Constraint spec: `docs/CONSTRAINTS.md`.")
+st.caption("Configure, solve, review. Constraint spec: `docs/CONSTRAINTS.md`.")
 
-tab_setup, tab_constraints, tab_solve, tab_roster, tab_analytics, tab_diag, tab_export = st.tabs(
-    ["Setup", "Constraints", "Solve", "Roster", "Analytics", "Diagnostics", "Export"]
+# --------------------------------------------------------------------- Sidebar
+with st.sidebar:
+    st.subheader("Solver settings")
+    st.slider("Time limit (s)", 5, 600, key="time_limit")
+    st.slider("CP-SAT workers", 1, 16, key="num_workers")
+    st.checkbox("Feasibility only (skip objective)", key="feasibility_only")
+
+    st.divider()
+    st.subheader("Diagnostics")
+    if st.button("Diagnose (L1 pre-solve)", use_container_width=True):
+        try:
+            inst = _build_inst()
+            issues = presolve_feasibility(inst)
+            if not issues:
+                st.success("All L1 checks pass.")
+            else:
+                errs = [i for i in issues if i.severity == "error"]
+                warns = [i for i in issues if i.severity == "warning"]
+                for i in errs:
+                    st.error(f"**{i.code}** — {i.message}")
+                for i in warns:
+                    st.warning(f"**{i.code}** — {i.message}")
+        except BuildError as e:
+            st.error(f"Setup issue: {e}")
+
+    if st.button("Explain infeasibility (L3)", use_container_width=True,
+                 help="Soft-relax H1 & H8 and report which constraints had to break."):
+        try:
+            inst = _build_inst()
+        except BuildError as e:
+            st.error(f"Setup issue: {e}")
+        else:
+            with st.spinner("Running relaxed solve…"):
+                rep = explain_infeasibility(inst, time_limit_s=30)
+            st.write(f"**{rep.status}** · total slack = {rep.total_slack}")
+            if rep.note:
+                st.caption(rep.note)
+            if rep.violations:
+                st.dataframe(pd.DataFrame([
+                    {"code": v.code, "location": v.location,
+                     "amount": v.amount, "message": v.message}
+                    for v in rep.violations
+                ]), use_container_width=True, hide_index=True)
+
+    st.divider()
+    st.caption("Role codes: **AM:X**=AM at station X, **PM:X**=PM, "
+               "**OC**=on-call, **EXT**=weekend extended, **WC**=weekend "
+               "consultant, **LV**=leave.")
+
+
+tab_configure, tab_solve, tab_export = st.tabs(
+    ["Configure", "Solve & Roster", "Export"]
 )
 
-# ==================================================================== Setup
-with tab_setup:
+# ================================================================ Configure
+with tab_configure:
+    st.subheader("When")
     c1, c2 = st.columns(2)
     st.session_state.start_date = c1.date_input("Start date", st.session_state.start_date)
     st.session_state.n_days = c2.number_input(
@@ -215,7 +383,6 @@ with tab_setup:
     end_date = st.session_state.start_date + timedelta(days=int(st.session_state.n_days) - 1)
     st.caption(f"Covers **{format_date(st.session_state.start_date)}** → "
                f"**{format_date(end_date)}** ({st.session_state.n_days} days)")
-
     horizon_dates = dates_for_horizon(st.session_state.start_date, int(st.session_state.n_days))
     kept = [d for d in st.session_state.public_holidays if d in horizon_dates]
     st.session_state.public_holidays = st.multiselect(
@@ -223,9 +390,11 @@ with tab_setup:
         options=horizon_dates, default=kept, format_func=format_date,
     )
 
+    st.divider()
     st.subheader("Doctors")
-    st.caption("Edit names, tiers, sub-specialty, and the stations each is eligible for. "
-               "Add/remove rows via the table controls.")
+    st.caption("Name, tier, sub-spec (consultants only), eligible stations, "
+               "and **prev_workload** (weighted score from last period — "
+               "doctors with higher numbers get less work this period).")
     st.session_state.doctors_df = st.data_editor(
         st.session_state.doctors_df,
         num_rows="dynamic",
@@ -238,6 +407,11 @@ with tab_setup:
             "eligible_stations": st.column_config.TextColumn(
                 "Eligible stations (comma-sep)",
                 help="Names must match the Stations table below."),
+            "prev_workload": st.column_config.NumberColumn(
+                "Prev workload",
+                min_value=-9999, max_value=9999, step=5, default=0,
+                help="Carry-in from the prior period. Defaults 0. "
+                     "Same units as the workload score in the Roster tab."),
         },
         key="_editor_doctors",
     )
@@ -258,6 +432,7 @@ with tab_setup:
             key="_editor_stations",
         )
 
+    st.divider()
     st.subheader("Leave")
     st.caption("One row per doctor × leave date. Dates outside the horizon are ignored.")
     known_names = [n for n in st.session_state.doctors_df["name"].dropna().tolist() if str(n).strip()]
@@ -272,36 +447,68 @@ with tab_setup:
         key="_editor_leave",
     )
 
-# ============================================================== Constraints
-with tab_constraints:
+    st.divider()
     st.subheader("Hard constraints")
+    st.caption("Each H-rule is toggleable. Defaults match `docs/CONSTRAINTS.md`.")
+    cc1, cc2 = st.columns(2)
+    with cc1:
+        st.checkbox("**H4** — On-call cap (1-in-N rolling)", key="h4_enabled")
+        st.number_input("H4 — N (days)", min_value=2, max_value=14, key="h4_gap",
+                        help="At most one on-call in any N-day window.")
+        st.checkbox("**H5** — Post-call day off", key="h5_enabled")
+        st.checkbox("**H6** — Senior on-call = full day off", key="h6_enabled")
+    with cc2:
+        st.checkbox("**H7** — Junior on-call works PM", key="h7_enabled")
+        st.checkbox("**H8** — Weekend coverage (EXT/OC/WC)", key="h8_enabled")
+        st.checkbox("**H9** — Lieu day after weekend EXT", key="h9_enabled")
+        st.checkbox(
+            "**H11** — Mandatory weekday assignment (soft, penalised)",
+            key="h11_enabled",
+            help="Penalises any doctor who is idle on a weekday without a valid "
+                 "excuse (leave / post-call / lieu). Weight set below."
+        )
     st.checkbox(
-        "Weekend AM/PM station coverage (off by default — weekends are covered by "
-        "extended-duty + on-call + weekend-consultant only)",
+        "Weekend AM/PM station coverage (off by default — weekends are "
+        "covered by EXT + on-call + weekend-consultant only)",
         key="weekend_am_pm",
     )
 
-    st.subheader("Soft objective weights")
-    st.caption("Higher weight = solver tries harder to minimise that term. Set to 0 to ignore.")
-    c1, c2 = st.columns(2)
-    c1.number_input("S1 — balance weekday sessions across each tier", min_value=0, max_value=1000,
-                    key="w_sessions")
-    c1.number_input("S2 — balance on-call across juniors/seniors", min_value=0, max_value=1000,
-                    key="w_oncall")
-    c2.number_input("S3 — balance weekend duty across each tier", min_value=0, max_value=1000,
-                    key="w_weekend")
-    c2.number_input("S4 — penalise same doctor on reporting desk two days in a row",
-                    min_value=0, max_value=1000, key="w_report")
+    st.divider()
+    st.subheader("Workload weighting")
+    st.caption("Turns each assignment into a number. Drives the per-doctor "
+               "'workload score' in the Roster tab AND the solver's fairness "
+               "objective (S0). Weekend roles default to higher weights.")
+    ww1, ww2, ww3 = st.columns(3)
+    ww1.number_input("Weekday session", min_value=0, max_value=100, key="wl_wd_session")
+    ww1.number_input("Weekend session", min_value=0, max_value=100, key="wl_we_session")
+    ww2.number_input("Weekday on-call", min_value=0, max_value=100, key="wl_wd_oncall")
+    ww2.number_input("Weekend on-call", min_value=0, max_value=100, key="wl_we_oncall")
+    ww3.number_input("Weekend EXT", min_value=0, max_value=100, key="wl_ext")
+    ww3.number_input("Weekend consultant", min_value=0, max_value=100, key="wl_wconsult")
 
-    st.subheader("Solver")
-    c1, c2 = st.columns(2)
-    c1.slider("Time limit (s)", 5, 600, key="time_limit")
-    c2.slider("CP-SAT workers", 1, 16, key="num_workers")
-    st.checkbox("Feasibility only (skip objective — fastest 'any valid roster')",
-                key="feasibility_only")
+    st.divider()
+    st.subheader("Soft-objective weights")
+    st.caption("How hard the solver tries to minimise each term. Set to 0 to ignore.")
+    sc1, sc2 = st.columns(2)
+    sc1.number_input("S0 — weighted workload balance (primary fairness term)",
+                     min_value=0, max_value=1000, key="w_workload")
+    sc1.number_input("S1 — raw sessions balance (per tier)",
+                     min_value=0, max_value=1000, key="w_sessions")
+    sc1.number_input("S2 — on-call balance (per tier)",
+                     min_value=0, max_value=1000, key="w_oncall")
+    sc2.number_input("S3 — weekend-duty balance (per tier)",
+                     min_value=0, max_value=1000, key="w_weekend")
+    sc2.number_input("S4 — reporting-desk spread",
+                     min_value=0, max_value=1000, key="w_report")
+    sc2.number_input("S5 — idle-weekday penalty (H11)",
+                     min_value=0, max_value=1000, key="w_idle",
+                     help="Per-doctor-per-weekday cost when a doctor is idle "
+                          "without an excuse. High = forces full utilisation.")
 
-# ================================================================== Solve
-def _solve_worker(inst, time_limit_s, weights, num_workers, feasibility_only, q):
+
+# ============================================================ Solve & Roster
+def _solve_worker(inst, time_limit_s, weights, wl_weights, cfg,
+                  num_workers, feasibility_only, q):
     def on_event(e):
         q.put(("event", e))
     try:
@@ -309,6 +516,8 @@ def _solve_worker(inst, time_limit_s, weights, num_workers, feasibility_only, q)
             inst,
             time_limit_s=time_limit_s,
             weights=weights,
+            workload_weights=wl_weights,
+            constraints=cfg,
             num_workers=num_workers,
             feasibility_only=feasibility_only,
             on_intermediate=on_event,
@@ -320,35 +529,15 @@ def _solve_worker(inst, time_limit_s, weights, num_workers, feasibility_only, q)
 
 
 with tab_solve:
-    bc1, bc2, bc3 = st.columns([1, 1, 1])
-    diagnose_btn = bc1.button("Diagnose (L1)", use_container_width=True)
-    solve_btn = bc2.button("Solve", type="primary", use_container_width=True)
-    clear_btn = bc3.button("Clear last result", use_container_width=True)
+    bc1, bc2 = st.columns([1, 1])
+    solve_btn = bc1.button("Solve", type="primary", use_container_width=True)
+    clear_btn = bc2.button("Clear last result", use_container_width=True)
 
     if clear_btn:
-        for k in ("last_result", "last_inst", "last_events", "last_doctor_names"):
+        for k in ("last_result", "last_inst", "last_events", "last_doctor_names",
+                  "last_wl_weights"):
             st.session_state.pop(k, None)
         st.rerun()
-
-    if diagnose_btn:
-        try:
-            inst = _build_inst()
-            issues = presolve_feasibility(inst)
-            if not issues:
-                st.success("No pre-solve issues — necessary-condition checks pass.")
-            else:
-                errors = [i for i in issues if i.severity == "error"]
-                warnings_ = [i for i in issues if i.severity == "warning"]
-                if errors:
-                    st.error(f"{len(errors)} blocking issue(s):")
-                    for i in errors:
-                        st.write(f"• **{i.code}** — {i.message}")
-                if warnings_:
-                    st.warning(f"{len(warnings_)} warning(s):")
-                    for i in warnings_:
-                        st.write(f"• **{i.code}** — {i.message}")
-        except BuildError as e:
-            st.error(f"Setup issue: {e}")
 
     if solve_btn:
         try:
@@ -357,16 +546,12 @@ with tab_solve:
         except BuildError as e:
             st.error(f"Setup issue: {e}")
         else:
-            weights = Weights(
-                balance_sessions=int(st.session_state.w_sessions),
-                balance_oncall=int(st.session_state.w_oncall),
-                balance_weekend=int(st.session_state.w_weekend),
-                reporting_spread=int(st.session_state.w_report),
-            )
             q: Queue = Queue()
             worker = threading.Thread(
                 target=_solve_worker,
-                args=(inst, float(st.session_state.time_limit), weights,
+                args=(inst, float(st.session_state.time_limit),
+                      _current_weights(), _current_workload_weights(),
+                      _current_constraints(),
                       int(st.session_state.num_workers),
                       bool(st.session_state.feasibility_only), q),
                 daemon=True,
@@ -430,187 +615,97 @@ with tab_solve:
             if error is not None:
                 st.error(f"Solve raised: {error!r}")
             elif final is not None:
-                if final.status in ("OPTIMAL", "FEASIBLE"):
-                    status_slot.success(
-                        f"**{final.status}** in {final.wall_time_s:.2f}s — "
-                        f"obj **{final.objective}**, first feasible at "
-                        f"{(final.first_feasible_s or 0):.2f}s, "
-                        f"{len(events)} improving solutions."
-                    )
-                else:
-                    status_slot.error(f"**{final.status}** after "
-                                      f"{final.wall_time_s:.2f}s — no roster produced.")
                 st.session_state.last_result = final
                 st.session_state.last_inst = inst
                 st.session_state.last_events = events
                 st.session_state.last_doctor_names = names
+                st.session_state.last_wl_weights = _current_workload_weights()
 
-    if "last_result" in st.session_state and not solve_btn:
-        r = st.session_state.last_result
-        st.info(f"Last run: **{r.status}** · obj **{r.objective}** · "
-                f"{r.wall_time_s:.2f}s · "
-                f"{len(st.session_state.last_events)} snapshots available — "
-                "see the **Roster** tab.")
-
-# ================================================================ Roster
-with tab_roster:
-    if "last_result" not in st.session_state:
-        st.info("Run a solve first (Solve tab).")
-    else:
+    # -------------------------------------------------------- Result display
+    if "last_result" in st.session_state:
         result = st.session_state.last_result
         inst = st.session_state.last_inst
         events = st.session_state.last_events
         names = st.session_state.last_doctor_names
+        wl_weights = st.session_state.last_wl_weights
 
-        if result.status not in ("OPTIMAL", "FEASIBLE"):
-            st.warning(f"No roster to display — status {result.status}.")
-        else:
-            options = ["Final"]
+        has_sol = result.status in ("OPTIMAL", "FEASIBLE")
+        idle_total = 0
+        has_cov_viol = False
+        if has_sol:
+            idle_total = sum(
+                count_idle_weekdays(inst, result.assignments).values())
+            sm = solution_metrics(inst, result)
+            has_cov_viol = bool(sm.get("coverage_violations"))
+
+        severity, message = _verdict(result, events, idle_total, has_cov_viol)
+        banner = {"success": st.success, "warning": st.warning,
+                  "error": st.error, "info": st.info}[severity]
+        banner(message)
+
+        # Metric strip.
+        mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+        mc1.metric("Status", result.status)
+        mc2.metric("Wall", f"{result.wall_time_s:.2f}s")
+        mc3.metric("First feasible",
+                   f"{(result.first_feasible_s or 0):.2f}s" if result.first_feasible_s else "—")
+        mc4.metric("Objective",
+                   f"{result.objective:.0f}" if result.objective is not None else "—")
+        mc5.metric("Idle weekdays", idle_total if has_sol else "—")
+
+        if has_sol:
+            snap_options = ["Final"]
             for i, e in enumerate(events):
                 if e.get("assignments"):
-                    options.append(f"#{i+1} — t={e['wall_s']:.1f}s, obj={e['objective']}")
-
-            pick = st.selectbox("Snapshot", options, index=0,
+                    snap_options.append(f"#{i+1} — t={e['wall_s']:.1f}s, obj={e['objective']}")
+            pick = st.selectbox("Snapshot", snap_options, index=0,
                                 help="Any improving solution CP-SAT found during search.")
             if pick == "Final":
                 snap = result.assignments
-                label = f"Final ({result.status}, obj {result.objective})"
             else:
                 idx = int(pick.split("—", 1)[0].strip().lstrip("#")) - 1
                 snap = events[idx]["assignments"]
-                label = pick
 
-            st.caption(f"Showing: **{label}**")
-
-            st.subheader("Doctor × date grid")
-            st.caption("Cells show the assigned roles. `AM:CT` = AM at CT station. "
-                       "`OC` = on-call. `EXT` = weekend extended duty. "
-                       "`WC` = weekend consultant. `LV` = leave.")
+            st.subheader("Roster — doctor × date")
             grid_df = _snapshot_to_role_grid(inst, snap, names)
-            st.dataframe(grid_df, use_container_width=True, height=min(600, 40 + 28 * len(grid_df)))
+            st.dataframe(grid_df, use_container_width=True,
+                         height=min(600, 40 + 28 * len(grid_df)))
 
             st.subheader("Per-doctor workload")
-            wl_df = _snapshot_workload(inst, snap, names)
-            st.dataframe(wl_df, use_container_width=True, hide_index=True)
+            st.caption("**Score** = weighted sum of assignments + prev_workload. "
+                       "**Δ median** = how far this doctor is from the tier median "
+                       "(red = over-worked, blue = under-worked).")
+            wl_df = _workload_table(inst, snap, names, wl_weights)
+            st.dataframe(_style_workload(wl_df),
+                         use_container_width=True, hide_index=True)
 
-# ============================================================== Analytics
-def _explanation(md: str) -> None:
-    with st.expander("How to read this chart", expanded=False):
-        st.markdown(md)
+            with st.expander("Advanced analytics (convergence, penalty breakdown, heatmaps)"):
+                fig, md = plots.convergence(events, objective=result.objective)
+                st.plotly_chart(fig, use_container_width=True)
+                st.caption(md)
 
+                fig, md = plots.penalty_breakdown(events)
+                st.plotly_chart(fig, use_container_width=True)
+                st.caption(md)
 
-with tab_analytics:
-    if "last_result" not in st.session_state:
-        st.info("Run a solve first (Solve tab).")
+                fig, md = plots.workload_histogram(inst, result)
+                st.plotly_chart(fig, use_container_width=True)
+                st.caption(md)
+
+                fig, md = plots.oncall_spacing(inst, result)
+                st.plotly_chart(fig, use_container_width=True)
+                st.caption(md)
+
+                fig, md = plots.coverage_heatmap(inst, result)
+                st.plotly_chart(fig, use_container_width=True)
+                st.caption(md)
     else:
-        result = st.session_state.last_result
-        inst = st.session_state.last_inst
-        events = st.session_state.last_events
-
-        if result.status not in ("OPTIMAL", "FEASIBLE"):
-            st.warning("No solution to analyse.")
-        else:
-            sm = solve_metrics(result, events)
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Status", result.status)
-            c2.metric("Wall time", f"{result.wall_time_s:.2f} s")
-            c3.metric("First feasible",
-                      f"{(result.first_feasible_s or 0):.2f} s")
-            c4.metric("Objective", result.objective)
-            c5, c6, c7, c8 = st.columns(4)
-            c5.metric("Optimality gap",
-                      f"{sm['optimality_gap']*100:.1f} %" if sm["optimality_gap"] is not None else "—")
-            c6.metric("Variables", f"{result.n_vars:,}")
-            c7.metric("Constraints", f"{result.n_constraints:,}")
-            c8.metric("Snapshots", sm["n_intermediate_solutions"])
-
-            st.subheader("Convergence")
-            fig, md = plots.convergence(events, objective=result.objective)
-            st.plotly_chart(fig, use_container_width=True)
-            _explanation(md)
-
-            st.subheader("Penalty breakdown over time")
-            fig, md = plots.penalty_breakdown(events)
-            st.plotly_chart(fig, use_container_width=True)
-            _explanation(md)
-
-            st.subheader("Workload histogram")
-            fig, md = plots.workload_histogram(inst, result)
-            st.plotly_chart(fig, use_container_width=True)
-            _explanation(md)
-
-            st.subheader("On-call spacing")
-            fig, md = plots.oncall_spacing(inst, result)
-            st.plotly_chart(fig, use_container_width=True)
-            _explanation(md)
-
-            st.subheader("Coverage heatmap")
-            fig, md = plots.coverage_heatmap(inst, result)
-            st.plotly_chart(fig, use_container_width=True)
-            _explanation(md)
-
-            st.subheader("Coverage slack (pre-solve)")
-            fig, md = plots.coverage_slack(inst)
-            st.plotly_chart(fig, use_container_width=True)
-            _explanation(md)
-
-# ============================================================ Diagnostics
-with tab_diag:
-    st.subheader("L1 — pre-solve feasibility sniff")
-    st.caption("Millisecond necessary-condition checks. Won't catch every "
-               "infeasibility, but catches the obvious ones instantly.")
-    if st.button("Run L1 checks"):
-        try:
-            inst = _build_inst()
-            issues = presolve_feasibility(inst)
-            if not issues:
-                st.success("All L1 checks pass.")
-            else:
-                errors = [i for i in issues if i.severity == "error"]
-                warnings_ = [i for i in issues if i.severity == "warning"]
-                if errors:
-                    st.error(f"{len(errors)} blocking issue(s):")
-                    for i in errors:
-                        st.write(f"• **{i.code}** — {i.message}")
-                if warnings_:
-                    st.warning(f"{len(warnings_)} warning(s):")
-                    for i in warnings_:
-                        st.write(f"• **{i.code}** — {i.message}")
-        except BuildError as e:
-            st.error(f"Setup issue: {e}")
-
-    st.divider()
-    st.subheader("L3 — soft-relax explainer")
-    st.caption("Relaxes H1 (station coverage) and H8 (weekend coverage) "
-               "with slack, minimises total slack, and reports which "
-               "constraints had to be broken and by how much.")
-    if st.button("Run L3 explainer (may take ~30 s)"):
-        try:
-            inst = _build_inst()
-        except BuildError as e:
-            st.error(f"Setup issue: {e}")
-        else:
-            with st.spinner("Running relaxed solve…"):
-                rep = explain_infeasibility(inst, time_limit_s=30)
-            st.write(f"**Status:** `{rep.status}` · "
-                     f"wall time {rep.wall_time_s:.2f}s · "
-                     f"total slack = {rep.total_slack}")
-            if rep.note:
-                st.info(rep.note)
-            if rep.violations:
-                df = pd.DataFrame([
-                    {"code": v.code, "location": v.location,
-                     "amount": v.amount, "message": v.message}
-                    for v in rep.violations
-                ])
-                st.dataframe(df, use_container_width=True, hide_index=True)
-            else:
-                st.success("No constraint violations in the relaxed model.")
+        st.info("Configure on the Configure tab, then click Solve above.")
 
 # ================================================================ Export
 with tab_export:
     if "last_result" not in st.session_state:
-        st.info("Run a solve first (Solve tab).")
+        st.info("Run a solve first.")
     else:
         result = st.session_state.last_result
         inst = st.session_state.last_inst

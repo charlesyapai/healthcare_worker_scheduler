@@ -1,7 +1,8 @@
 # Scheduling Constraints — Single Source of Truth
 
-Status: **v0.1 (defaults applied)** — awaiting user confirmation on gaps 1–9.
-Last updated: 2026-04-18.
+Status: **v0.5** — H11 soft constraint added; all H-rules toggleable; weighted
+workload model with prior-period carry-in.
+Last updated: 2026-04-20.
 
 This document is the authoritative specification for the CP-SAT model. If the
 model and this doc disagree, this doc is wrong — file a changelog entry and
@@ -51,6 +52,13 @@ update it.
   falls inside the horizon. If both fall inside, exactly one is chosen.
 - **H10 — Leave.** Leave days (input) force: no AM, no PM, no on-call, no
   weekend role on that day.
+- **H11 — Mandatory weekday assignment (soft).** On every weekday, every
+  doctor must be either (a) assigned to an AM or PM station, (b) on-call, or
+  (c) excused. Valid excuses: leave (H10), post-call (day after on-call;
+  enforced by H5), senior-on-call-day (full day off per H6), lieu day (H9).
+  Enforced as a soft constraint S5 with a large default weight so that idle
+  doctor-weekdays are minimised when capacity allows, and surfaced as a
+  penalty when capacity is insufficient.
 
 ## 3. Soft constraints (objective terms, weights configurable)
 
@@ -67,9 +75,20 @@ All penalties are summed, multiplied by their weight, and minimized.
 - **S4 — Reporting-station spread.** Penalize every consecutive-day pair where
   the same doctor is on a station flagged `is_reporting=True` (default: only
   `XR_REPORT`).
+- **S0 — Weighted workload balance (per tier).** Primary fairness term.
+  Each assignment is weighted: weekday session (default 10), weekend session
+  (15), weekday on-call (20), weekend on-call (35), weekend EXT (20),
+  weekend consultant (25). Per-doctor `weighted_workload[d] + prev_workload[d]`
+  is computed; S0 minimises `max − min` of that quantity across doctors in
+  a tier. Prior-period carry-in `prev_workload[d]` is an integer input per
+  doctor; a doctor who did a lot last period gets a higher baseline and is
+  naturally given less work this period.
+- **S5 — Idle-weekday penalty (H11).** Per idle doctor-weekday (no station,
+  no on-call, no excuse). Default weight 100 — heavy, so the solver will
+  eliminate idles wherever capacity allows.
 
-Default weights: `w_balance_sessions=10`, `w_balance_oncall=20`,
-`w_balance_weekend=20`, `w_reporting_spread=5`.
+Default weights: `balance_workload=40`, `balance_sessions=5`, `balance_oncall=10`,
+`balance_weekend=10`, `reporting_spread=5`, `idle_weekday=100`.
 
 ## 4. Inputs expected by the model
 
@@ -88,6 +107,15 @@ Doctor(id, tier, subspec|None, eligible_stations: set[str])
 Station(name, sessions: {"AM"|"PM"}, required_per_session: int,
         eligible_tiers: set[str], is_reporting: bool = False)
 ```
+
+Additional input on `Instance`:
+- `prev_workload: dict[doctor_id, int]` — carry-in from prior period for S0.
+
+Additional inputs on `solve(...)`:
+- `constraints: ConstraintConfig` — toggle each hard constraint on/off and
+  parameterise H4's `oncall_gap_days` (default 3).
+- `workload_weights: WorkloadWeights` — per-role weights for the S0 balance
+  term (and mirrored in the UI's workload score).
 
 ## 5. Defaults used when inputs are not specified (gaps #1–9)
 
@@ -126,12 +154,14 @@ Auxiliary (for objective):
 - `oncall_count[d]`, `weekend_count[d]`.
 - `tier_max_*`, `tier_min_*` for each tier's balance terms.
 
-## 7. Out of scope for v0.1
+## 7. Out of scope
 
 - Mid-month re-solve with locked past assignments. (User confirmed not needed.)
 - Pairwise conflicts ("person X cannot work with Y"). (User: no such constraint.)
 - Max-hours-per-doctor caps. (User: no such constraint for now.)
-- Fairness across months (carryover of on-call/weekend counts).
 - Preference constraints (doctor wants specific days).
+- End-user defined new hard constraints (DSL / form-builder). Adding a new
+  hard rule requires a code change + a ConstraintConfig toggle. Existing
+  rules are toggleable; parameters are editable in the UI.
 
-These belong in a v0.2 if needed.
+Fairness-across-months carry-in is **in scope** as of v0.5 via `prev_workload`.

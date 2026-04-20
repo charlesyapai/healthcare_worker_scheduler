@@ -16,7 +16,7 @@ from statistics import mean, median, pstdev
 from typing import Any
 
 from scheduler.instance import SESSIONS, Instance
-from scheduler.model import SolveResult
+from scheduler.model import SolveResult, WorkloadWeights
 
 
 # ----------------------------------------------------------------- Problem
@@ -244,3 +244,96 @@ def solution_metrics(inst: Instance, result: SolveResult) -> dict[str, Any]:
         "per_doctor": {did: {k: v for k, v in info.items() if k != "oncall_days"}
                        for did, info in per_doc.items()},
     }
+
+
+# --------------------------------------------------- Weighted workload scoring
+
+def workload_breakdown(
+    inst: Instance,
+    assignments: dict,
+    workload_weights: WorkloadWeights | None = None,
+) -> dict[int, dict[str, int]]:
+    """Per-doctor weighted workload breakdown from an assignment snapshot.
+
+    Returns `{doctor_id: {weekday_sessions, weekend_sessions, weekday_oncall,
+    weekend_oncall, ext, wconsult, leave_days, prev_workload, score}}` where
+    `score = weekday_sessions*w_wd + weekend_sessions*w_we + ... + prev_workload`.
+    Mirrors the solver's S0 term so the UI table reflects what the solver
+    balanced on.
+    """
+    w = workload_weights or WorkloadWeights()
+    out: dict[int, dict[str, int]] = {}
+    for d in inst.doctors:
+        out[d.id] = {
+            "weekday_sessions": 0,
+            "weekend_sessions": 0,
+            "weekday_oncall": 0,
+            "weekend_oncall": 0,
+            "ext": 0,
+            "wconsult": 0,
+            "leave_days": len(inst.leave.get(d.id, set())),
+            "prev_workload": int(inst.prev_workload.get(d.id, 0)),
+        }
+
+    for (did, day, _st, _sess), v in assignments.get("stations", {}).items():
+        if not v:
+            continue
+        key = "weekend_sessions" if inst.is_weekend(day) else "weekday_sessions"
+        out[did][key] += 1
+    for (did, day), v in assignments.get("oncall", {}).items():
+        if not v:
+            continue
+        key = "weekend_oncall" if inst.is_weekend(day) else "weekday_oncall"
+        out[did][key] += 1
+    for (did, _), v in assignments.get("ext", {}).items():
+        if v:
+            out[did]["ext"] += 1
+    for (did, _), v in assignments.get("wconsult", {}).items():
+        if v:
+            out[did]["wconsult"] += 1
+
+    for did, row in out.items():
+        score = (
+            row["weekday_sessions"] * w.weekday_session
+            + row["weekend_sessions"] * w.weekend_session
+            + row["weekday_oncall"] * w.weekday_oncall
+            + row["weekend_oncall"] * w.weekend_oncall
+            + row["ext"] * w.weekend_ext
+            + row["wconsult"] * w.weekend_consult
+            + row["prev_workload"]
+        )
+        row["score"] = int(score)
+    return out
+
+
+def count_idle_weekdays(inst: Instance, assignments: dict) -> dict[int, int]:
+    """Per-doctor count of weekdays where the doctor had no station/oncall/ext/wc
+    role and was not on leave. Mirrors H11's idle definition (leave-excused only;
+    post-call / senior-oncall / lieu days still show up as idle here so the UI
+    flags them — the caller can net them out if desired)."""
+    out: dict[int, int] = {d.id: 0 for d in inst.doctors}
+    # Build per-(doc, day) "busy" flag.
+    busy: dict[tuple[int, int], bool] = {}
+    for (did, day, _st, _sess), v in assignments.get("stations", {}).items():
+        if v:
+            busy[(did, day)] = True
+    for key, v in assignments.get("oncall", {}).items():
+        if v:
+            busy[key] = True
+    for key, v in assignments.get("ext", {}).items():
+        if v:
+            busy[key] = True
+    for key, v in assignments.get("wconsult", {}).items():
+        if v:
+            busy[key] = True
+
+    for d in inst.doctors:
+        leave_days = inst.leave.get(d.id, set())
+        for day in range(inst.n_days):
+            if inst.is_weekend(day):
+                continue
+            if day in leave_days:
+                continue
+            if not busy.get((d.id, day), False):
+                out[d.id] += 1
+    return out

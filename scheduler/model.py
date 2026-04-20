@@ -37,11 +37,45 @@ class SolveResult:
 
 
 @dataclass
+class WorkloadWeights:
+    """Weights that turn raw assignments into a single per-doctor workload score.
+
+    Used both for display (the 'workload score' column in the UI) and for the
+    solver's S0 weighted-balance term (balances `weighted_score + prev_workload`
+    across doctors within a tier).
+
+    Integer-valued so the CP-SAT objective stays integer. Defaults reflect
+    "weekend work costs more than weekday work" with sensible ratios.
+    """
+    weekday_session: int = 10      # AM or PM station on a weekday
+    weekend_session: int = 15      # AM or PM station on a weekend (if enabled)
+    weekday_oncall: int = 20       # Junior/senior on-call on a weekday night
+    weekend_oncall: int = 35       # Junior/senior on-call on a weekend night
+    weekend_ext: int = 20          # Weekend extended-duty role
+    weekend_consult: int = 25      # Consultant weekend role
+
+
+@dataclass
+class ConstraintConfig:
+    """Toggles + parameters for the hard constraints. All default on."""
+    h4_oncall_cap_enabled: bool = True
+    h4_oncall_gap_days: int = 3      # "1-in-N" — 1 on-call per N consecutive days
+    h5_post_call_off_enabled: bool = True
+    h6_senior_oncall_full_off_enabled: bool = True
+    h7_junior_oncall_pm_enabled: bool = True
+    h8_weekend_coverage_enabled: bool = True
+    h9_lieu_day_enabled: bool = True
+    h11_mandatory_weekday_enabled: bool = True   # Soft: penalty per idle doc-day
+
+
+@dataclass
 class Weights:
-    balance_sessions: int = 10
-    balance_oncall: int = 20
-    balance_weekend: int = 20
+    balance_sessions: int = 5
+    balance_oncall: int = 10
+    balance_weekend: int = 10
     reporting_spread: int = 5
+    balance_workload: int = 40       # S0 — weighted total workload balance
+    idle_weekday: int = 100          # S5 — per-idle-doctor-weekday penalty
 
 
 IntermediateCallback = Callable[[dict[str, Any]], None]
@@ -102,6 +136,8 @@ def solve(
     *,
     time_limit_s: float = 300.0,
     weights: Weights | None = None,
+    workload_weights: WorkloadWeights | None = None,
+    constraints: ConstraintConfig | None = None,
     num_workers: int = 8,
     log_search_progress: bool = False,
     feasibility_only: bool = False,
@@ -117,14 +153,18 @@ def solve(
         improving solution. Lets the caller stream progress.
     """
     weights = weights or Weights()
+    workload_weights = workload_weights or WorkloadWeights()
+    cfg = constraints or ConstraintConfig()
     model = cp_model.CpModel()
-    doc_by_id = {d.id: d for d in inst.doctors}
 
     # ------------------------------------------------------------------ Vars
     # assign[d, day, station, sess] — H1, H2, H3.
     assign: dict[tuple[int, int, str, str], cp_model.IntVar] = {}
     # Index assign by (doctor, day) so post-call / lieu loops stay O(1) per hit.
     assign_by_dday: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
+    # Split by session so H11 can reason about AM/PM separately.
+    assign_by_dday_am: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
+    assign_by_dday_pm: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
     station_by_name = {s.name: s for s in inst.stations}
     for d in inst.doctors:
         leave_days = inst.leave.get(d.id, set())
@@ -143,6 +183,8 @@ def solve(
                     v = model.NewBoolVar(f"a_{d.id}_{day}_{st_name}_{sess}")
                     assign[(d.id, day, st_name, sess)] = v
                     assign_by_dday[(d.id, day)].append(v)
+                    (assign_by_dday_am if sess == "AM" else assign_by_dday_pm)[
+                        (d.id, day)].append(v)
 
     # oncall[d, day] — juniors + seniors only.
     oncall: dict[tuple[int, int], cp_model.IntVar] = {}
@@ -182,11 +224,7 @@ def solve(
             wconsult[(d.id, day)] = model.NewBoolVar(f"wc_{d.id}_{day}")
 
     # lieu_choice[d, w, side] — per weekend-ext assignment, two bools (fri / mon).
-    # Only created where the candidate weekday is inside the horizon and not
-    # already a leave day. H9 links these to ext and forces the ext-day lieu off.
     lieu_choice: dict[tuple[int, int, str], cp_model.IntVar] = {}
-    # lieu_uses[d, weekday_day] = list of lieu_choice vars that, when true,
-    # force that weekday off for that doctor.
     lieu_uses: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
     for d in inst.doctors:
         if d.tier == "consultant":
@@ -212,6 +250,16 @@ def solve(
                 lv = model.NewBoolVar(f"lieu_{d.id}_{w}_{side}")
                 lieu_choice[(d.id, w, side)] = lv
                 lieu_uses[(d.id, target_day)].append(lv)
+
+    # lieu_taken[d, day] — OR of lieu choices pointing at (d, day). Used by
+    # H5/H9 (force no activity) AND H11 (counts as an "excused" weekday).
+    lieu_taken: dict[tuple[int, int], cp_model.IntVar] = {}
+    for (did, day), choice_vars in lieu_uses.items():
+        if not choice_vars:
+            continue
+        lt = model.NewBoolVar(f"lieu_taken_{did}_{day}")
+        model.AddMaxEquality(lt, choice_vars)
+        lieu_taken[(did, day)] = lt
 
     # ------------------------------------------------------------ Hard constraints
 
@@ -243,41 +291,52 @@ def solve(
                 if vars_for:
                     model.Add(sum(vars_for) <= 1)
 
-    # H4 — On-call cap (1-in-3 rolling window).
-    for d in inst.doctors:
-        if d.tier == "consultant":
-            continue
-        for start in range(inst.n_days - 2):
-            window = [
-                oncall[(d.id, day)]
-                for day in range(start, start + 3)
-                if (d.id, day) in oncall
-            ]
-            if len(window) >= 2:
-                model.Add(sum(window) <= 1)
+    # H4 — On-call cap (1-in-N rolling window).
+    if cfg.h4_oncall_cap_enabled and cfg.h4_oncall_gap_days >= 2:
+        N = cfg.h4_oncall_gap_days
+        for d in inst.doctors:
+            if d.tier == "consultant":
+                continue
+            for start in range(inst.n_days - (N - 1)):
+                window = [
+                    oncall[(d.id, day)]
+                    for day in range(start, start + N)
+                    if (d.id, day) in oncall
+                ]
+                if len(window) >= 2:
+                    model.Add(sum(window) <= 1)
 
-    # prev_oncall seed (H4 continuity): if doctor was on-call on day -1,
-    # days 0 and 1 can't have on-call (3-day window includes day -1).
-    for did in inst.prev_oncall:
-        for day in (0, 1):
-            if (did, day) in oncall:
-                model.Add(oncall[(did, day)] == 0)
+        # prev_oncall seed: days 0..N-2 can't have on-call if prior-period ended on-call.
+        for did in inst.prev_oncall:
+            for day in range(min(N - 1, inst.n_days)):
+                if (did, day) in oncall:
+                    model.Add(oncall[(did, day)] == 0)
 
     # H5 — Post-call off: oncall[d, t] == 1 ⇒ no activity on t+1.
-    for d in inst.doctors:
-        if d.tier == "consultant":
-            continue
-        for day in range(inst.n_days - 1):
-            if (d.id, day) not in oncall:
+    post_call: dict[tuple[int, int], cp_model.IntVar] = {}
+    if cfg.h5_post_call_off_enabled:
+        for d in inst.doctors:
+            if d.tier == "consultant":
                 continue
-            oc = oncall[(d.id, day)]
-            for v in _activities_on(d.id, day + 1, assign_by_dday, oncall, ext, wconsult):
-                model.AddImplication(oc, v.Not())
+            for day in range(inst.n_days - 1):
+                if (d.id, day) not in oncall:
+                    continue
+                oc = oncall[(d.id, day)]
+                for v in _activities_on(d.id, day + 1, assign_by_dday, oncall, ext, wconsult):
+                    model.AddImplication(oc, v.Not())
+                # post_call[d, day+1] mirrors oncall[d, day] for H11's "excused" check.
+                pc = model.NewBoolVar(f"pc_{d.id}_{day+1}")
+                model.Add(pc == oc)
+                post_call[(d.id, day + 1)] = pc
 
-    # Seed continuity: day 0 is post-call if doctor was on-call on day -1.
-    for did in inst.prev_oncall:
-        for v in _activities_on(did, 0, assign_by_dday, oncall, ext, wconsult):
-            model.Add(v == 0)
+        # Seed continuity: day 0 is post-call if doctor was on-call on day -1.
+        for did in inst.prev_oncall:
+            for v in _activities_on(did, 0, assign_by_dday, oncall, ext, wconsult):
+                model.Add(v == 0)
+            # Record as post-call day 0 for H11.
+            pc = model.NewBoolVar(f"pc_{did}_0_seed")
+            model.Add(pc == 1)
+            post_call[(did, 0)] = pc
 
     # H6 (senior) / H7 (junior) — on-call day activity pattern.
     for d in inst.doctors:
@@ -287,22 +346,14 @@ def solve(
             if (d.id, day) not in oncall:
                 continue
             oc = oncall[(d.id, day)]
-            am_vars = [
-                assign[(d.id, day, st.name, "AM")]
-                for st in inst.stations
-                if (d.id, day, st.name, "AM") in assign
-            ]
-            pm_vars = [
-                assign[(d.id, day, st.name, "PM")]
-                for st in inst.stations
-                if (d.id, day, st.name, "PM") in assign
-            ]
-            if d.tier == "senior":
+            am_vars = assign_by_dday_am.get((d.id, day), [])
+            pm_vars = assign_by_dday_pm.get((d.id, day), [])
+            if d.tier == "senior" and cfg.h6_senior_oncall_full_off_enabled:
                 if am_vars:
                     model.Add(sum(am_vars) == 0).OnlyEnforceIf(oc)
                 if pm_vars:
                     model.Add(sum(pm_vars) == 0).OnlyEnforceIf(oc)
-            else:  # junior
+            elif d.tier == "junior" and cfg.h7_junior_oncall_pm_enabled:
                 if am_vars:
                     model.Add(sum(am_vars) == 0).OnlyEnforceIf(oc)
                 # PM == 1 on weekdays (on weekends PM vars don't exist by default).
@@ -310,60 +361,53 @@ def solve(
                     model.Add(sum(pm_vars) == 1).OnlyEnforceIf(oc)
 
     # H8 — Weekend coverage.
-    for day in range(inst.n_days):
-        if not inst.is_weekend(day):
-            continue
-        juniors = [d for d in inst.doctors if d.tier == "junior"]
-        seniors = [d for d in inst.doctors if d.tier == "senior"]
-        ext_j_vars = [ext[(d.id, day)] for d in juniors if (d.id, day) in ext]
-        ext_s_vars = [ext[(d.id, day)] for d in seniors if (d.id, day) in ext]
-        oc_j_vars = [oncall[(d.id, day)] for d in juniors if (d.id, day) in oncall]
-        oc_s_vars = [oncall[(d.id, day)] for d in seniors if (d.id, day) in oncall]
-        _exact_one(model, ext_j_vars)
-        _exact_one(model, ext_s_vars)
-        _exact_one(model, oc_j_vars)
-        _exact_one(model, oc_s_vars)
-        for ss in SUBSPECS:
-            wc_vars = [
-                wconsult[(d.id, day)]
-                for d in inst.doctors
-                if d.tier == "consultant" and d.subspec == ss and (d.id, day) in wconsult
-            ]
-            _exact_one(model, wc_vars)
-        # One weekend role at most per junior/senior doctor on a weekend day.
-        for d in juniors + seniors:
-            roles = []
-            if (d.id, day) in ext:
-                roles.append(ext[(d.id, day)])
-            if (d.id, day) in oncall:
-                roles.append(oncall[(d.id, day)])
-            if len(roles) >= 2:
-                model.Add(sum(roles) <= 1)
+    if cfg.h8_weekend_coverage_enabled:
+        for day in range(inst.n_days):
+            if not inst.is_weekend(day):
+                continue
+            juniors = [d for d in inst.doctors if d.tier == "junior"]
+            seniors = [d for d in inst.doctors if d.tier == "senior"]
+            ext_j_vars = [ext[(d.id, day)] for d in juniors if (d.id, day) in ext]
+            ext_s_vars = [ext[(d.id, day)] for d in seniors if (d.id, day) in ext]
+            oc_j_vars = [oncall[(d.id, day)] for d in juniors if (d.id, day) in oncall]
+            oc_s_vars = [oncall[(d.id, day)] for d in seniors if (d.id, day) in oncall]
+            _exact_one(model, ext_j_vars)
+            _exact_one(model, ext_s_vars)
+            _exact_one(model, oc_j_vars)
+            _exact_one(model, oc_s_vars)
+            for ss in SUBSPECS:
+                wc_vars = [
+                    wconsult[(d.id, day)]
+                    for d in inst.doctors
+                    if d.tier == "consultant" and d.subspec == ss and (d.id, day) in wconsult
+                ]
+                _exact_one(model, wc_vars)
+            # One weekend role at most per junior/senior doctor on a weekend day.
+            for d in juniors + seniors:
+                roles = []
+                if (d.id, day) in ext:
+                    roles.append(ext[(d.id, day)])
+                if (d.id, day) in oncall:
+                    roles.append(oncall[(d.id, day)])
+                if len(roles) >= 2:
+                    model.Add(sum(roles) <= 1)
 
     # H9 — Day in lieu for weekend extended.
-    # lieu_choice[d, w, side] ⇒ ext[d, w] == 1 (reverse direction).
-    # ext[d, w] == 1 and at least one candidate side exists ⇒ sum of choices == 1.
-    # No lieu without a matching ext (i.e. lieu_choice[d, w, side] ≤ ext[d, w]).
-    ext_to_choices: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
-    for (did, w, side), lv in lieu_choice.items():
-        ext_to_choices[(did, w)].append(lv)
-        model.Add(lv <= ext[(did, w)])
-    for (did, w), ev in ext.items():
-        choices = ext_to_choices.get((did, w), [])
-        if choices:
-            model.Add(sum(choices) == 1).OnlyEnforceIf(ev)
-            model.Add(sum(choices) == 0).OnlyEnforceIf(ev.Not())
-        # If no candidates (both Fri and Mon outside horizon), H9 silently no-ops.
+    if cfg.h9_lieu_day_enabled:
+        ext_to_choices: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
+        for (did, w, side), lv in lieu_choice.items():
+            ext_to_choices[(did, w)].append(lv)
+            model.Add(lv <= ext[(did, w)])
+        for (did, w), ev in ext.items():
+            choices = ext_to_choices.get((did, w), [])
+            if choices:
+                model.Add(sum(choices) == 1).OnlyEnforceIf(ev)
+                model.Add(sum(choices) == 0).OnlyEnforceIf(ev.Not())
 
-    # lieu-day ⇒ no activity that day.
-    for (did, day), choice_vars in lieu_uses.items():
-        if not choice_vars:
-            continue
-        # lieu_taken = OR of choices pointing to (did, day)
-        lieu_taken = model.NewBoolVar(f"lieu_taken_{did}_{day}")
-        model.AddMaxEquality(lieu_taken, choice_vars)
-        for v in _activities_on(did, day, assign_by_dday, oncall, ext, wconsult):
-            model.AddImplication(lieu_taken, v.Not())
+        # lieu-day ⇒ no activity that day.
+        for (did, day), lt in lieu_taken.items():
+            for v in _activities_on(did, day, assign_by_dday, oncall, ext, wconsult):
+                model.AddImplication(lt, v.Not())
 
     # H10 — Leave: enforced by omitting vars on leave days.
 
@@ -372,28 +416,71 @@ def solve(
     # name -> (var, weight) for the real-time callback and SolveResult.
     penalty_components: dict[str, tuple[cp_model.IntVar, int]] = {}
 
+    # Per-doctor auxiliary counters are computed regardless of objective so
+    # they're available for reporting. Only used in penalties when weights > 0.
+    horizon_upper = max(1, inst.n_days * 2)
+    by_doc_assign: dict[int, list[cp_model.IntVar]] = defaultdict(list)
+    for (did, _, _, _), v in assign.items():
+        by_doc_assign[did].append(v)
+    by_doc_oncall: dict[int, list[cp_model.IntVar]] = defaultdict(list)
+    for (did, _), v in oncall.items():
+        by_doc_oncall[did].append(v)
+    by_doc_ext: dict[int, list[cp_model.IntVar]] = defaultdict(list)
+    for (did, _), v in ext.items():
+        by_doc_ext[did].append(v)
+    by_doc_wconsult: dict[int, list[cp_model.IntVar]] = defaultdict(list)
+    for (did, _), v in wconsult.items():
+        by_doc_wconsult[did].append(v)
+    by_doc_weekend_oncall: dict[int, list[cp_model.IntVar]] = defaultdict(list)
+    for (did, day), v in oncall.items():
+        if inst.is_weekend(day):
+            by_doc_weekend_oncall[did].append(v)
+
+    # ---- H11 / S5 — mandatory weekday assignment (soft, heavy weight).
+    # Per-weekday-per-doctor "idle" indicator: 1 if the doctor is neither
+    # assigned a station, nor on junior-oncall, nor excused (leave / post-call
+    # / senior-oncall-day / lieu-day). Summed and weighted.
+    idle_vars: list[cp_model.IntVar] = []
+    if cfg.h11_mandatory_weekday_enabled and weights.idle_weekday:
+        for d in inst.doctors:
+            leave_days = inst.leave.get(d.id, set())
+            for day in range(inst.n_days):
+                if inst.is_weekend(day):
+                    continue
+                if day in leave_days:
+                    continue  # excused by H10
+                # Terms whose sum being ≥ 1 means "not idle":
+                working = list(assign_by_dday.get((d.id, day), []))
+                if (d.id, day) in oncall:
+                    # On-call itself is work (night shift). Juniors also work
+                    # PM per H7; seniors get day off per H6. Either way, the
+                    # on-call indicator counts as "not idle".
+                    working.append(oncall[(d.id, day)])
+                excused: list[cp_model.IntVar] = []
+                if (d.id, day) in post_call:
+                    excused.append(post_call[(d.id, day)])
+                if (d.id, day) in lieu_taken:
+                    excused.append(lieu_taken[(d.id, day)])
+                # idle ≥ 1 − sum(working) − sum(excused)
+                idle = model.NewBoolVar(f"idle_{d.id}_{day}")
+                model.Add(idle + sum(working) + sum(excused) >= 1)
+                idle_vars.append(idle)
+        if idle_vars:
+            idle_total = model.NewIntVar(0, len(idle_vars), "idle_total")
+            model.Add(idle_total == sum(idle_vars))
+            if not feasibility_only:
+                penalties.append(idle_total * weights.idle_weekday)
+                penalty_components["S5_idle_weekday_count"] = (
+                    idle_total, weights.idle_weekday)
+
     if not feasibility_only:
         session_count: dict[int, cp_model.IntVar] = {}
         oncall_count: dict[int, cp_model.IntVar] = {}
         weekend_count: dict[int, cp_model.IntVar] = {}
-
-        horizon_upper = max(1, inst.n_days * 2)
-        by_doc_assign: dict[int, list[cp_model.IntVar]] = defaultdict(list)
-        for (did, _, _, _), v in assign.items():
-            by_doc_assign[did].append(v)
-        by_doc_oncall: dict[int, list[cp_model.IntVar]] = defaultdict(list)
-        for (did, _), v in oncall.items():
-            by_doc_oncall[did].append(v)
-        by_doc_ext: dict[int, list[cp_model.IntVar]] = defaultdict(list)
-        for (did, _), v in ext.items():
-            by_doc_ext[did].append(v)
-        by_doc_wconsult: dict[int, list[cp_model.IntVar]] = defaultdict(list)
-        for (did, _), v in wconsult.items():
-            by_doc_wconsult[did].append(v)
-        by_doc_weekend_oncall: dict[int, list[cp_model.IntVar]] = defaultdict(list)
-        for (did, day), v in oncall.items():
-            if inst.is_weekend(day):
-                by_doc_weekend_oncall[did].append(v)
+        # Weighted workload per doctor (includes prev_workload carry-in as an
+        # additive offset: balance is max(wl[d]+prev) − min(wl[d]+prev) so
+        # doctors who did more last period naturally get less this period).
+        weighted_workload: dict[int, cp_model.IntVar] = {}
 
         for d in inst.doctors:
             sc = model.NewIntVar(0, horizon_upper, f"sess_{d.id}")
@@ -424,10 +511,76 @@ def solve(
                 model.Add(wk == 0)
             weekend_count[d.id] = wk
 
+            # Weighted workload: sum of weighted terms per assignment type.
+            wl_terms: list[cp_model.IntVar | int] = []
+            for (did, day, _st, sess), v in assign.items():
+                if did != d.id:
+                    continue
+                w = (workload_weights.weekend_session
+                     if inst.is_weekend(day)
+                     else workload_weights.weekday_session)
+                wl_terms.append(v * w)
+            for (did, day), v in oncall.items():
+                if did != d.id:
+                    continue
+                w = (workload_weights.weekend_oncall
+                     if inst.is_weekend(day)
+                     else workload_weights.weekday_oncall)
+                wl_terms.append(v * w)
+            for (did, _), v in ext.items():
+                if did == d.id:
+                    wl_terms.append(v * workload_weights.weekend_ext)
+            for (did, _), v in wconsult.items():
+                if did == d.id:
+                    wl_terms.append(v * workload_weights.weekend_consult)
+
+            # Upper bound: worst case every day × highest single-day weight × 2 sessions.
+            wl_upper = max(
+                1,
+                inst.n_days * max(
+                    workload_weights.weekday_session,
+                    workload_weights.weekend_session,
+                    workload_weights.weekday_oncall,
+                    workload_weights.weekend_oncall,
+                    workload_weights.weekend_ext,
+                    workload_weights.weekend_consult,
+                ) * 2,
+            )
+            wl = model.NewIntVar(0, wl_upper, f"wlw_{d.id}")
+            if wl_terms:
+                model.Add(wl == sum(wl_terms))
+            else:
+                model.Add(wl == 0)
+            weighted_workload[d.id] = wl
+
         for tier in ("junior", "senior", "consultant"):
             tier_ids = [d.id for d in inst.doctors if d.tier == tier]
             if not tier_ids:
                 continue
+
+            # S0 — weighted-workload balance including prev_workload carry-in.
+            if weights.balance_workload:
+                # Per-doctor "adjusted workload" = weighted_workload[d] + prev[d].
+                prev_max = max(
+                    (int(inst.prev_workload.get(i, 0)) for i in tier_ids), default=0)
+                prev_min = min(
+                    (int(inst.prev_workload.get(i, 0)) for i in tier_ids), default=0)
+                adj_upper = max(1, horizon_upper * 40 + max(0, prev_max))
+                adj_lower = min(0, prev_min)
+                adj_vars: list[cp_model.IntVar] = []
+                for i in tier_ids:
+                    adj = model.NewIntVar(adj_lower, adj_upper, f"adj_{tier}_{i}")
+                    model.Add(adj == weighted_workload[i] + int(inst.prev_workload.get(i, 0)))
+                    adj_vars.append(adj)
+                mx = model.NewIntVar(adj_lower, adj_upper, f"mx_wl_{tier}")
+                mn = model.NewIntVar(adj_lower, adj_upper, f"mn_wl_{tier}")
+                model.AddMaxEquality(mx, adj_vars)
+                model.AddMinEquality(mn, adj_vars)
+                gap = model.NewIntVar(0, adj_upper - adj_lower, f"gap_wl_{tier}")
+                model.Add(gap == mx - mn)
+                penalties.append(gap * weights.balance_workload)
+                penalty_components[f"S0_workload_gap_{tier}"] = (
+                    gap, weights.balance_workload)
 
             # S1 sessions balance.
             if weights.balance_sessions:
@@ -479,7 +632,6 @@ def solve(
                             model.Add(pair >= a + b - 1)
                             penalties.append(pair * weights.reporting_spread)
                             rep_pair_vars.append(pair)
-            # Aggregate into a single counter for cleaner callback reporting.
             if rep_pair_vars:
                 rep_total = model.NewIntVar(0, len(rep_pair_vars), "rep_total")
                 model.Add(rep_total == sum(rep_pair_vars))
@@ -497,10 +649,8 @@ def solve(
     # Always capture first-feasible time, even if the caller didn't pass a
     # streaming callback. Chain caller's callback if present.
     first_feasible: dict[str, float] = {}
-    captured_events: list[dict[str, Any]] = []
 
     def _dispatch(event: dict[str, Any]) -> None:
-        captured_events.append(event)
         if "first" not in first_feasible:
             first_feasible["first"] = event["wall_s"]
         if on_intermediate is not None:

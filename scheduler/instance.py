@@ -42,6 +42,10 @@ class Instance:
     public_holidays: set[int] = field(default_factory=set)
     prev_oncall: set[int] = field(default_factory=set)
     weekend_am_pm_enabled: bool = False
+    # Prior-period carry-in: weighted workload score each doctor brought into
+    # this horizon. The solver adds this to its own weighted workload when
+    # balancing fairness (higher = did more last period → gets less this one).
+    prev_workload: dict[int, int] = field(default_factory=dict)
 
     def is_weekend(self, day: int) -> bool:
         wd = (self.start_weekday + day) % 7

@@ -60,12 +60,14 @@ def default_doctors_df(n: int = 20, seed: int = 0) -> pd.DataFrame:
         rows.append(dict(
             name=_name(idx), tier="junior", subspec="",
             eligible_stations=",".join(_default_elig("junior", rng)),
+            prev_workload=0,
         ))
         idx += 1
     for _ in range(n_s):
         rows.append(dict(
             name=_name(idx), tier="senior", subspec="",
             eligible_stations=",".join(_default_elig("senior", rng)),
+            prev_workload=0,
         ))
         idx += 1
     for i in range(n_c):
@@ -73,6 +75,7 @@ def default_doctors_df(n: int = 20, seed: int = 0) -> pd.DataFrame:
         rows.append(dict(
             name=_name(idx), tier="consultant", subspec=ss,
             eligible_stations=",".join(_default_elig("consultant", rng)),
+            prev_workload=0,
         ))
         idx += 1
     return pd.DataFrame(rows)
@@ -174,6 +177,7 @@ def build_instance(
     # Doctors.
     doctors: list[Doctor] = []
     name_to_id: dict[str, int] = {}
+    prev_workload_map: dict[int, int] = {}
     for i, row in doctors_df.iterrows():
         name = str(row["name"]).strip()
         if not name:
@@ -204,6 +208,11 @@ def build_instance(
         new_id = len(doctors)
         doctors.append(Doctor(new_id, tier, subspec, elig))
         name_to_id[name] = new_id
+        try:
+            prev_raw = row.get("prev_workload", 0)
+            prev_workload_map[new_id] = int(prev_raw) if pd.notna(prev_raw) else 0
+        except (TypeError, ValueError):
+            prev_workload_map[new_id] = 0
 
     if not doctors:
         raise BuildError("At least one doctor is required.")
@@ -238,6 +247,7 @@ def build_instance(
         public_holidays=ph_idx,
         prev_oncall=prev_oncall_ids,
         weekend_am_pm_enabled=weekend_am_pm_enabled,
+        prev_workload=prev_workload_map,
     )
 
 

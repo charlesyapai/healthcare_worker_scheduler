@@ -2,6 +2,86 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-20 — v0.5 H11 + constraint toggles + weighted workload + carry-in + UX rework
+
+**What:** Fix the "solver said OPTIMAL but 3 doctors did zero coverage" bug
+by adding H11 mandatory-weekday-assignment (soft); add toggles and a
+parameter for every hard constraint; introduce a weighted workload model
+(weekend call > weekday call) that drives both the UI's per-doctor score
+and the solver's primary fairness objective; add prior-period carry-in so
+doctors who did more last month get less this month; collapse the 7-tab UI
+to 3 tabs with a verdict banner.
+
+**Why:** User feedback — (1) "it said OPTIMAL but 3 doctors did 0 coverage"
+meant H1 only enforced station coverage, not doctor utilisation; (2) "we
+need the constraints to be options, adjustable" meant toggleable rules
+with editable parameters; (3) "weekend call is more work than weekday call"
+meant weighted workload rather than raw counts; (4) "someone who worked a
+lot last month should get less this month" meant prior-period carry-in;
+(5) "the UI is not intuitive" meant too many tabs with the solution
+verdict buried.
+
+**Added — model:**
+- `ConstraintConfig` dataclass: H4 `oncall_gap_days` (parameter); H4–H9 and
+  H11 on/off toggles. Defaults match prior behaviour except H11 is new and
+  on by default.
+- `WorkloadWeights` dataclass: per-role weights (weekday/weekend × session/
+  on-call, EXT, weekend-consult). Integer-valued; defaults reflect "weekend
+  costs more" (15/10 sessions, 35/20 on-call, etc.).
+- `Instance.prev_workload: dict[doctor_id, int]` — carry-in from prior
+  period, same units as the weighted workload score.
+- New **H11** soft constraint (surfaced as S5 penalty): per-idle-doctor-
+  weekday cost, default weight 100. Excuses: leave / post-call / lieu.
+  On-call counts as working (not idle) for both juniors and seniors.
+- New **S0** weighted-workload balance: per tier, minimises
+  `max(weighted_workload[d] + prev_workload[d]) − min(…)`. This is the
+  primary fairness term (default weight 40); S1–S3 remain available but
+  defaults lowered.
+- `solve(..., constraints=..., workload_weights=...)` new kwargs.
+
+**Added — metrics:**
+- `metrics.workload_breakdown(inst, assignments, weights)` — per-doctor
+  breakdown (weekday/weekend sessions, weekday/weekend on-call, EXT, WC,
+  leave days, prev_workload, final score). Mirrors the solver's S0 formula
+  so the UI table shows what the solver balanced on.
+- `metrics.count_idle_weekdays(inst, assignments)` — per-doctor count of
+  weekdays with no role and no leave (drives the UI's "Idle wd" column).
+
+**Changed — ui_state.py:**
+- `doctors_df` gains a `prev_workload` column (default 0).
+- `build_instance(...)` parses `prev_workload` into `Instance.prev_workload`.
+
+**Changed — app.py (rewritten for UX):**
+- **Three tabs** (down from seven): **Configure** (dates, doctors with
+  prev_workload column, stations, leave, hard-constraint toggles + H4
+  parameter, workload weighting, soft weights), **Solve & Roster**
+  (streaming solve + verdict banner + snapshot picker + colour-coded
+  workload table + Advanced analytics accordion), **Export** (JSON/CSV).
+- **Sidebar** holds solver settings (time limit / workers / feasibility-
+  only) and both diagnostics buttons (L1 pre-solve + L3 infeasibility
+  explainer), plus a role-code legend.
+- **Verdict banner** computes severity from status + optimality gap + idle
+  count + coverage-violation check; one sentence that tells the user
+  whether the roster is OK and why.
+- **Per-doctor workload table**: weekday/weekend sessions, weekday/weekend
+  on-call, EXT, WC, leave, idle-weekdays, prev_workload, **Score**, and
+  **Δ median** column colour-graded red/blue for over/under-worked.
+- **Snapshot picker** kept from v0.4.
+- Constraints tab + Analytics tab + Diagnostics tab removed (folded in).
+
+**Added — tests:**
+- `tests/test_h11.py`: H11 off vs on (on reduces idle), H11 respects
+  leave as excuse.
+
+**Verified:**
+- `pytest tests/` — 6/6 pass in ~2 min (3 smoke + 3 H11 scenarios).
+
+**Known follow-ups:**
+- Save/load instance to YAML (download/upload) — HF storage is ephemeral.
+- Per-doctor calendar grid for leave (today: doctor + date rows).
+- `prev_oncall` editor in the UI (today only exposed via the `Instance`
+  field; build_instance takes names but no UI widget exposes it).
+
 ## 2026-04-20 — v0.4 Interactive UI: real doctors, real dates, snapshot picker
 
 **What:** Pivot from the benchmarking-oriented UI (numeric inputs →
