@@ -93,20 +93,22 @@
 </head>
 <body>
     <div class="card">
-        <span class="tag">Phase 0 &middot; Scaffolding</span>
+        <span class="tag">Phase 1 &middot; Backend API</span>
         <h1>Healthcare Roster Scheduler v2</h1>
         <p>
-            React SPA + FastAPI rewrite of the Streamlit app. This is a
-            placeholder served by FastAPI while the SPA is being built on the
+            React SPA + FastAPI rewrite of the Streamlit app. Placeholder
+            landing page while the SPA is being built on the
             <code>react-ui</code> branch.
         </p>
         <p class="muted">
-            The solver core (<code>scheduler/</code>) is unchanged from v1.
-            The v1 Streamlit app remains on the <code>main</code> branch.
+            The backend API is now live &mdash; see <code>/docs</code> for the
+            OpenAPI spec, <code>/api/health</code> for the version,
+            or the WebSocket at <code>/api/solve</code> for streaming solves.
+            The SPA scaffold lands in Phase 2.
         </p>
         <ul class="phases">
-            <li><span class="dot active"></span>Phase 0 &mdash; Scaffolding &amp; placeholder SPA</li>
-            <li><span class="dot"></span>Phase 1 &mdash; Backend API (FastAPI + WebSocket)</li>
+            <li><span class="dot done"></span>Phase 0 &mdash; Scaffolding &amp; placeholder SPA</li>
+            <li><span class="dot active"></span>Phase 1 &mdash; Backend API (FastAPI + WebSocket)</li>
             <li><span class="dot"></span>Phase 2 &mdash; SPA foundations (Vite + React + Tailwind)</li>
             <li><span class="dot"></span>Phase 3 &mdash; Setup page</li>
             <li><span class="dot"></span>Phase 4 &mdash; Department rules page</li>
