@@ -25,6 +25,7 @@ RUN pip install -r requirements.txt
 
 COPY scheduler/ ./scheduler/
 COPY api/ ./api/
+COPY configs/ ./configs/
 
 # Overwrite the Phase-0 placeholder at api/static/ with the real SPA bundle.
 COPY --from=web /web/dist ./api/static

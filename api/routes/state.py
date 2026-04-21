@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.models.events import PrevWorkloadRequest
 from api.models.session import DoctorEntry, Horizon, SessionState, StationEntry
-from api.sessions import ServerSession, deep_merge, get_session
-from scheduler.persistence import prev_workload_from_roster_json
+from api.sessions import (
+    ServerSession,
+    deep_merge,
+    get_session,
+    v1_dict_to_session,
+)
+from scheduler.persistence import load_state, prev_workload_from_roster_json
 from scheduler.ui_state import default_doctors_df, default_stations_df
 
 router = APIRouter(prefix="/api/state", tags=["state"])
@@ -81,6 +87,25 @@ def seed_defaults(session: ServerSession = Depends(get_session)) -> SessionState
         stations=stations,
         subspecs=list(SUBSPECS),
     )
+    return session.state
+
+
+SAMPLE_PATH = (
+    Path(__file__).resolve().parent.parent.parent
+    / "configs"
+    / "sample_feasible.yaml"
+)
+
+
+@router.post("/sample", response_model=SessionState)
+def load_sample(session: ServerSession = Depends(get_session)) -> SessionState:
+    """Load the known-feasible 15-doctor × 7-day sample config bundled in the
+    repo at configs/sample_feasible.yaml. Proves the solver works end-to-end
+    and gives the user a starting point they can tweak."""
+    if not SAMPLE_PATH.exists():
+        raise HTTPException(status_code=500, detail="Sample config not bundled.")
+    updates = load_state(SAMPLE_PATH.read_text())
+    session.state = v1_dict_to_session(updates, base=SessionState())
     return session.state
 
 

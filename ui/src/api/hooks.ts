@@ -50,6 +50,19 @@ export function useSeedDefaults(
   });
 }
 
+export function useLoadSample(
+  options?: UseMutationOptions<SessionState, Error, void>,
+) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<SessionState>("/api/state/sample", { method: "POST" }),
+    onSuccess: (data) => {
+      qc.setQueryData(queryKeys.sessionState, data);
+    },
+    ...options,
+  });
+}
+
 export function usePutState() {
   const qc = useQueryClient();
   return useMutation({

@@ -962,6 +962,28 @@
         ]
       }
     },
+    "/api/state/sample": {
+      "post": {
+        "description": "Load the known-feasible 15-doctor \u00d7 7-day sample config bundled in the\nrepo at configs/sample_feasible.yaml. Proves the solver works end-to-end\nand gives the user a starting point they can tweak.",
+        "operationId": "load_sample_api_state_sample_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Load Sample",
+        "tags": [
+          "state"
+        ]
+      }
+    },
     "/api/state/seed": {
       "post": {
         "description": "Replace the session with a sensible default roster problem.\n\nUseful for the SPA's empty-state \"Start with defaults\" button.",

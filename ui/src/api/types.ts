@@ -125,6 +125,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/state/sample": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Load Sample
+         * @description Load the known-feasible 15-doctor × 7-day sample config bundled in the
+         *     repo at configs/sample_feasible.yaml. Proves the solver works end-to-end
+         *     and gives the user a starting point they can tweak.
+         */
+        post: operations["load_sample_api_state_sample_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/state/seed": {
         parameters: {
             query?: never;
@@ -791,6 +813,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    load_sample_api_state_sample_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionState"];
                 };
             };
         };

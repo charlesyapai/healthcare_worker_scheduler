@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { ApiError } from "@/api/client";
 import {
   useHealth,
+  useLoadSample,
   useSeedDefaults,
   useSessionState,
   useYamlExport,
@@ -27,6 +28,12 @@ export function Dashboard() {
     onSuccess: () => toast.success("Loaded default 20-doctor roster"),
     onError: (e) =>
       toast.error(e instanceof ApiError ? e.message : "Failed to seed defaults"),
+  });
+  const sample = useLoadSample({
+    onSuccess: () =>
+      toast.success("Loaded sample — head to Solve, it's known-feasible"),
+    onError: (e) =>
+      toast.error(e instanceof ApiError ? e.message : "Failed to load sample"),
   });
   const exporter = useYamlExport();
   const importer = useYamlImport();
@@ -172,11 +179,19 @@ export function Dashboard() {
               Save current config
             </Button>
             <Button
+              onClick={() => sample.mutate()}
+              disabled={sample.isPending}
+              variant="primary"
+              title="Curated 15-doctor / 7-day example that solves to OPTIMAL in ~10s. Great for smoke-testing."
+            >
+              {sample.isPending ? "Loading…" : "Load sample (solves OK)"}
+            </Button>
+            <Button
               onClick={() => seed.mutate()}
               disabled={seed.isPending}
-              variant="primary"
+              variant="secondary"
             >
-              {seed.isPending ? "Loading…" : "Start with defaults"}
+              {seed.isPending ? "Loading…" : "20-doctor defaults"}
             </Button>
           </div>
         </CardContent>
