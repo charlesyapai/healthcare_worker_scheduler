@@ -16,7 +16,7 @@ def test_ws_solve_completes_with_assignments(client) -> None:
     _seed_small(client)
     client.patch("/api/state",
                  json={"solver": {"feasibility_only": True, "time_limit": 10}})
-    with client.websocket_connect("/api/solve") as ws:
+    with client.websocket_connect(f"/api/solve?session_id={client.session_id}") as ws:
         ws.send_json({"action": "start", "snapshot_assignments": False})
         last = None
         while True:
@@ -38,7 +38,7 @@ def test_ws_solve_streams_events(client) -> None:
     _seed_small(client)
     client.patch("/api/state",
                  json={"solver": {"feasibility_only": False, "time_limit": 10}})
-    with client.websocket_connect("/api/solve") as ws:
+    with client.websocket_connect(f"/api/solve?session_id={client.session_id}") as ws:
         ws.send_json({"action": "start", "snapshot_assignments": True})
         events = []
         result = None
@@ -66,7 +66,7 @@ def test_ws_stop_message_early_exits(client) -> None:
     # Long time limit so the solver is still running when we ask it to stop.
     client.patch("/api/state",
                  json={"solver": {"feasibility_only": False, "time_limit": 120}})
-    with client.websocket_connect("/api/solve") as ws:
+    with client.websocket_connect(f"/api/solve?session_id={client.session_id}") as ws:
         ws.send_json({"action": "start", "snapshot_assignments": True})
         # Wait for the first improving solution, then ask CP-SAT to stop.
         first = ws.receive_json()
@@ -88,7 +88,7 @@ def test_fill_from_snapshot_populates_overrides(client) -> None:
     _seed_small(client)
     client.patch("/api/state",
                  json={"solver": {"feasibility_only": True, "time_limit": 10}})
-    with client.websocket_connect("/api/solve") as ws:
+    with client.websocket_connect(f"/api/solve?session_id={client.session_id}") as ws:
         ws.send_json({"action": "start", "snapshot_assignments": False})
         while True:
             msg = ws.receive_json()

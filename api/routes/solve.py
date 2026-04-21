@@ -41,7 +41,13 @@ router = APIRouter(tags=["solve"])
 
 @router.websocket("/api/solve")
 async def solve_ws(websocket: WebSocket) -> None:
-    sid = websocket.cookies.get(SESSION_COOKIE)
+    # WebSockets can't set arbitrary headers from JS; accept the session id
+    # via query param first, fall back to cookie for browsers that still
+    # send it, else mint a new one.
+    sid = (
+        websocket.query_params.get("session_id")
+        or websocket.cookies.get(SESSION_COOKIE)
+    )
     session = get_or_create_session_by_id(sid)
     await websocket.accept()
 

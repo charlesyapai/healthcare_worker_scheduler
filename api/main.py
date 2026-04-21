@@ -20,6 +20,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["x-session-id"],
 )
 
 app.include_router(yaml_io.router)          # /api/state/yaml — register first

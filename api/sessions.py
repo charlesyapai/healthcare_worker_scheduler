@@ -1,8 +1,17 @@
 """In-memory session store + adapters to the v1 scheduler data model.
 
 The SPA owns state in localStorage; the backend's in-memory session is a
-short-lived cache used only while a request or WebSocket is live. One
-session per browser cookie (keyed by `session_id`).
+short-lived cache used only while a request or WebSocket is live.
+
+Session identity is resolved in this priority:
+  1. `X-Session-Id` HTTP header (set by the SPA from a localStorage UUID).
+  2. `session_id` cookie (legacy; still used by pytest TestClient and v1
+     clients that were running before the switch).
+  3. A freshly minted UUID, returned to the client as a cookie.
+
+The header path matters in production: HF Spaces load the SPA inside a
+cross-site iframe on huggingface.co, where `SameSite=Lax` cookies are
+blocked. A header-based session ID sidesteps that policy entirely.
 
 This module is also the single place where Pydantic SessionState is
 translated into the shapes the v1 `scheduler.*` modules already accept,
@@ -32,6 +41,7 @@ from scheduler.model import ConstraintConfig, SolveResult, Weights, WorkloadWeig
 from scheduler.ui_state import build_instance
 
 SESSION_COOKIE = "session_id"
+SESSION_HEADER = "x-session-id"
 
 
 # --------------------------------------------------------------- store
@@ -46,26 +56,43 @@ class ServerSession:
 _SESSIONS: dict[str, ServerSession] = {}
 
 
+def _resolve_sid(request: Request) -> str | None:
+    """Pick up the session id from the header first, cookie second."""
+    header = request.headers.get(SESSION_HEADER)
+    if header:
+        return header
+    return request.cookies.get(SESSION_COOKIE)
+
+
 def get_session(request: Request, response: Response) -> ServerSession:
     """FastAPI dependency. Creates a session on first hit; returns the same one afterwards."""
-    sid = request.cookies.get(SESSION_COOKIE)
+    sid = _resolve_sid(request)
     if sid and sid in _SESSIONS:
         return _SESSIONS[sid]
     sid = sid or uuid.uuid4().hex
     session = ServerSession(id=sid)
     _SESSIONS[sid] = session
+    # Echo the id back via both channels so an older client that only reads
+    # cookies keeps working, while modern clients read the header value.
+    response.headers[SESSION_HEADER] = sid
+    is_https = request.url.scheme == "https"
     response.set_cookie(
         key=SESSION_COOKIE,
         value=sid,
         httponly=True,
-        samesite="lax",
+        # HTTPS in prod → SameSite=None + Secure so the cookie survives the
+        # HF Spaces cross-site iframe. HTTP in dev/tests → plain Lax so the
+        # cookie actually round-trips without Secure enforcement dropping it.
+        samesite="none" if is_https else "lax",
+        secure=is_https,
         path="/",
     )
     return session
 
 
 def get_or_create_session_by_id(sid: str | None) -> ServerSession:
-    """WebSocket helper — takes a cookie value directly."""
+    """WebSocket helper — takes an already-resolved session id (from the
+    ?session_id=… query param, the X-Session-Id subprotocol, or the cookie)."""
     if sid and sid in _SESSIONS:
         return _SESSIONS[sid]
     new_sid = sid or uuid.uuid4().hex
