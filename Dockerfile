@@ -1,5 +1,13 @@
-# Phase 0 — single-stage Python runtime. Multi-stage (adds a Node build
-# for the React SPA) lands in Phase 2.
+# ───── Stage 1: build the React SPA ─────
+FROM node:20-alpine AS web
+WORKDIR /web
+RUN corepack enable
+COPY ui/package.json ui/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY ui/ ./
+RUN pnpm build
+
+# ───── Stage 2: Python runtime ─────
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -17,6 +25,9 @@ RUN pip install -r requirements.txt
 
 COPY scheduler/ ./scheduler/
 COPY api/ ./api/
+
+# Overwrite the Phase-0 placeholder at api/static/ with the real SPA bundle.
+COPY --from=web /web/dist ./api/static
 
 EXPOSE 7860
 

@@ -1,0 +1,1048 @@
+{
+  "components": {
+    "schemas": {
+      "BlockEntry": {
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "doctor": {
+            "title": "Doctor",
+            "type": "string"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "type": {
+            "enum": [
+              "Leave",
+              "No on-call",
+              "No AM",
+              "No PM",
+              "Prefer AM",
+              "Prefer PM"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "doctor",
+          "date",
+          "type"
+        ],
+        "title": "BlockEntry",
+        "type": "object"
+      },
+      "ConstraintsConfig": {
+        "properties": {
+          "h11_enabled": {
+            "default": true,
+            "title": "H11 Enabled",
+            "type": "boolean"
+          },
+          "h4_enabled": {
+            "default": true,
+            "title": "H4 Enabled",
+            "type": "boolean"
+          },
+          "h4_gap": {
+            "default": 3,
+            "title": "H4 Gap",
+            "type": "integer"
+          },
+          "h5_enabled": {
+            "default": true,
+            "title": "H5 Enabled",
+            "type": "boolean"
+          },
+          "h6_enabled": {
+            "default": true,
+            "title": "H6 Enabled",
+            "type": "boolean"
+          },
+          "h7_enabled": {
+            "default": true,
+            "title": "H7 Enabled",
+            "type": "boolean"
+          },
+          "h8_enabled": {
+            "default": true,
+            "title": "H8 Enabled",
+            "type": "boolean"
+          },
+          "h9_enabled": {
+            "default": true,
+            "title": "H9 Enabled",
+            "type": "boolean"
+          },
+          "weekend_am_pm": {
+            "default": false,
+            "title": "Weekend Am Pm",
+            "type": "boolean"
+          }
+        },
+        "title": "ConstraintsConfig",
+        "type": "object"
+      },
+      "DoctorEntry": {
+        "properties": {
+          "eligible_stations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Eligible Stations",
+            "type": "array"
+          },
+          "fte": {
+            "default": 1.0,
+            "title": "Fte",
+            "type": "number"
+          },
+          "max_oncalls": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Oncalls"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "prev_workload": {
+            "default": 0,
+            "title": "Prev Workload",
+            "type": "integer"
+          },
+          "subspec": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subspec"
+          },
+          "tier": {
+            "enum": [
+              "junior",
+              "senior",
+              "consultant"
+            ],
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "tier"
+        ],
+        "title": "DoctorEntry",
+        "type": "object"
+      },
+      "ExplainReport": {
+        "properties": {
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "total_slack": {
+            "title": "Total Slack",
+            "type": "integer"
+          },
+          "violations": {
+            "items": {
+              "$ref": "#/components/schemas/ExplainViolation"
+            },
+            "title": "Violations",
+            "type": "array"
+          },
+          "wall_time_s": {
+            "title": "Wall Time S",
+            "type": "number"
+          }
+        },
+        "required": [
+          "status",
+          "wall_time_s",
+          "total_slack",
+          "violations"
+        ],
+        "title": "ExplainReport",
+        "type": "object"
+      },
+      "ExplainViolation": {
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "integer"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "location": {
+            "title": "Location",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "location",
+          "amount",
+          "message"
+        ],
+        "title": "ExplainViolation",
+        "type": "object"
+      },
+      "FeasibilityIssueOut": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "additionalProperties": true,
+            "title": "Detail",
+            "type": "object"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "error",
+              "warning",
+              "info"
+            ],
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "severity",
+          "code",
+          "message"
+        ],
+        "title": "FeasibilityIssueOut",
+        "type": "object"
+      },
+      "FillFromSnapshotRequest": {
+        "description": "Copy assignments from a completed solve into the overrides list.\n\n`snapshot_id` is either \"final\" or the 0-based index of an intermediate\nsolve event from the last solve.",
+        "properties": {
+          "snapshot_id": {
+            "default": "final",
+            "title": "Snapshot Id",
+            "type": "string"
+          }
+        },
+        "title": "FillFromSnapshotRequest",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "Horizon": {
+        "properties": {
+          "n_days": {
+            "default": 21,
+            "title": "N Days",
+            "type": "integer"
+          },
+          "public_holidays": {
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "title": "Public Holidays",
+            "type": "array"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          }
+        },
+        "title": "Horizon",
+        "type": "object"
+      },
+      "Hours": {
+        "properties": {
+          "weekday_am": {
+            "default": 4.0,
+            "title": "Weekday Am",
+            "type": "number"
+          },
+          "weekday_oncall": {
+            "default": 12.0,
+            "title": "Weekday Oncall",
+            "type": "number"
+          },
+          "weekday_pm": {
+            "default": 4.0,
+            "title": "Weekday Pm",
+            "type": "number"
+          },
+          "weekend_am": {
+            "default": 4.0,
+            "title": "Weekend Am",
+            "type": "number"
+          },
+          "weekend_consult": {
+            "default": 8.0,
+            "title": "Weekend Consult",
+            "type": "number"
+          },
+          "weekend_ext": {
+            "default": 12.0,
+            "title": "Weekend Ext",
+            "type": "number"
+          },
+          "weekend_oncall": {
+            "default": 16.0,
+            "title": "Weekend Oncall",
+            "type": "number"
+          },
+          "weekend_pm": {
+            "default": 4.0,
+            "title": "Weekend Pm",
+            "type": "number"
+          }
+        },
+        "title": "Hours",
+        "type": "object"
+      },
+      "OverrideEntry": {
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "doctor": {
+            "title": "Doctor",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "doctor",
+          "date",
+          "role"
+        ],
+        "title": "OverrideEntry",
+        "type": "object"
+      },
+      "PrevWorkloadRequest": {
+        "properties": {
+          "prev_roster_json": {
+            "additionalProperties": true,
+            "title": "Prev Roster Json",
+            "type": "object"
+          }
+        },
+        "required": [
+          "prev_roster_json"
+        ],
+        "title": "PrevWorkloadRequest",
+        "type": "object"
+      },
+      "SessionState": {
+        "properties": {
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/BlockEntry"
+            },
+            "title": "Blocks",
+            "type": "array"
+          },
+          "constraints": {
+            "$ref": "#/components/schemas/ConstraintsConfig"
+          },
+          "doctors": {
+            "items": {
+              "$ref": "#/components/schemas/DoctorEntry"
+            },
+            "title": "Doctors",
+            "type": "array"
+          },
+          "horizon": {
+            "$ref": "#/components/schemas/Horizon"
+          },
+          "hours": {
+            "$ref": "#/components/schemas/Hours"
+          },
+          "overrides": {
+            "items": {
+              "$ref": "#/components/schemas/OverrideEntry"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "soft_weights": {
+            "$ref": "#/components/schemas/SoftWeights"
+          },
+          "solver": {
+            "$ref": "#/components/schemas/SolverSettings"
+          },
+          "stations": {
+            "items": {
+              "$ref": "#/components/schemas/StationEntry"
+            },
+            "title": "Stations",
+            "type": "array"
+          },
+          "subspecs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Subspecs",
+            "type": "array"
+          },
+          "tier_labels": {
+            "$ref": "#/components/schemas/TierLabels"
+          },
+          "workload_weights": {
+            "$ref": "#/components/schemas/WorkloadWeights"
+          }
+        },
+        "title": "SessionState",
+        "type": "object"
+      },
+      "SoftWeights": {
+        "properties": {
+          "idle_weekday": {
+            "default": 100,
+            "title": "Idle Weekday",
+            "type": "integer"
+          },
+          "oncall": {
+            "default": 10,
+            "title": "Oncall",
+            "type": "integer"
+          },
+          "preference": {
+            "default": 5,
+            "title": "Preference",
+            "type": "integer"
+          },
+          "reporting": {
+            "default": 5,
+            "title": "Reporting",
+            "type": "integer"
+          },
+          "sessions": {
+            "default": 5,
+            "title": "Sessions",
+            "type": "integer"
+          },
+          "weekend": {
+            "default": 10,
+            "title": "Weekend",
+            "type": "integer"
+          },
+          "workload": {
+            "default": 40,
+            "title": "Workload",
+            "type": "integer"
+          }
+        },
+        "title": "SoftWeights",
+        "type": "object"
+      },
+      "SolverSettings": {
+        "properties": {
+          "feasibility_only": {
+            "default": false,
+            "title": "Feasibility Only",
+            "type": "boolean"
+          },
+          "num_workers": {
+            "default": 8,
+            "title": "Num Workers",
+            "type": "integer"
+          },
+          "time_limit": {
+            "default": 60,
+            "title": "Time Limit",
+            "type": "integer"
+          }
+        },
+        "title": "SolverSettings",
+        "type": "object"
+      },
+      "StationEntry": {
+        "properties": {
+          "eligible_tiers": {
+            "items": {
+              "enum": [
+                "junior",
+                "senior",
+                "consultant"
+              ],
+              "type": "string"
+            },
+            "title": "Eligible Tiers",
+            "type": "array"
+          },
+          "is_reporting": {
+            "default": false,
+            "title": "Is Reporting",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "required_per_session": {
+            "default": 1,
+            "title": "Required Per Session",
+            "type": "integer"
+          },
+          "sessions": {
+            "items": {
+              "enum": [
+                "AM",
+                "PM"
+              ],
+              "type": "string"
+            },
+            "title": "Sessions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "StationEntry",
+        "type": "object"
+      },
+      "TierLabels": {
+        "properties": {
+          "consultant": {
+            "default": "Consultant",
+            "title": "Consultant",
+            "type": "string"
+          },
+          "junior": {
+            "default": "Junior",
+            "title": "Junior",
+            "type": "string"
+          },
+          "senior": {
+            "default": "Senior",
+            "title": "Senior",
+            "type": "string"
+          }
+        },
+        "title": "TierLabels",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WorkloadWeights": {
+        "properties": {
+          "weekday_oncall": {
+            "default": 20,
+            "title": "Weekday Oncall",
+            "type": "integer"
+          },
+          "weekday_session": {
+            "default": 10,
+            "title": "Weekday Session",
+            "type": "integer"
+          },
+          "weekend_consult": {
+            "default": 25,
+            "title": "Weekend Consult",
+            "type": "integer"
+          },
+          "weekend_ext": {
+            "default": 20,
+            "title": "Weekend Ext",
+            "type": "integer"
+          },
+          "weekend_oncall": {
+            "default": 35,
+            "title": "Weekend Oncall",
+            "type": "integer"
+          },
+          "weekend_session": {
+            "default": 15,
+            "title": "Weekend Session",
+            "type": "integer"
+          }
+        },
+        "title": "WorkloadWeights",
+        "type": "object"
+      },
+      "YamlExportResponse": {
+        "properties": {
+          "yaml": {
+            "title": "Yaml",
+            "type": "string"
+          }
+        },
+        "required": [
+          "yaml"
+        ],
+        "title": "YamlExportResponse",
+        "type": "object"
+      },
+      "YamlImportRequest": {
+        "properties": {
+          "yaml": {
+            "title": "Yaml",
+            "type": "string"
+          }
+        },
+        "required": [
+          "yaml"
+        ],
+        "title": "YamlImportRequest",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Healthcare Roster Scheduler v2",
+    "version": "2.0.0-phase1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/diagnose": {
+      "post": {
+        "description": "Millisecond necessary-condition checks (L1).",
+        "operationId": "diagnose_api_diagnose_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FeasibilityIssueOut"
+                  },
+                  "title": "Response Diagnose Api Diagnose Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Diagnose",
+        "tags": [
+          "diagnostics"
+        ]
+      }
+    },
+    "/api/explain": {
+      "post": {
+        "description": "Soft-relax diagnostic (L3). ~30 s \u2014 use only after an INFEASIBLE solve.",
+        "operationId": "explain_api_explain_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExplainReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Explain",
+        "tags": [
+          "diagnostics"
+        ]
+      }
+    },
+    "/api/health": {
+      "get": {
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Health Api Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/api/overrides/fill-from-snapshot": {
+      "post": {
+        "description": "Copy assignments from a completed solve into the overrides list.\n\n`snapshot_id` is \"final\" for the last result, or the 0-based index\n(as a string) of an intermediate event from the same solve.",
+        "operationId": "fill_from_snapshot_api_overrides_fill_from_snapshot_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FillFromSnapshotRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OverrideEntry"
+                  },
+                  "title": "Response Fill From Snapshot Api Overrides Fill From Snapshot Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Fill From Snapshot",
+        "tags": [
+          "solve"
+        ]
+      }
+    },
+    "/api/state": {
+      "get": {
+        "operationId": "get_state_api_state_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get State",
+        "tags": [
+          "state"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_state_api_state_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Patch",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch State",
+        "tags": [
+          "state"
+        ]
+      },
+      "put": {
+        "operationId": "put_state_api_state_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionState"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put State",
+        "tags": [
+          "state"
+        ]
+      }
+    },
+    "/api/state/prev_workload": {
+      "post": {
+        "description": "Compute prev_workload from a prior-period roster JSON and apply it in place.\n\nReturns the updated doctors list so the client can diff what changed.",
+        "operationId": "compute_prev_workload_api_state_prev_workload_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrevWorkloadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DoctorEntry"
+                  },
+                  "title": "Response Compute Prev Workload Api State Prev Workload Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compute Prev Workload",
+        "tags": [
+          "state"
+        ]
+      }
+    },
+    "/api/state/seed": {
+      "post": {
+        "description": "Replace the session with a sensible default roster problem.\n\nUseful for the SPA's empty-state \"Start with defaults\" button.",
+        "operationId": "seed_defaults_api_state_seed_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Seed Defaults",
+        "tags": [
+          "state"
+        ]
+      }
+    },
+    "/api/state/yaml": {
+      "get": {
+        "operationId": "export_yaml_api_state_yaml_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/YamlExportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Export Yaml",
+        "tags": [
+          "state"
+        ]
+      },
+      "post": {
+        "operationId": "import_yaml_api_state_yaml_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/YamlImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Yaml",
+        "tags": [
+          "state"
+        ]
+      }
+    }
+  }
+}
