@@ -1,7 +1,10 @@
 /**
  * Thin wrapper around the /api/solve WebSocket. Drives the solve store.
- * Same-origin cookies are automatically included by the browser.
+ * Session id rides along as a ?session_id= query param because WebSockets
+ * can't set custom headers from JS.
  */
+
+import { toast } from "sonner";
 
 import { wsUrl } from "@/api/client";
 import {
@@ -22,8 +25,13 @@ export function startSolve(options: { snapshotAssignments: boolean }) {
   const store = useSolveStore.getState();
   store.begin();
 
-  const ws = new WebSocket(wsUrl("/api/solve"));
+  const url = wsUrl("/api/solve");
+  const ws = new WebSocket(url);
   current = ws;
+
+  // Remember the last server-sent error so a follow-up onclose doesn't
+  // clobber it with a generic "connection closed" message.
+  let lastServerError: string | null = null;
 
   ws.onopen = () => {
     ws.send(
@@ -48,21 +56,39 @@ export function startSolve(options: { snapshotAssignments: boolean }) {
       s.finish(msg.result);
       cleanup();
     } else if (msg.type === "error") {
-      s.fail(msg.message ?? "solver error");
+      lastServerError = msg.message ?? "solver error";
+      s.fail(lastServerError);
+      toast.error(`Solver: ${lastServerError}`);
       cleanup();
     }
   };
 
   ws.onerror = () => {
-    const s = useSolveStore.getState();
-    if (s.status === "running") s.fail("WebSocket error");
-    cleanup();
+    // Browsers don't expose error detail here for security reasons; the
+    // specific reason usually arrives via the close event's code/reason.
+    console.warn("[solve] websocket onerror", { url });
   };
 
-  ws.onclose = () => {
+  ws.onclose = (ev) => {
     const s = useSolveStore.getState();
+    // If the server already told us why, leave that message alone.
+    if (s.status === "error") {
+      cleanup();
+      return;
+    }
     if (s.status === "running") {
-      s.fail("Connection closed before solve completed.");
+      const detail = ev.reason
+        ? `code ${ev.code}: ${ev.reason}`
+        : `code ${ev.code}${ev.code === 1006 ? " (handshake/network failure — WebSocket proxy may be blocked)" : ""}`;
+      const msg = lastServerError ?? `Connection closed before solve completed (${detail}).`;
+      s.fail(msg);
+      toast.error(msg);
+      console.warn("[solve] websocket closed unexpectedly", {
+        code: ev.code,
+        reason: ev.reason,
+        wasClean: ev.wasClean,
+        url,
+      });
     }
     cleanup();
   };

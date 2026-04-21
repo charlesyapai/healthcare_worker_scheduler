@@ -39,8 +39,29 @@ export function Solve() {
       toast.error("Set a horizon start date in Setup → When first.");
       return;
     }
-    if (!state.doctors?.length || !state.stations?.length) {
-      toast.error("Configure doctors and stations first.");
+    const nDocs = state.doctors?.length ?? 0;
+    const nStations = state.stations?.length ?? 0;
+    if (nDocs === 0 || nStations === 0) {
+      toast.error(
+        `Can't solve: ${nDocs} doctor${nDocs === 1 ? "" : "s"} and ${nStations} station${
+          nStations === 1 ? "" : "s"
+        } configured. Need at least one of each.`,
+      );
+      return;
+    }
+    // Sanity-check: every doctor must have at least one eligible station
+    // that exists in the current station list, otherwise build_instance
+    // throws and the WebSocket closes on first message.
+    const stationNames = new Set(state.stations?.map((s) => s.name) ?? []);
+    const broken = (state.doctors ?? []).find((d) => {
+      const el = d.eligible_stations ?? [];
+      if (el.length === 0) return true;
+      return !el.some((s) => stationNames.has(s));
+    });
+    if (broken) {
+      toast.error(
+        `${broken.name} has no eligible stations in your station list. Fix on Setup → Doctors.`,
+      );
       return;
     }
     startSolve({ snapshotAssignments: true });
