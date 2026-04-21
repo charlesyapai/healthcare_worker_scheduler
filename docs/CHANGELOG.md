@@ -2,6 +2,97 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-22 — v2.0 React SPA + FastAPI rewrite (branch `react-ui`)
+
+**What:** A parallel v2 branch replaces the Streamlit app with a React
+SPA backed by FastAPI. The solver core in `scheduler/` is unchanged;
+all v0.7.1 feature parity is preserved. Deployed as a separate Hugging
+Face Space (`charlesyapai/healthcare_workforce_scheduler_v2`) so the v1
+Streamlit Space remains available on `main`.
+
+**Why:** Streamlit imposed UX ceilings that the v1 app had outgrown:
+clumsy data-table editing, no drag between cells, `st.rerun()` for
+live streaming, single-column desktop-only layout. The v2 fork
+addresses these while keeping the proven CP-SAT model intact. See
+[`docs/NEW_UI_PLAN.md`](NEW_UI_PLAN.md) for the full rationale.
+
+**Architecture:**
+- Backend: FastAPI + Uvicorn on port 7860. Pydantic v2 models mirror
+  the YAML shape so `scheduler.persistence.dump_state` / `load_state`
+  round-trip losslessly with v1 files.
+- Frontend: React 18 + TypeScript (strict) + Vite + Tailwind v4 +
+  TanStack Query + Zustand + React Router.
+- Session model: cookie-keyed in-memory store per browser; SPA also
+  persists UI preferences (theme) in localStorage.
+- Deployment: multi-stage Dockerfile (Node builds the SPA, Python runs
+  uvicorn serving `/` from the built bundle and `/api/*` from FastAPI).
+
+**Backend API (`api/`):**
+- `GET/PUT/PATCH /api/state` — full session state, cookie-keyed.
+- `POST /api/state/seed` — populate 20-doctor default problem.
+- `POST /api/state/prev_workload` — compute carry-in from a prior JSON.
+- `GET/POST /api/state/yaml` — import/export via `scheduler.persistence`.
+- `POST /api/diagnose` — L1 necessary-condition checks.
+- `POST /api/explain` — L3 soft-relax infeasibility report.
+- `WS /api/solve` — streams `{type:event, wall_s, objective, best_bound,
+  components, assignments}` per improving solution; accepts
+  `{action:stop}`. CP-SAT runs in a thread; events pushed back to the
+  event loop via `loop.call_soon_threadsafe`.
+- `POST /api/overrides/fill-from-snapshot` — clones a solved roster
+  (final or any intermediate) into the overrides list.
+
+**Frontend pages:**
+- `/` Dashboard — live /api/health, session summary, "Start with
+  defaults" button.
+- `/setup/{when,doctors,blocks,overrides}` — per-period inputs with
+  500ms debounced auto-save via PATCH. Doctors table with inline edit,
+  tier/subspec/FTE/max-oncalls. Blocks table + CSV bulk-paste drawer.
+- `/rules/{tiers,subspecs,stations,constraints,hours,fairness,priorities}`
+  — once-per-department config. Station card grid, toggle switches for
+  H4–H11, live-bar hours chart.
+- `/solve` — WebSocket live solve with convergence chart (recharts),
+  verdict banner, stop button.
+- `/roster` — doctor × date heatmap (colour-coded by role), station ×
+  date view, snapshot slider across intermediate solutions, diff view,
+  workload table (client-side computed), lock-to-overrides button, CSV
+  download.
+- `/export` — JSON / CSV / ICS / print-preview / copy-YAML / share-link
+  / per-doctor mailto previews.
+- Top-bar: Save/Load YAML, dark-mode toggle.
+- Keyboard: `g d/s/r/p/o/e` nav, Ctrl+S save, Ctrl+Enter solve/stop.
+
+**Tests:**
+- `tests/test_api_state.py` — 10 REST tests (health, seed, PUT/PATCH,
+  YAML round-trip, prev_workload, session isolation, diagnose).
+- `tests/test_api_solve.py` — 5 WebSocket tests (completes, streams
+  events, stops <60s under 120s budget, overrides clone, 400 on no-solve).
+- Legacy `test_smoke.py`, `test_h11.py`, `test_stress.py` remain green.
+- Total: 21 pytest pass.
+
+**Deviations from `docs/NEW_UI_PLAN.md`:**
+- FullCalendar library deferred — the heatmap + station × date + per-
+  doctor workload drawer cover the calendar use case with a lighter
+  dep footprint.
+- shadcn/ui CLI not used; hand-wrote minimal `Button`/`Card`/`Input`/
+  `Select` primitives with cva for variants.
+- Per-doctor drag-to-move on the roster grid not wired — the
+  lock-and-re-solve flow covers the "swap one cell" use case.
+- OpenAPI-driven types commit both `openapi.json` and `types.ts` so
+  Docker builds don't need a running API at build time.
+- WebSocket message schemas manually defined in TypeScript (FastAPI
+  doesn't emit WS schemas into OpenAPI).
+
+**Files of note:**
+- `api/main.py`, `api/routes/*`, `api/models/*`, `api/sessions.py`
+- `ui/src/{App,main}.tsx`, `ui/src/routes/*`, `ui/src/components/*`,
+  `ui/src/api/*`, `ui/src/store/*`, `ui/src/lib/*`
+- `Dockerfile` (multi-stage), `scripts/dump_openapi.py`
+
+**Verified:**
+- HF Space rebuilds to RUNNING in ~2 min per push.
+- `pytest tests/` — 21/21 pass in ~105s.
+- `pnpm build` — 730 KB JS / 219 KB gzipped, 32 KB CSS / 7 KB gzipped.
+
 ## 2026-04-20 — v0.7.1 Split Configure into Setup + Department rules
 
 **What:** The single "Configure" tab is now two tabs — **Setup** (per-
