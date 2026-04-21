@@ -11,6 +11,8 @@ import type { ComponentType } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 
 import { DarkModeToggle } from "@/components/DarkModeToggle";
+import { YamlMenu } from "@/components/YamlMenu";
+import { useGlobalShortcuts } from "@/lib/keys";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
@@ -29,6 +31,7 @@ const NAV: NavItem[] = [
 ];
 
 export function Layout() {
+  useGlobalShortcuts();
   return (
     <div className="flex min-h-screen flex-col">
       <TopBar />
@@ -53,7 +56,8 @@ function TopBar() {
           v2
         </span>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1">
+        <YamlMenu />
         <DarkModeToggle />
       </div>
     </header>
