@@ -97,7 +97,9 @@ class TierLabels(StrictModel):
 
 
 class Horizon(StrictModel):
-    start_date: date | None = None
+    # Defaults to today so the date picker on the SPA lands on a usable value
+    # instead of a blank calendar on first load.
+    start_date: date | None = Field(default_factory=date.today)
     n_days: int = 21
     public_holidays: list[date] = Field(default_factory=list)
 

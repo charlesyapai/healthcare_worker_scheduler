@@ -1,4 +1,6 @@
 import { Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 
 import { useAutoSavePatch } from "@/api/autosave";
 import { type DoctorEntry, useSessionState } from "@/api/hooks";
@@ -52,7 +54,15 @@ export function Doctors() {
     updateDoctors(doctors.filter((_, i) => i !== idx));
   };
 
+  const importCsv = (rows: DoctorEntry[]) => {
+    const existingNames = new Set(doctors.map((d) => d.name));
+    const dedup = rows.filter((r) => !existingNames.has(r.name));
+    updateDoctors([...doctors, ...dedup]);
+    return dedup.length;
+  };
+
   return (
+    <div className="space-y-4">
     <Card>
       <CardHeader>
         <CardTitle>Doctors</CardTitle>
@@ -220,5 +230,137 @@ export function Doctors() {
         </div>
       </CardContent>
     </Card>
+
+    <DoctorsCsvDrawer subspecs={subspecs} stationNames={stationNames} onImport={importCsv} />
+    </div>
   );
+}
+
+function DoctorsCsvDrawer({
+  subspecs,
+  stationNames,
+  onImport,
+}: {
+  subspecs: string[];
+  stationNames: string[];
+  onImport: (rows: DoctorEntry[]) => number;
+}) {
+  const [csv, setCsv] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const parse = (): DoctorEntry[] => {
+    const lines = csv
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean)
+      // drop a header row if present
+      .filter((l) => !/^name\s*,/i.test(l));
+    const rows: DoctorEntry[] = [];
+    for (const line of lines) {
+      const parts = line.split(",").map((s) => s.trim());
+      const [name, tierRaw, subspecRaw, eligRaw, prevRaw, fteRaw, maxOcRaw] = parts;
+      if (!name) continue;
+      const tier = (tierRaw || "junior").toLowerCase() as DoctorEntry["tier"];
+      if (!["junior", "senior", "consultant"].includes(tier)) continue;
+      const subspec =
+        tier === "consultant"
+          ? subspecRaw && subspecs.includes(subspecRaw)
+            ? subspecRaw
+            : subspecs[0] ?? null
+          : null;
+      const eligible = (eligRaw ?? "")
+        .split(/[|; ]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      rows.push({
+        name,
+        tier,
+        subspec,
+        eligible_stations:
+          eligible.length > 0 ? eligible : stationNames.slice(0, 2),
+        prev_workload: parseIntOr(prevRaw, 0),
+        fte: parseFloatOr(fteRaw, 1),
+        max_oncalls: maxOcRaw && maxOcRaw !== "" ? parseIntOr(maxOcRaw, null) : null,
+      });
+    }
+    return rows;
+  };
+
+  const apply = () => {
+    const rows = parse();
+    if (rows.length === 0) {
+      toast.error("No rows parsed. Columns: name, tier, subspec, stations, prev_workload, fte, max_oncalls");
+      return;
+    }
+    const added = onImport(rows);
+    setCsv("");
+    setOpen(false);
+    toast.success(
+      added === rows.length
+        ? `Added ${added} doctor${added === 1 ? "" : "s"}`
+        : `Added ${added} new, skipped ${rows.length - added} duplicate${
+            rows.length - added === 1 ? "" : "s"
+          }`,
+    );
+  };
+
+  const example = [
+    "Dr A, junior, , GEN_AM|US|XR_REPORT, 0, 1.0,",
+    "Dr B, senior, , CT|MR|US, 0, 1.0,",
+    "Dr C, consultant, Neuro, CT|MR|IR, 0, 0.5, 4",
+  ].join("\n");
+
+  return (
+    <Card>
+      <CardHeader
+        className="cursor-pointer select-none hover:bg-slate-50 dark:hover:bg-slate-900/50"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <CardTitle className="text-sm">
+          {open ? "▼" : "▶"} Bulk-add doctors from CSV
+        </CardTitle>
+        <CardDescription>
+          Columns:{" "}
+          <code className="rounded bg-slate-100 px-1 py-0.5 dark:bg-slate-800">
+            name, tier, subspec, eligible_stations, prev_workload, fte, max_oncalls
+          </code>
+          . Stations separated by <code>|</code>. Leave subspec blank for
+          junior/senior. An existing name is skipped.
+        </CardDescription>
+      </CardHeader>
+      {open && (
+        <CardContent>
+          <textarea
+            className="h-40 w-full rounded-md border border-slate-300 bg-white p-2 font-mono text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-slate-900"
+            placeholder={example}
+            value={csv}
+            onChange={(e) => setCsv(e.target.value)}
+          />
+          <div className="mt-2 flex gap-2">
+            <Button size="sm" onClick={apply} disabled={!csv.trim()}>
+              Import
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setCsv(example)}>
+              Paste example
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setCsv("")}>
+              Clear
+            </Button>
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+function parseIntOr(s: string | undefined, fallback: number | null): number {
+  if (s == null || s === "") return (fallback ?? 0) as number;
+  const n = Number(s);
+  return Number.isFinite(n) ? Math.trunc(n) : (fallback ?? 0) as number;
+}
+
+function parseFloatOr(s: string | undefined, fallback: number): number {
+  if (s == null || s === "") return fallback;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : fallback;
 }

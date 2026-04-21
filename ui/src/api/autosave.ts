@@ -3,6 +3,10 @@
  * `delayMs` of no further edits, and coalesces multiple edits during that
  * window into a single request. The TanStack Query cache is updated
  * optimistically so the UI reflects the change immediately.
+ *
+ * The cleanup effect flushes pending edits on true unmount (empty deps)
+ * via a ref — not on every render, which would otherwise fire extra
+ * PATCHes every time any upstream hook recomputes its identity.
  */
 
 import { useQueryClient } from "@tanstack/react-query";
@@ -22,8 +26,9 @@ export function useAutoSavePatch(): AutoSave {
   const patch = usePatchState();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = useRef<Partial<SessionState>>({});
+  const flushRef = useRef<() => void>(() => {});
 
-  const flush = useCallback(() => {
+  flushRef.current = () => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -31,7 +36,9 @@ export function useAutoSavePatch(): AutoSave {
     const payload = pendingRef.current;
     pendingRef.current = {};
     if (Object.keys(payload).length > 0) patch.mutate(payload);
-  }, [patch]);
+  };
+
+  const flush = useCallback(() => flushRef.current(), []);
 
   const schedule = useCallback(
     (p: Partial<SessionState>, delayMs = 500) => {
@@ -40,22 +47,17 @@ export function useAutoSavePatch(): AutoSave {
       );
       pendingRef.current = { ...pendingRef.current, ...p };
       if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(flush, delayMs);
+      timerRef.current = setTimeout(() => flushRef.current(), delayMs);
     },
-    [qc, flush],
+    [qc],
   );
 
   useEffect(
     () => () => {
-      // Flush on unmount so a quick tab-switch doesn't lose edits.
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        const payload = pendingRef.current;
-        pendingRef.current = {};
-        if (Object.keys(payload).length > 0) patch.mutate(payload);
-      }
+      // True unmount only — flush any pending edits so they don't get lost.
+      flushRef.current();
     },
-    [patch],
+    [],
   );
 
   return { schedule, flush, pending: patch.isPending };

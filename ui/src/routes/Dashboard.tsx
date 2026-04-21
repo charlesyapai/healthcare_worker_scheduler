@@ -1,8 +1,16 @@
 import { format } from "date-fns";
+import { FileDown, FileUp } from "lucide-react";
+import { useRef } from "react";
 import { toast } from "sonner";
 
 import { ApiError } from "@/api/client";
-import { useHealth, useSeedDefaults, useSessionState } from "@/api/hooks";
+import {
+  useHealth,
+  useSeedDefaults,
+  useSessionState,
+  useYamlExport,
+  useYamlImport,
+} from "@/api/hooks";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -20,6 +28,36 @@ export function Dashboard() {
     onError: (e) =>
       toast.error(e instanceof ApiError ? e.message : "Failed to seed defaults"),
   });
+  const exporter = useYamlExport();
+  const importer = useYamlImport();
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const saveYaml = async () => {
+    try {
+      const { yaml } = await exporter.mutateAsync();
+      const blob = new Blob([yaml], { type: "application/x-yaml" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `roster_config_${new Date().toISOString().slice(0, 10)}.yaml`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+      toast.success("Config downloaded");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Failed to save config");
+    }
+  };
+
+  const loadYamlFromFile = async (file: File) => {
+    try {
+      const text = await file.text();
+      await importer.mutateAsync(text);
+      toast.success(`Loaded ${file.name}`);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Failed to load YAML");
+    }
+  };
 
   const doctors = state.data?.doctors ?? [];
   const stations = state.data?.stations ?? [];
@@ -83,23 +121,62 @@ export function Dashboard() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Get started</CardTitle>
+          <CardTitle>Save or reload your configuration</CardTitle>
           <CardDescription>
-            Seed the session with a 20-doctor, 21-day sample, or go straight to
-            Setup to build one from scratch.
+            A YAML file captures doctors, stations, rules, hours, fairness
+            weights, and every other setting. Reload it to pick up where you
+            left off — great for recurring rosters with small tweaks.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap gap-2">
+          <div
+            className="flex flex-col items-center gap-3 rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-6 text-center transition-colors hover:border-indigo-400 hover:bg-indigo-50/60 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/40"
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.currentTarget.classList.add("border-indigo-500");
+            }}
+            onDragLeave={(e) => e.currentTarget.classList.remove("border-indigo-500")}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.currentTarget.classList.remove("border-indigo-500");
+              const f = e.dataTransfer.files?.[0];
+              if (f) loadYamlFromFile(f);
+            }}
+          >
+            <FileUp className="h-8 w-8 text-slate-400" />
+            <div className="text-sm">
+              <p className="font-medium">Drop a YAML config here</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                or use the buttons below
+              </p>
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".yaml,.yml,text/yaml,application/x-yaml"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) loadYamlFromFile(f);
+                e.target.value = "";
+              }}
+            />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button onClick={() => fileRef.current?.click()} variant="secondary">
+              <FileUp className="h-4 w-4" />
+              Load YAML
+            </Button>
+            <Button onClick={saveYaml} variant="secondary" disabled={!hasConfig}>
+              <FileDown className="h-4 w-4" />
+              Save current config
+            </Button>
             <Button
               onClick={() => seed.mutate()}
               disabled={seed.isPending}
               variant="primary"
             >
               {seed.isPending ? "Loading…" : "Start with defaults"}
-            </Button>
-            <Button variant="secondary" disabled>
-              Load YAML (Phase 3)
             </Button>
           </div>
         </CardContent>

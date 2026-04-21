@@ -64,7 +64,11 @@ export function usePatchState() {
   return useMutation({
     mutationFn: (patch: Partial<SessionState>) =>
       apiFetch<SessionState>("/api/state", { method: "PATCH", body: patch }),
-    onSuccess: (data) => qc.setQueryData(queryKeys.sessionState, data),
+    // Don't overwrite the cache on success: auto-save keeps firing rapid
+    // PATCHes and a slower in-flight response can otherwise clobber the
+    // user's latest optimistic edits. The cache is already up-to-date via
+    // `schedule()`'s optimistic setQueryData. On error, re-sync from server.
+    onError: () => qc.invalidateQueries({ queryKey: queryKeys.sessionState }),
   });
 }
 
