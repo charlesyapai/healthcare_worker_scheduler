@@ -6,7 +6,14 @@ import { Layout } from "@/components/Layout";
 import { Dashboard } from "@/routes/Dashboard";
 import { Export } from "@/routes/Export";
 import { Roster } from "@/routes/Roster";
-import { Rules } from "@/routes/Rules";
+import { RulesLayout } from "@/routes/Rules";
+import { Constraints } from "@/routes/Rules/Constraints";
+import { Fairness } from "@/routes/Rules/Fairness";
+import { HoursEditor } from "@/routes/Rules/Hours";
+import { Priorities } from "@/routes/Rules/Priorities";
+import { StationsEditor } from "@/routes/Rules/Stations";
+import { Subspecs } from "@/routes/Rules/Subspecs";
+import { Tiers } from "@/routes/Rules/Tiers";
 import { Blocks } from "@/routes/Setup/Blocks";
 import { Doctors } from "@/routes/Setup/Doctors";
 import { Overrides } from "@/routes/Setup/Overrides";
@@ -40,7 +47,16 @@ export function App() {
               <Route path="blocks" element={<Blocks />} />
               <Route path="overrides" element={<Overrides />} />
             </Route>
-            <Route path="rules" element={<Rules />} />
+            <Route path="rules" element={<RulesLayout />}>
+              <Route index element={<Navigate to="tiers" replace />} />
+              <Route path="tiers" element={<Tiers />} />
+              <Route path="subspecs" element={<Subspecs />} />
+              <Route path="stations" element={<StationsEditor />} />
+              <Route path="constraints" element={<Constraints />} />
+              <Route path="hours" element={<HoursEditor />} />
+              <Route path="fairness" element={<Fairness />} />
+              <Route path="priorities" element={<Priorities />} />
+            </Route>
             <Route path="solve" element={<Solve />} />
             <Route path="roster" element={<Roster />} />
             <Route path="export" element={<Export />} />
