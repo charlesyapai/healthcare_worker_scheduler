@@ -7,7 +7,11 @@ import { Dashboard } from "@/routes/Dashboard";
 import { Export } from "@/routes/Export";
 import { Roster } from "@/routes/Roster";
 import { Rules } from "@/routes/Rules";
-import { Setup } from "@/routes/Setup";
+import { Blocks } from "@/routes/Setup/Blocks";
+import { Doctors } from "@/routes/Setup/Doctors";
+import { Overrides } from "@/routes/Setup/Overrides";
+import { SetupLayout } from "@/routes/Setup";
+import { When } from "@/routes/Setup/When";
 import { Solve } from "@/routes/Solve";
 import { useThemeEffect, useUIStore } from "@/store/ui";
 
@@ -29,7 +33,13 @@ export function App() {
         <Routes>
           <Route element={<Layout />}>
             <Route index element={<Dashboard />} />
-            <Route path="setup" element={<Setup />} />
+            <Route path="setup" element={<SetupLayout />}>
+              <Route index element={<Navigate to="when" replace />} />
+              <Route path="when" element={<When />} />
+              <Route path="doctors" element={<Doctors />} />
+              <Route path="blocks" element={<Blocks />} />
+              <Route path="overrides" element={<Overrides />} />
+            </Route>
             <Route path="rules" element={<Rules />} />
             <Route path="solve" element={<Solve />} />
             <Route path="roster" element={<Roster />} />
