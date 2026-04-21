@@ -1,5 +1,16 @@
+# Core solver (unchanged from v1)
 ortools>=9.10
 PyYAML>=6.0
-streamlit>=1.35
 pandas>=2.0
 plotly>=5.20
+
+# v2 backend
+fastapi>=0.115
+uvicorn[standard]>=0.30
+orjson>=3.10
+python-multipart>=0.0.9
+websockets>=12
+
+# Testing
+pytest>=8
+httpx>=0.27
