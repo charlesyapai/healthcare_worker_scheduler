@@ -7,6 +7,7 @@ sdk: docker
 app_port: 7860
 pinned: false
 license: mit
+short_description: React SPA + FastAPI rewrite of the v1 roster generator
 ---
 
 # Healthcare Roster Scheduler v2
