@@ -16,7 +16,8 @@ import {
 type Incoming =
   | (SolveEvent & { type: "event" })
   | { type: "done"; result: SolveResultPayload }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "heartbeat" };
 
 let current: WebSocket | null = null;
 
@@ -61,6 +62,7 @@ export function startSolve(options: { snapshotAssignments: boolean }) {
       toast.error(`Solver: ${lastServerError}`);
       cleanup();
     }
+    // heartbeat: ignore, connection stays open.
   };
 
   ws.onerror = () => {

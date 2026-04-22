@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 
 const TABS = [
   { to: "when", label: "When" },
-  { to: "doctors", label: "Doctors" },
+  { to: "doctors", label: "People" },
   { to: "blocks", label: "Leave & blocks" },
   { to: "overrides", label: "Manual overrides" },
 ];

@@ -257,6 +257,11 @@ def main() -> None:
 
     for scenario_id, (title, description, builder) in SCENARIOS.items():
         state = builder()
+        # Bias scenarios toward a shorter solver budget so they always
+        # produce a result inside typical cloud-proxy WebSocket timeouts.
+        state = state.model_copy(
+            update={"solver": state.solver.model_copy(update={"time_limit": 30})}
+        )
         inst = session_to_instance(state)
         weights, wl, cfg = session_to_solver_configs(state)
         n_doctors = len(state.doctors)
@@ -265,7 +270,7 @@ def main() -> None:
         print(f"[{scenario_id}] Solving {n_doctors}×{n_days} — {title} …")
         result = solve(
             inst,
-            time_limit_s=60,
+            time_limit_s=30,
             weights=weights,
             workload_weights=wl,
             constraints=cfg,

@@ -76,18 +76,19 @@ export function Doctors() {
       <div className="space-y-4">
         <EmptyState
           icon={Users}
-          title="No doctors yet"
+          title="No people yet"
           description={
             <>
-              Add doctors one at a time, paste a CSV, or load the pre-built
-              scenario if you just want to see the solver work.
+              Add one person at a time, paste a CSV, or load a pre-built
+              scenario if you just want to see the solver work. "People" can
+              be doctors, nurses, or any three-tier rota.
             </>
           }
           actions={
             <>
               <Button onClick={addRow} variant="primary" disabled={stationNames.length === 0}>
                 <Plus className="h-4 w-4" />
-                Add first doctor
+                Add first person
               </Button>
               <Button onClick={() => sample.mutate()} variant="secondary" disabled={sample.isPending}>
                 {sample.isPending ? "Loading…" : "Load sample scenario"}
@@ -104,10 +105,11 @@ export function Doctors() {
     <div className="space-y-4">
     <Card>
       <CardHeader>
-        <CardTitle>Doctors</CardTitle>
+        <CardTitle>People</CardTitle>
         <CardDescription>
-          One row per doctor. Tier drives eligibility; FTE scales workload; leave
-          max on-calls blank for no cap.
+          One row per person on the rota (doctor, nurse, etc.). Tier drives
+          station eligibility; FTE scales workload; leave max on-calls blank
+          for no cap.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -264,10 +266,10 @@ export function Doctors() {
         <div className="mt-3">
           <Button variant="secondary" onClick={addRow} size="sm">
             <Plus className="h-4 w-4" />
-            Add doctor
+            Add person
           </Button>
           <span className="ml-3 text-xs text-slate-500 dark:text-slate-400">
-            {doctors.length} doctor{doctors.length === 1 ? "" : "s"}
+            {doctors.length} {doctors.length === 1 ? "person" : "people"}
           </span>
         </div>
       </CardContent>
@@ -279,6 +281,7 @@ export function Doctors() {
 }
 
 function DoctorsCsvDrawer({
+  // historical name, but the drawer now labels itself "people" in UI copy.
   subspecs,
   stationNames,
   onImport,
@@ -339,7 +342,7 @@ function DoctorsCsvDrawer({
     setOpen(false);
     toast.success(
       added === rows.length
-        ? `Added ${added} doctor${added === 1 ? "" : "s"}`
+        ? `Added ${added} ${added === 1 ? "person" : "people"}`
         : `Added ${added} new, skipped ${rows.length - added} duplicate${
             rows.length - added === 1 ? "" : "s"
           }`,
@@ -359,7 +362,7 @@ function DoctorsCsvDrawer({
         onClick={() => setOpen((o) => !o)}
       >
         <CardTitle className="text-sm">
-          {open ? "▼" : "▶"} Bulk-add doctors from CSV
+          {open ? "▼" : "▶"} Bulk-add people from CSV
         </CardTitle>
         <CardDescription>
           Columns:{" "}

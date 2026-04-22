@@ -122,9 +122,21 @@ async def solve_ws(websocket: WebSocket) -> None:
 
     listener = asyncio.create_task(_client_listener())
 
+    # Heartbeat: emit a no-op message every 15 s so long solves on proxied
+    # deployments (HF Spaces, Cloudflare, etc.) don't trip idle-timeout
+    # WebSocket drops (which surface client-side as code 1006).
+    HEARTBEAT_INTERVAL_S = 15.0
+
     try:
         while True:
-            item = await event_queue.get()
+            try:
+                item = await asyncio.wait_for(event_queue.get(), HEARTBEAT_INTERVAL_S)
+            except asyncio.TimeoutError:
+                try:
+                    await websocket.send_json({"type": "heartbeat"})
+                except Exception:
+                    break
+                continue
             itype = item.get("type")
             if itype == "event":
                 assignments_payload = None

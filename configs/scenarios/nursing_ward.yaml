@@ -176,6 +176,6 @@ constraints:
   h11_enabled: true
   weekend_am_pm: false
 solver:
-  time_limit: 60
+  time_limit: 30
   num_workers: 8
   feasibility_only: false

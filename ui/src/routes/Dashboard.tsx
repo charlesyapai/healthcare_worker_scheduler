@@ -136,7 +136,7 @@ export function Dashboard() {
               body={
                 hasConfig ? (
                   <span>
-                    {doctors.length} doctors, {stations.length} stations, {nDays}-day horizon
+                    {doctors.length} people, {stations.length} stations, {nDays}-day horizon
                     {startDate ? ` starting ${format(new Date(startDate), "d MMM yyyy")}` : ""}.
                   </span>
                 ) : (
