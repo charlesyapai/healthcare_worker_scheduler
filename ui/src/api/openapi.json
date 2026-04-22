@@ -1,6 +1,31 @@
 {
   "components": {
     "schemas": {
+      "AssignmentRow": {
+        "description": "One role a doctor was assigned on a specific date.\n\n`role` follows the v1 export convention:\n  - STATION_<station>_<AM|PM>\n  - ONCALL\n  - WEEKEND_EXT\n  - WEEKEND_CONSULT",
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "doctor": {
+            "title": "Doctor",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "doctor",
+          "date",
+          "role"
+        ],
+        "title": "AssignmentRow",
+        "type": "object"
+      },
       "BlockEntry": {
         "properties": {
           "date": {
@@ -395,6 +420,17 @@
         "title": "PrevWorkloadRequest",
         "type": "object"
       },
+      "RestSolveRequest": {
+        "properties": {
+          "snapshot_assignments": {
+            "default": false,
+            "title": "Snapshot Assignments",
+            "type": "boolean"
+          }
+        },
+        "title": "RestSolveRequest",
+        "type": "object"
+      },
       "SessionState": {
         "properties": {
           "blocks": {
@@ -501,6 +537,151 @@
           }
         },
         "title": "SoftWeights",
+        "type": "object"
+      },
+      "SolveEvent": {
+        "description": "One improving solution found by CP-SAT.",
+        "properties": {
+          "assignments": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AssignmentRow"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignments"
+          },
+          "best_bound": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Bound"
+          },
+          "components": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Components",
+            "type": "object"
+          },
+          "objective": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective"
+          },
+          "type": {
+            "const": "event",
+            "default": "event",
+            "title": "Type",
+            "type": "string"
+          },
+          "wall_s": {
+            "title": "Wall S",
+            "type": "number"
+          }
+        },
+        "required": [
+          "wall_s"
+        ],
+        "title": "SolveEvent",
+        "type": "object"
+      },
+      "SolveResultPayload": {
+        "properties": {
+          "assignments": {
+            "items": {
+              "$ref": "#/components/schemas/AssignmentRow"
+            },
+            "title": "Assignments",
+            "type": "array"
+          },
+          "best_bound": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Bound"
+          },
+          "first_feasible_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Feasible S"
+          },
+          "intermediate": {
+            "items": {
+              "$ref": "#/components/schemas/SolveEvent"
+            },
+            "title": "Intermediate",
+            "type": "array"
+          },
+          "n_constraints": {
+            "title": "N Constraints",
+            "type": "integer"
+          },
+          "n_vars": {
+            "title": "N Vars",
+            "type": "integer"
+          },
+          "objective": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective"
+          },
+          "penalty_components": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Penalty Components",
+            "type": "object"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "wall_time_s": {
+            "title": "Wall Time S",
+            "type": "number"
+          }
+        },
+        "required": [
+          "status",
+          "wall_time_s",
+          "n_vars",
+          "n_constraints"
+        ],
+        "title": "SolveResultPayload",
         "type": "object"
       },
       "SolverSettings": {
@@ -810,6 +991,50 @@
           }
         },
         "summary": "Fill From Snapshot",
+        "tags": [
+          "solve"
+        ]
+      }
+    },
+    "/api/solve/run": {
+      "post": {
+        "description": "Blocking REST solve. Used as a fallback when the /api/solve WebSocket\ncan't stay open through a proxy (HF Spaces sometimes drops WS mid-solve\nwith code 1006). No intermediate events \u2014 just the final result.\n\nFastAPI runs sync routes on a thread pool, so the CP-SAT work here\ndoesn't block other requests.",
+        "operationId": "solve_sync_api_solve_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestSolveRequest",
+                "default": {
+                  "snapshot_assignments": false
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SolveResultPayload"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Solve Sync",
         "tags": [
           "solve"
         ]

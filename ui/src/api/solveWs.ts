@@ -1,12 +1,14 @@
 /**
- * Thin wrapper around the /api/solve WebSocket. Drives the solve store.
- * Session id rides along as a ?session_id= query param because WebSockets
- * can't set custom headers from JS.
+ * Solve driver. Primary path is a WebSocket for live progress updates;
+ * falls back to a blocking POST /api/solve/run if the WebSocket drops
+ * before completion. Session id rides along as a ?session_id= query
+ * param on the WS because JS can't set custom WebSocket headers; the
+ * REST fallback uses the normal X-Session-Id header path.
  */
 
 import { toast } from "sonner";
 
-import { wsUrl } from "@/api/client";
+import { ApiError, apiFetch, wsUrl } from "@/api/client";
 import {
   type SolveEvent,
   type SolveResultPayload,
@@ -20,6 +22,7 @@ type Incoming =
   | { type: "heartbeat" };
 
 let current: WebSocket | null = null;
+let pendingRestFallback: Promise<void> | null = null;
 
 export function startSolve(options: { snapshotAssignments: boolean }) {
   if (current) return;
@@ -27,12 +30,18 @@ export function startSolve(options: { snapshotAssignments: boolean }) {
   store.begin();
 
   const url = wsUrl("/api/solve");
-  const ws = new WebSocket(url);
+  let ws: WebSocket;
+  try {
+    ws = new WebSocket(url);
+  } catch (e) {
+    console.warn("[solve] failed to open WS", e);
+    void runRestFallback(options);
+    return;
+  }
   current = ws;
 
-  // Remember the last server-sent error so a follow-up onclose doesn't
-  // clobber it with a generic "connection closed" message.
   let lastServerError: string | null = null;
+  let everGotTraffic = false;
 
   ws.onopen = () => {
     ws.send(
@@ -44,6 +53,7 @@ export function startSolve(options: { snapshotAssignments: boolean }) {
   };
 
   ws.onmessage = (ev) => {
+    everGotTraffic = true;
     let msg: Incoming;
     try {
       msg = JSON.parse(ev.data) as Incoming;
@@ -66,31 +76,32 @@ export function startSolve(options: { snapshotAssignments: boolean }) {
   };
 
   ws.onerror = () => {
-    // Browsers don't expose error detail here for security reasons; the
-    // specific reason usually arrives via the close event's code/reason.
     console.warn("[solve] websocket onerror", { url });
   };
 
   ws.onclose = (ev) => {
     const s = useSolveStore.getState();
-    // If the server already told us why, leave that message alone.
-    if (s.status === "error") {
+    if (s.status === "done" || s.status === "error") {
       cleanup();
       return;
     }
     if (s.status === "running") {
-      const detail = ev.reason
-        ? `code ${ev.code}: ${ev.reason}`
-        : `code ${ev.code}${ev.code === 1006 ? " (handshake/network failure — WebSocket proxy may be blocked)" : ""}`;
-      const msg = lastServerError ?? `Connection closed before solve completed (${detail}).`;
-      s.fail(msg);
-      toast.error(msg);
       console.warn("[solve] websocket closed unexpectedly", {
         code: ev.code,
         reason: ev.reason,
         wasClean: ev.wasClean,
+        everGotTraffic,
         url,
       });
+      // Fall back to the blocking REST endpoint. If the solver already
+      // sent an explicit error, respect it; otherwise show a gentler
+      // "retrying via REST" notice and attempt the fallback.
+      if (lastServerError) {
+        cleanup();
+        return;
+      }
+      toast.message("WebSocket dropped — retrying via blocking REST call…");
+      void runRestFallback(options);
     }
     cleanup();
   };
@@ -102,6 +113,31 @@ export function stopSolve() {
     current.send(JSON.stringify({ action: "stop" }));
   } catch {
     /* ignore */
+  }
+}
+
+async function runRestFallback(options: { snapshotAssignments: boolean }) {
+  if (pendingRestFallback) return;
+  const s = useSolveStore.getState();
+  pendingRestFallback = (async () => {
+    try {
+      const result = await apiFetch<SolveResultPayload>("/api/solve/run", {
+        method: "POST",
+        body: { snapshot_assignments: options.snapshotAssignments },
+      });
+      useSolveStore.getState().finish(result);
+      toast.success(`Solved (${result.status.toLowerCase()}) via REST fallback`);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : "REST fallback failed";
+      useSolveStore.getState().fail(msg);
+      toast.error(`Solve failed: ${msg}`);
+    } finally {
+      pendingRestFallback = null;
+    }
+  })();
+  // ensure UI knows we're running
+  if (s.status !== "running") {
+    useSolveStore.getState().begin();
   }
 }
 

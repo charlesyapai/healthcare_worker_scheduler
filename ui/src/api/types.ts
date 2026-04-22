@@ -84,6 +84,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/solve/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Solve Sync
+         * @description Blocking REST solve. Used as a fallback when the /api/solve WebSocket
+         *     can't stay open through a proxy (HF Spaces sometimes drops WS mid-solve
+         *     with code 1006). No intermediate events — just the final result.
+         *
+         *     FastAPI runs sync routes on a thread pool, so the CP-SAT work here
+         *     doesn't block other requests.
+         */
+        post: operations["solve_sync_api_solve_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/state": {
         parameters: {
             query?: never;
@@ -227,6 +252,27 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AssignmentRow
+         * @description One role a doctor was assigned on a specific date.
+         *
+         *     `role` follows the v1 export convention:
+         *       - STATION_<station>_<AM|PM>
+         *       - ONCALL
+         *       - WEEKEND_EXT
+         *       - WEEKEND_CONSULT
+         */
+        AssignmentRow: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Doctor */
+            doctor: string;
+            /** Role */
+            role: string;
+        };
         /** BlockEntry */
         BlockEntry: {
             /**
@@ -454,6 +500,14 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** RestSolveRequest */
+        RestSolveRequest: {
+            /**
+             * Snapshot Assignments
+             * @default false
+             */
+            snapshot_assignments: boolean;
+        };
         /** SessionState */
         SessionState: {
             /** Blocks */
@@ -516,6 +570,55 @@ export interface components {
              * @default 40
              */
             workload: number;
+        };
+        /**
+         * SolveEvent
+         * @description One improving solution found by CP-SAT.
+         */
+        SolveEvent: {
+            /** Assignments */
+            assignments?: components["schemas"]["AssignmentRow"][] | null;
+            /** Best Bound */
+            best_bound?: number | null;
+            /** Components */
+            components?: {
+                [key: string]: number;
+            };
+            /** Objective */
+            objective?: number | null;
+            /**
+             * Type
+             * @default event
+             * @constant
+             */
+            type: "event";
+            /** Wall S */
+            wall_s: number;
+        };
+        /** SolveResultPayload */
+        SolveResultPayload: {
+            /** Assignments */
+            assignments?: components["schemas"]["AssignmentRow"][];
+            /** Best Bound */
+            best_bound?: number | null;
+            /** First Feasible S */
+            first_feasible_s?: number | null;
+            /** Intermediate */
+            intermediate?: components["schemas"]["SolveEvent"][];
+            /** N Constraints */
+            n_constraints: number;
+            /** N Vars */
+            n_vars: number;
+            /** Objective */
+            objective?: number | null;
+            /** Penalty Components */
+            penalty_components?: {
+                [key: string]: number;
+            };
+            /** Status */
+            status: string;
+            /** Wall Time S */
+            wall_time_s: number;
         };
         /** SolverSettings */
         SolverSettings: {
@@ -719,6 +822,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OverrideEntry"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    solve_sync_api_solve_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RestSolveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SolveResultPayload"];
                 };
             };
             /** @description Validation Error */

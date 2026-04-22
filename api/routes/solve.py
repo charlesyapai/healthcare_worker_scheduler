@@ -13,6 +13,7 @@ from datetime import timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 
 from api.models.events import (
     AssignmentRow,
@@ -218,6 +219,52 @@ def _snapshot_to_rows(state, snapshot: dict) -> list[AssignmentRow]:
     The callback uses the same tuple-keyed dict shape as SolveResult.
     """
     return assignments_to_rows(state, snapshot)
+
+
+# --------------------------------------------------------------- REST fallback
+
+
+class RestSolveRequest(BaseModel):
+    snapshot_assignments: bool = False
+
+
+@router.post("/api/solve/run", response_model=SolveResultPayload)
+def solve_sync(
+    req: RestSolveRequest = RestSolveRequest(),
+    session: ServerSession = Depends(get_session),
+) -> SolveResultPayload:
+    """Blocking REST solve. Used as a fallback when the /api/solve WebSocket
+    can't stay open through a proxy (HF Spaces sometimes drops WS mid-solve
+    with code 1006). No intermediate events — just the final result.
+
+    FastAPI runs sync routes on a thread pool, so the CP-SAT work here
+    doesn't block other requests."""
+    try:
+        inst = session_to_instance(session.state)
+    except BuildError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    weights, wl_weights, cfg = session_to_solver_configs(session.state)
+    try:
+        result = scheduler_solve(
+            inst,
+            time_limit_s=float(session.state.solver.time_limit),
+            weights=weights,
+            workload_weights=wl_weights,
+            constraints=cfg,
+            num_workers=session.state.solver.num_workers,
+            feasibility_only=session.state.solver.feasibility_only,
+            snapshot_assignments=req.snapshot_assignments,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Solver error: {type(e).__name__}: {e}",
+        )
+    payload = solve_result_to_payload(session.state, result)
+    session.last_solve = payload
+    return payload
 
 
 # --------------------------------------------------------------- overrides
