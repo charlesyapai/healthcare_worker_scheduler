@@ -122,10 +122,19 @@ async def solve_ws(websocket: WebSocket) -> None:
 
     listener = asyncio.create_task(_client_listener())
 
-    # Heartbeat: emit a no-op message every 15 s so long solves on proxied
-    # deployments (HF Spaces, Cloudflare, etc.) don't trip idle-timeout
-    # WebSocket drops (which surface client-side as code 1006).
-    HEARTBEAT_INTERVAL_S = 15.0
+    # Heartbeat: emit a no-op every 8 s so long solves on proxied deployments
+    # (HF Spaces, Cloudflare, etc.) don't trip idle-timeout WebSocket drops.
+    # 8 s is well under typical proxy thresholds (15–60 s) without being
+    # wasteful.
+    HEARTBEAT_INTERVAL_S = 8.0
+
+    # Send an initial heartbeat so the client sees server traffic within a
+    # round-trip of the start command — reassures the app that the socket
+    # really is live before the solver produces its first solution.
+    try:
+        await websocket.send_json({"type": "heartbeat"})
+    except Exception:
+        pass
 
     try:
         while True:
@@ -139,27 +148,42 @@ async def solve_ws(websocket: WebSocket) -> None:
                 continue
             itype = item.get("type")
             if itype == "event":
-                assignments_payload = None
-                raw_snap = item.get("assignments")
-                if raw_snap:
-                    assignments_payload = _snapshot_to_rows(session.state, raw_snap)
-                ev = SolveEvent(
-                    wall_s=float(item.get("wall_s", 0.0)),
-                    objective=item.get("objective"),
-                    best_bound=item.get("best_bound"),
-                    components={k: int(v) for k, v in
-                                (item.get("components") or {}).items()},
-                    assignments=assignments_payload,
-                )
-                intermediate_payloads.append(ev)
-                await websocket.send_json(ev.model_dump(mode="json"))
+                try:
+                    assignments_payload = None
+                    raw_snap = item.get("assignments")
+                    if raw_snap:
+                        assignments_payload = _snapshot_to_rows(session.state, raw_snap)
+                    ev = SolveEvent(
+                        wall_s=float(item.get("wall_s", 0.0)),
+                        objective=item.get("objective"),
+                        best_bound=item.get("best_bound"),
+                        components={k: int(v) for k, v in
+                                    (item.get("components") or {}).items()},
+                        assignments=assignments_payload,
+                    )
+                    intermediate_payloads.append(ev)
+                    await websocket.send_json(ev.model_dump(mode="json"))
+                except Exception as e:
+                    # Don't let a bad callback event kill the whole solve.
+                    import logging
+                    logging.getLogger("api.solve").exception(
+                        "Failed to process solver event", extra={"err": str(e)}
+                    )
             elif itype == "done":
-                result = item["_result"]
-                payload = solve_result_to_payload(session.state, result)
-                payload.intermediate = intermediate_payloads
-                session.last_solve = payload
-                await websocket.send_json(
-                    SolveDone(result=payload).model_dump(mode="json"))
+                try:
+                    result = item["_result"]
+                    payload = solve_result_to_payload(session.state, result)
+                    payload.intermediate = intermediate_payloads
+                    session.last_solve = payload
+                    await websocket.send_json(
+                        SolveDone(result=payload).model_dump(mode="json"))
+                except Exception as e:
+                    try:
+                        await websocket.send_json(SolveErrorMessage(
+                            message=f"Failed to finalise solve: {e}"
+                        ).model_dump())
+                    except Exception:
+                        pass
                 break
             elif itype == "error":
                 await websocket.send_json(SolveErrorMessage(
@@ -168,7 +192,19 @@ async def solve_ws(websocket: WebSocket) -> None:
                 break
     except WebSocketDisconnect:
         stop_event.set()
+    except Exception as e:
+        # Anything else that bubbles up becomes a proper error message to
+        # the client, not an abrupt 1006 close.
+        import logging
+        logging.getLogger("api.solve").exception("Solve handler crashed")
+        try:
+            await websocket.send_json(SolveErrorMessage(
+                message=f"Server error during solve: {type(e).__name__}: {e}"
+            ).model_dump())
+        except Exception:
+            pass
     finally:
+        stop_event.set()
         listener.cancel()
         try:
             await websocket.close()

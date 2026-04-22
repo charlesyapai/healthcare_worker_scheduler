@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { ApiError, apiFetch } from "@/api/client";
 import { useSessionState } from "@/api/hooks";
+import { ObjectiveBreakdown } from "@/components/ObjectiveBreakdown";
 import { RosterHeatmap } from "@/components/RosterHeatmap";
 import { Button } from "@/components/ui/button";
 import {
@@ -198,7 +199,7 @@ export function Roster() {
               )}
               <Legend />
             </div>
-            <div>
+            <div className="space-y-4">
               <Card>
                 <CardHeader>
                   <CardTitle>Workload</CardTitle>
@@ -217,6 +218,26 @@ export function Roster() {
                   />
                 </CardContent>
               </Card>
+              {result && (
+                <ObjectiveBreakdown
+                  objective={result.objective}
+                  bestBound={result.best_bound}
+                  components={result.penalty_components}
+                  weights={
+                    data?.soft_weights ?? {
+                      workload: 40,
+                      sessions: 5,
+                      oncall: 10,
+                      weekend: 10,
+                      reporting: 5,
+                      idle_weekday: 100,
+                      preference: 5,
+                    }
+                  }
+                  tierLabels={data?.tier_labels ?? undefined}
+                  mode="compact"
+                />
+              )}
             </div>
           </div>
         </>

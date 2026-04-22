@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useAutoSavePatch } from "@/api/autosave";
 import { useSessionState } from "@/api/hooks";
 import { startSolve, stopSolve } from "@/api/solveWs";
+import { ObjectiveBreakdown } from "@/components/ObjectiveBreakdown";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -153,6 +154,25 @@ export function Solve() {
         <div className="grid gap-4">
           <VerdictBanner elapsed={elapsed} />
           <ConvergenceCard />
+          {solve.status === "done" && solve.result && (
+            <ObjectiveBreakdown
+              objective={solve.result.objective}
+              bestBound={solve.result.best_bound}
+              components={solve.result.penalty_components}
+              weights={
+                state?.soft_weights ?? {
+                  workload: 40,
+                  sessions: 5,
+                  oncall: 10,
+                  weekend: 10,
+                  reporting: 5,
+                  idle_weekday: 100,
+                  preference: 5,
+                }
+              }
+              tierLabels={state?.tier_labels ?? undefined}
+            />
+          )}
           <IntermediateTable />
         </div>
       </div>
@@ -283,7 +303,12 @@ function IntermediateTable() {
     <Card>
       <CardHeader>
         <CardTitle>Intermediate solutions</CardTitle>
-        <CardDescription>{events.length} improving solution{events.length === 1 ? "" : "s"} captured so far.</CardDescription>
+        <CardDescription>
+          {events.length} improving solution{events.length === 1 ? "" : "s"} captured so far.
+          The solver tries to drive{" "}
+          <strong title="Sum of weighted soft penalties — lower is better">objective</strong> down toward{" "}
+          <strong title="Lowest achievable objective the solver has proved">bound</strong>; when they meet, the result is optimal.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="max-h-64 overflow-auto rounded-md border border-slate-200 dark:border-slate-800">
@@ -292,8 +317,8 @@ function IntermediateTable() {
               <tr>
                 <th className="px-2 py-1.5">#</th>
                 <th className="px-2 py-1.5">t (s)</th>
-                <th className="px-2 py-1.5">Objective</th>
-                <th className="px-2 py-1.5">Bound</th>
+                <th className="px-2 py-1.5" title="Current weighted-penalty total">Objective</th>
+                <th className="px-2 py-1.5" title="Best lower bound the solver has proved">Bound</th>
                 <th className="px-2 py-1.5">Assignments</th>
               </tr>
             </thead>

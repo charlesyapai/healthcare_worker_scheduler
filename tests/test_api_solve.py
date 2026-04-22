@@ -21,6 +21,8 @@ def test_ws_solve_completes_with_assignments(client) -> None:
         last = None
         while True:
             msg = ws.receive_json()
+            if msg["type"] == "heartbeat":
+                continue
             if msg["type"] == "done":
                 last = msg
                 break
@@ -44,6 +46,8 @@ def test_ws_solve_streams_events(client) -> None:
         result = None
         while True:
             msg = ws.receive_json()
+            if msg["type"] == "heartbeat":
+                continue
             if msg["type"] == "event":
                 events.append(msg)
                 # Snapshots should be list[AssignmentRow].
@@ -68,14 +72,21 @@ def test_ws_stop_message_early_exits(client) -> None:
                  json={"solver": {"feasibility_only": False, "time_limit": 120}})
     with client.websocket_connect(f"/api/solve?session_id={client.session_id}") as ws:
         ws.send_json({"action": "start", "snapshot_assignments": True})
-        # Wait for the first improving solution, then ask CP-SAT to stop.
-        first = ws.receive_json()
-        assert first["type"] == "event"
+        # Wait for the first improving solution (skip heartbeats), then ask
+        # CP-SAT to stop.
+        while True:
+            first = ws.receive_json()
+            if first["type"] == "heartbeat":
+                continue
+            assert first["type"] == "event"
+            break
         ws.send_json({"action": "stop"})
         # Drain until 'done'. Solver should exit quickly (well under the 120 s
         # time limit) since we signalled stop.
         while True:
             msg = ws.receive_json()
+            if msg["type"] == "heartbeat":
+                continue
             if msg["type"] == "done":
                 assert msg["result"]["wall_time_s"] < 60
                 assert msg["result"]["status"] in ("OPTIMAL", "FEASIBLE")
@@ -92,6 +103,8 @@ def test_fill_from_snapshot_populates_overrides(client) -> None:
         ws.send_json({"action": "start", "snapshot_assignments": False})
         while True:
             msg = ws.receive_json()
+            if msg["type"] == "heartbeat":
+                continue
             if msg["type"] == "done":
                 n_assignments = len(msg["result"]["assignments"])
                 break
