@@ -1,5 +1,5 @@
 import { format } from "date-fns";
-import { FileDown, FileUp } from "lucide-react";
+import { FileDown, FileUp, FlaskConical, PlayCircle } from "lucide-react";
 import { useRef } from "react";
 import { toast } from "sonner";
 
@@ -126,6 +126,76 @@ export function Dashboard() {
         </Card>
       </div>
 
+      <Card className="border-indigo-300 bg-indigo-50/50 dark:border-indigo-900 dark:bg-indigo-950/30">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <FlaskConical className="h-5 w-5 text-indigo-600 dark:text-indigo-300" />
+            <CardTitle>Try it out — pre-built scenario</CardTitle>
+          </div>
+          <CardDescription>
+            A curated scenario that's known to solve, so you can see the full
+            flow end-to-end before entering your own data.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className="font-medium">Small radiology department · 1 week</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Solves to OPTIMAL in about 7 seconds on the default solver
+                  settings. A good sanity check if your own config comes back
+                  infeasible.
+                </p>
+              </div>
+              <ul className="grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-slate-600 sm:grid-cols-2 dark:text-slate-300">
+                <li>
+                  <strong>15 doctors</strong>: 5 juniors, 4 seniors, 6 consultants (2 per sub-spec)
+                </li>
+                <li>
+                  <strong>Sub-specs</strong>: Neuro, Body, MSK
+                </li>
+                <li>
+                  <strong>8 stations</strong>: CT, MR, US (×2), XR_REPORT (×2), IR, FLUORO, GEN_AM, GEN_PM
+                </li>
+                <li>
+                  <strong>Horizon</strong>: 7 days starting this Monday
+                </li>
+                <li>
+                  <strong>All default rules on</strong>: 1-in-3 on-call, post-call off, weekend coverage, lieu day, mandatory weekday
+                </li>
+                <li>
+                  <strong>No leave, no overrides</strong> — a clean slate to play with
+                </li>
+              </ul>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                After loading, head to <strong className="text-slate-700 dark:text-slate-200">Solve</strong> and press the Solve button, then{" "}
+                <strong className="text-slate-700 dark:text-slate-200">Roster</strong> to review the result.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 sm:items-end">
+              <Button
+                onClick={() => sample.mutate()}
+                disabled={sample.isPending}
+                variant="primary"
+                size="lg"
+              >
+                <PlayCircle className="h-4 w-4" />
+                {sample.isPending ? "Loading…" : "Load this scenario"}
+              </Button>
+              <Button
+                onClick={() => seed.mutate()}
+                disabled={seed.isPending}
+                variant="ghost"
+                size="sm"
+              >
+                {seed.isPending ? "Loading…" : "Or: 20-doctor randomised"}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Save or reload your configuration</CardTitle>
@@ -177,21 +247,6 @@ export function Dashboard() {
             <Button onClick={saveYaml} variant="secondary" disabled={!hasConfig}>
               <FileDown className="h-4 w-4" />
               Save current config
-            </Button>
-            <Button
-              onClick={() => sample.mutate()}
-              disabled={sample.isPending}
-              variant="primary"
-              title="Curated 15-doctor / 7-day example that solves to OPTIMAL in ~10s. Great for smoke-testing."
-            >
-              {sample.isPending ? "Loading…" : "Load sample (solves OK)"}
-            </Button>
-            <Button
-              onClick={() => seed.mutate()}
-              disabled={seed.isPending}
-              variant="secondary"
-            >
-              {seed.isPending ? "Loading…" : "20-doctor defaults"}
             </Button>
           </div>
         </CardContent>
