@@ -63,6 +63,38 @@ export function useLoadSample(
   });
 }
 
+export interface ScenarioSummary {
+  id: string;
+  title: string;
+  description: string;
+  n_doctors: number;
+  n_stations: number;
+  n_days: number;
+  highlights: string[];
+}
+
+export function useScenarios() {
+  return useQuery({
+    queryKey: ["scenarios"],
+    queryFn: () => apiFetch<ScenarioSummary[]>("/api/state/scenarios"),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useLoadScenario(
+  options?: UseMutationOptions<SessionState, Error, string>,
+) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<SessionState>(`/api/state/scenarios/${id}`, { method: "POST" }),
+    onSuccess: (data) => {
+      qc.setQueryData(queryKeys.sessionState, data);
+    },
+    ...options,
+  });
+}
+
 export function usePutState() {
   const qc = useQueryClient();
   return useMutation({

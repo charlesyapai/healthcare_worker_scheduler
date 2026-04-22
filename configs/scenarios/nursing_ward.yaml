@@ -1,0 +1,181 @@
+schema_version: 1
+horizon:
+  start_date: '2026-04-27'
+  n_days: 14
+  public_holidays: []
+doctors:
+- name: Nurse A
+  tier: junior
+  subspec: ''
+  eligible_stations: WARD_MED_A,WARD_MED_B,WARD_SURG_A,WARD_SURG_B,TRIAGE
+  prev_workload: 0
+  fte: 1.0
+- name: Nurse B
+  tier: junior
+  subspec: ''
+  eligible_stations: WARD_MED_A,WARD_MED_B,WARD_SURG_A,WARD_SURG_B,TRIAGE
+  prev_workload: 0
+  fte: 1.0
+- name: Nurse C
+  tier: junior
+  subspec: ''
+  eligible_stations: WARD_MED_A,WARD_MED_B,WARD_SURG_A,WARD_SURG_B,TRIAGE
+  prev_workload: 0
+  fte: 1.0
+- name: Nurse D
+  tier: junior
+  subspec: ''
+  eligible_stations: WARD_MED_A,WARD_MED_B,WARD_SURG_A,WARD_SURG_B,TRIAGE
+  prev_workload: 0
+  fte: 1.0
+- name: Nurse E
+  tier: junior
+  subspec: ''
+  eligible_stations: WARD_MED_A,WARD_MED_B,WARD_SURG_A,WARD_SURG_B,TRIAGE
+  prev_workload: 0
+  fte: 1.0
+- name: Nurse F
+  tier: junior
+  subspec: ''
+  eligible_stations: WARD_MED_A,WARD_MED_B,WARD_SURG_A,WARD_SURG_B,TRIAGE
+  prev_workload: 0
+  fte: 1.0
+- name: Nurse G
+  tier: junior
+  subspec: ''
+  eligible_stations: WARD_MED_A,WARD_MED_B,WARD_SURG_A,WARD_SURG_B,TRIAGE
+  prev_workload: 0
+  fte: 1.0
+- name: Nurse H
+  tier: junior
+  subspec: ''
+  eligible_stations: WARD_MED_A,WARD_MED_B,WARD_SURG_A,WARD_SURG_B,TRIAGE
+  prev_workload: 0
+  fte: 1.0
+- name: RN A
+  tier: senior
+  subspec: ''
+  eligible_stations: WARD_MED_A,WARD_MED_B,WARD_SURG_A,WARD_SURG_B,TRIAGE
+  prev_workload: 0
+  fte: 1.0
+- name: RN B
+  tier: senior
+  subspec: ''
+  eligible_stations: WARD_MED_A,WARD_MED_B,WARD_SURG_A,WARD_SURG_B,TRIAGE
+  prev_workload: 0
+  fte: 1.0
+- name: RN C
+  tier: senior
+  subspec: ''
+  eligible_stations: WARD_MED_A,WARD_MED_B,WARD_SURG_A,WARD_SURG_B,TRIAGE
+  prev_workload: 0
+  fte: 1.0
+- name: RN D
+  tier: senior
+  subspec: ''
+  eligible_stations: WARD_MED_A,WARD_MED_B,WARD_SURG_A,WARD_SURG_B,TRIAGE
+  prev_workload: 0
+  fte: 1.0
+- name: RN E
+  tier: senior
+  subspec: ''
+  eligible_stations: WARD_MED_A,WARD_MED_B,WARD_SURG_A,WARD_SURG_B,TRIAGE
+  prev_workload: 0
+  fte: 1.0
+- name: Ward Mgr 1
+  tier: consultant
+  subspec: Medical
+  eligible_stations: WARD_MED_A,WARD_MED_B,WARD_SURG_A,WARD_SURG_B,TRIAGE
+  prev_workload: 0
+  fte: 1.0
+- name: Ward Mgr 2
+  tier: consultant
+  subspec: Medical
+  eligible_stations: WARD_MED_A,WARD_MED_B,WARD_SURG_A,WARD_SURG_B,TRIAGE
+  prev_workload: 0
+  fte: 1.0
+- name: Ward Mgr 3
+  tier: consultant
+  subspec: Surgical
+  eligible_stations: WARD_MED_A,WARD_MED_B,WARD_SURG_A,WARD_SURG_B,TRIAGE
+  prev_workload: 0
+  fte: 1.0
+- name: Ward Mgr 4
+  tier: consultant
+  subspec: Surgical
+  eligible_stations: WARD_MED_A,WARD_MED_B,WARD_SURG_A,WARD_SURG_B,TRIAGE
+  prev_workload: 0
+  fte: 1.0
+stations:
+- name: WARD_MED_A
+  sessions: AM,PM
+  required_per_session: 1
+  eligible_tiers: junior,senior,consultant
+  is_reporting: false
+- name: WARD_MED_B
+  sessions: AM,PM
+  required_per_session: 1
+  eligible_tiers: junior,senior,consultant
+  is_reporting: false
+- name: WARD_SURG_A
+  sessions: AM,PM
+  required_per_session: 1
+  eligible_tiers: junior,senior,consultant
+  is_reporting: false
+- name: WARD_SURG_B
+  sessions: AM,PM
+  required_per_session: 1
+  eligible_tiers: junior,senior,consultant
+  is_reporting: false
+- name: TRIAGE
+  sessions: AM,PM
+  required_per_session: 2
+  eligible_tiers: junior,senior,consultant
+  is_reporting: false
+blocks: []
+overrides: []
+tier_labels:
+  junior: Staff Nurse
+  senior: Senior Nurse
+  consultant: Ward Manager
+subspecs:
+- Medical
+- Surgical
+soft_weights:
+  workload: 40
+  sessions: 5
+  oncall: 10
+  weekend: 10
+  reporting: 5
+  idle_weekday: 100
+  preference: 5
+workload_weights:
+  weekday_session: 10
+  weekend_session: 15
+  weekday_oncall: 20
+  weekend_oncall: 35
+  weekend_ext: 20
+  weekend_consult: 25
+hours:
+  weekday_am: 4.0
+  weekday_pm: 4.0
+  weekend_am: 4.0
+  weekend_pm: 4.0
+  weekday_oncall: 12.0
+  weekend_oncall: 16.0
+  weekend_ext: 12.0
+  weekend_consult: 8.0
+constraints:
+  h4_enabled: true
+  h4_gap: 3
+  h5_enabled: true
+  h6_enabled: true
+  h7_enabled: true
+  h8_enabled: true
+  h9_enabled: true
+  h11_enabled: true
+  weekend_am_pm: false
+solver:
+  time_limit: 60
+  num_workers: 8
+  feasibility_only: false

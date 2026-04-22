@@ -2,6 +2,7 @@ import { format } from "date-fns";
 import {
   ArrowRight,
   Check,
+  ChevronDown,
   Circle,
   Download,
   FileDown,
@@ -10,6 +11,7 @@ import {
   LayoutDashboard,
   PlayCircle,
   Sliders,
+  Sparkles,
 } from "lucide-react";
 import { useRef } from "react";
 import { Link } from "react-router-dom";
@@ -17,9 +19,10 @@ import { toast } from "sonner";
 
 import { ApiError } from "@/api/client";
 import {
+  type ScenarioSummary,
   useHealth,
-  useLoadSample,
-  useSeedDefaults,
+  useLoadScenario,
+  useScenarios,
   useSessionState,
   useYamlExport,
   useYamlImport,
@@ -34,25 +37,23 @@ import {
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useSolveStore } from "@/store/solve";
+import { useUIStore } from "@/store/ui";
 
 export function Dashboard() {
   const health = useHealth();
   const state = useSessionState();
   const solve = useSolveStore();
-  const seed = useSeedDefaults({
-    onSuccess: () => toast.success("Loaded default 20-doctor roster"),
+  const scenarios = useScenarios();
+  const loadScenario = useLoadScenario({
+    onSuccess: (_, id) => toast.success(`Loaded ${id.replaceAll("_", " ")}`),
     onError: (e) =>
-      toast.error(e instanceof ApiError ? e.message : "Failed to seed defaults"),
-  });
-  const sample = useLoadSample({
-    onSuccess: () =>
-      toast.success("Loaded sample — head to Solve to try it out"),
-    onError: (e) =>
-      toast.error(e instanceof ApiError ? e.message : "Failed to load sample"),
+      toast.error(e instanceof ApiError ? e.message : "Failed to load scenario"),
   });
   const exporter = useYamlExport();
   const importer = useYamlImport();
   const fileRef = useRef<HTMLInputElement>(null);
+  const gsOpen = useUIStore((s) => s.gettingStartedOpen);
+  const toggleGs = useUIStore((s) => s.toggleGettingStarted);
 
   const saveYaml = async () => {
     try {
@@ -94,96 +95,187 @@ export function Dashboard() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Build a monthly on-call roster in four steps. Takes about 5 minutes
-          with the sample scenario.
+          Build a roster in four steps. Pick a scenario below to see the flow
+          end-to-end in minutes.
         </p>
       </header>
 
-      <Steps
-        step1Done={hasConfig}
-        step1Counts={{ doctors: doctors.length, stations: stations.length, days: nDays, startDate }}
-        step2Done={hasResult}
-        step2Status={solve.status === "running" ? "running" : hasResult ? solve.result?.status ?? "done" : null}
-        step3Done={hasResult}
-      />
-
-      <Card className="border-indigo-300 bg-indigo-50/50 dark:border-indigo-900 dark:bg-indigo-950/30">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <FlaskConical className="h-5 w-5 text-indigo-600 dark:text-indigo-300" />
-            <CardTitle>Try it out — pre-built scenario</CardTitle>
+      <Card>
+        <button
+          type="button"
+          onClick={toggleGs}
+          className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-slate-50 dark:hover:bg-slate-900/50"
+          aria-expanded={gsOpen}
+        >
+          <div>
+            <CardTitle>Getting started</CardTitle>
+            <CardDescription>
+              {gsOpen
+                ? "Follow the steps in order. This panel updates as you go."
+                : hasConfig
+                  ? hasResult
+                    ? "All four steps complete — expand to jump back in."
+                    : "Step 3 next: run the solver."
+                  : "Step 1 next: load a scenario or your YAML."}
+            </CardDescription>
           </div>
-          <CardDescription>
-            A curated scenario that's known to solve, so you can see the full
-            flow end-to-end before entering your own data.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
-            <div className="space-y-3 text-sm">
-              <div>
-                <p className="font-medium">Small radiology department · 1 week</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Solves to OPTIMAL in about 7 seconds on the default solver
-                  settings. A good sanity check if your own config comes back
-                  infeasible.
-                </p>
-              </div>
-              <ul className="grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-slate-600 sm:grid-cols-2 dark:text-slate-300">
-                <li>
-                  <strong>15 doctors</strong>: 5 juniors, 4 seniors, 6 consultants (2 per sub-spec)
-                </li>
-                <li>
-                  <strong>Sub-specs</strong>: Neuro, Body, MSK
-                </li>
-                <li>
-                  <strong>8 stations</strong>: CT, MR, US (×2), XR_REPORT (×2), IR, FLUORO, GEN_AM, GEN_PM
-                </li>
-                <li>
-                  <strong>Horizon</strong>: 7 days starting this Monday
-                </li>
-                <li>
-                  <strong>All default rules on</strong>: 1-in-3 on-call, post-call off, weekend coverage, lieu day, mandatory weekday
-                </li>
-                <li>
-                  <strong>No leave, no overrides</strong> — a clean slate to play with
-                </li>
-              </ul>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                After loading, head to <strong className="text-slate-700 dark:text-slate-200">Solve</strong> and press the Solve button, then{" "}
-                <strong className="text-slate-700 dark:text-slate-200">Roster</strong> to review the result.
-              </p>
-            </div>
-            <div className="flex flex-col gap-2 sm:items-end">
-              <Button
-                onClick={() => sample.mutate()}
-                disabled={sample.isPending}
-                variant="primary"
-                size="lg"
-              >
-                <PlayCircle className="h-4 w-4" />
-                {sample.isPending ? "Loading…" : "Load this scenario"}
-              </Button>
-              <Button
-                onClick={() => seed.mutate()}
-                disabled={seed.isPending}
-                variant="ghost"
-                size="sm"
-              >
-                {seed.isPending ? "Loading…" : "Or: 20-doctor randomised"}
-              </Button>
-            </div>
-          </div>
-        </CardContent>
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 text-slate-400 transition-transform",
+              gsOpen && "rotate-180",
+            )}
+          />
+        </button>
+        {gsOpen && (
+          <CardContent className="divide-y divide-slate-200 dark:divide-slate-800">
+            <Step
+              n={1}
+              done={hasConfig}
+              active={!hasConfig}
+              title="Load or build a configuration"
+              body={
+                hasConfig ? (
+                  <span>
+                    {doctors.length} doctors, {stations.length} stations, {nDays}-day horizon
+                    {startDate ? ` starting ${format(new Date(startDate), "d MMM yyyy")}` : ""}.
+                  </span>
+                ) : (
+                  <span>
+                    Pick a scenario below, drop a YAML, or start from scratch in{" "}
+                    <Link to="/setup" className="text-indigo-600 underline dark:text-indigo-300">Setup</Link>.
+                  </span>
+                )
+              }
+              action={
+                hasConfig && (
+                  <Link
+                    to="/setup"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+                  >
+                    <LayoutDashboard className="h-3.5 w-3.5" />
+                    Review
+                  </Link>
+                )
+              }
+            />
+            <Step
+              n={2}
+              done={hasConfig}
+              dim={!hasConfig}
+              active={hasConfig && !hasResult}
+              title="Review rules (optional)"
+              body={
+                <span>
+                  Tweak constraint toggles, fairness weights, or shift hours in{" "}
+                  <Link to="/rules" className="text-indigo-600 underline dark:text-indigo-300">Rules</Link>.
+                  Safe to skip.
+                </span>
+              }
+              action={
+                hasConfig && (
+                  <Link
+                    to="/rules"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+                  >
+                    <Sliders className="h-3.5 w-3.5" />
+                    Open
+                  </Link>
+                )
+              }
+            />
+            <Step
+              n={3}
+              done={hasResult}
+              dim={!hasConfig}
+              active={hasConfig && !hasResult}
+              title="Run the solver"
+              body={
+                hasResult ? (
+                  <span>{solve.result?.status} — snapshots available on the roster page.</span>
+                ) : hasConfig ? (
+                  <span>
+                    Head to <Link to="/solve" className="text-indigo-600 underline dark:text-indigo-300">Solve</Link> and press Solve.
+                  </span>
+                ) : (
+                  <span>Available once step 1 is done.</span>
+                )
+              }
+              action={
+                hasConfig &&
+                !hasResult && (
+                  <Link
+                    to="/solve"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+                  >
+                    <PlayCircle className="h-3.5 w-3.5" />
+                    Go to Solve <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+                )
+              }
+            />
+            <Step
+              n={4}
+              done={false}
+              dim={!hasResult}
+              active={hasResult}
+              title="Review & publish"
+              body={
+                hasResult ? (
+                  <span>
+                    Open <Link to="/roster" className="text-indigo-600 underline dark:text-indigo-300">Roster</Link> to
+                    review, then <Link to="/export" className="text-indigo-600 underline dark:text-indigo-300">Export</Link>.
+                  </span>
+                ) : (
+                  <span>Available once a solve finishes.</span>
+                )
+              }
+              action={
+                hasResult && (
+                  <Link
+                    to="/roster"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Review
+                  </Link>
+                )
+              }
+            />
+          </CardContent>
+        )}
       </Card>
+
+      <section>
+        <div className="mb-2 flex items-center gap-2">
+          <FlaskConical className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
+          <h2 className="text-sm font-semibold tracking-tight">Pre-built scenarios</h2>
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            Known-feasible starting points — click to load.
+          </span>
+        </div>
+        {scenarios.isLoading ? (
+          <p className="text-xs text-slate-500 dark:text-slate-400">Loading…</p>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-3">
+            {(scenarios.data ?? []).map((s, idx) => (
+              <ScenarioCard
+                key={s.id}
+                s={s}
+                featured={idx === 0}
+                pending={loadScenario.isPending && loadScenario.variables === s.id}
+                onLoad={() => loadScenario.mutate(s.id)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
 
       <Card>
         <CardHeader>
           <CardTitle>Save or reload your configuration</CardTitle>
           <CardDescription>
-            A YAML file captures doctors, stations, rules, hours, fairness
-            weights, and every other setting. Reload it to pick up where you
-            left off — great for recurring rosters with small tweaks.
+            YAML captures doctors, stations, rules, hours, weights — everything
+            editable in the app. Good for recurring rosters with small tweaks.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -240,155 +332,54 @@ export function Dashboard() {
   );
 }
 
-function Steps({
-  step1Done,
-  step1Counts,
-  step2Done,
-  step2Status,
-  step3Done,
+function ScenarioCard({
+  s,
+  featured,
+  pending,
+  onLoad,
 }: {
-  step1Done: boolean;
-  step1Counts: {
-    doctors: number;
-    stations: number;
-    days: number;
-    startDate: string | null;
-  };
-  step2Done: boolean;
-  step2Status: string | null;
-  step3Done: boolean;
+  s: ScenarioSummary;
+  featured?: boolean;
+  pending: boolean;
+  onLoad: () => void;
 }) {
-  // Step 1: config present
-  // Step 2: review setup + rules (active once step 1 done, never blocked)
-  // Step 3: solve finished
-  // Step 4: export (active once step 3 done)
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Getting started</CardTitle>
-        <CardDescription>Follow the steps in order. This panel updates as you go.</CardDescription>
+    <Card
+      className={cn(
+        "flex flex-col",
+        featured &&
+          "border-indigo-300 bg-indigo-50/40 dark:border-indigo-900 dark:bg-indigo-950/20",
+      )}
+    >
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="text-sm leading-snug">{s.title}</CardTitle>
+          {featured && (
+            <Sparkles className="h-3.5 w-3.5 flex-shrink-0 text-indigo-500 dark:text-indigo-300" />
+          )}
+        </div>
+        <CardDescription className="text-xs">{s.description}</CardDescription>
       </CardHeader>
-      <CardContent className="divide-y divide-slate-200 dark:divide-slate-800">
-        <Step
-          n={1}
-          done={step1Done}
-          active={!step1Done}
-          title="Load or build a configuration"
-          body={
-            step1Done ? (
-              <span>
-                {step1Counts.doctors} doctors, {step1Counts.stations} stations,{" "}
-                {step1Counts.days}-day horizon
-                {step1Counts.startDate
-                  ? ` starting ${format(new Date(step1Counts.startDate), "d MMM yyyy")}`
-                  : ""}
-                .
-              </span>
-            ) : (
-              <span>
-                Use <strong>Load this scenario</strong> below, drop a YAML,
-                or start from scratch in <Link to="/setup" className="text-indigo-600 underline dark:text-indigo-300">Setup</Link>.
-              </span>
-            )
-          }
-          action={
-            step1Done && (
-              <Link
-                to="/setup"
-                className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
-              >
-                <LayoutDashboard className="h-3.5 w-3.5" />
-                Review setup
-              </Link>
-            )
-          }
-        />
-        <Step
-          n={2}
-          done={step1Done /* implicit review once config exists */ && true}
-          dim={!step1Done}
-          active={step1Done && !step2Done}
-          title="Review rules (optional)"
-          body={
-            <span>
-              Tweak constraint toggles, fairness weights, or shift hours in{" "}
-              <Link to="/rules" className="text-indigo-600 underline dark:text-indigo-300">Rules</Link>.
-              Safe to skip if you're just trying the scenario.
-            </span>
-          }
-          action={
-            step1Done && (
-              <Link
-                to="/rules"
-                className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
-              >
-                <Sliders className="h-3.5 w-3.5" />
-                Open rules
-              </Link>
-            )
-          }
-        />
-        <Step
-          n={3}
-          done={step2Done}
-          dim={!step1Done}
-          active={step1Done && !step2Done}
-          title="Run the solver"
-          body={
-            step2Done ? (
-              <span>
-                {step2Status}
-                {" — "}snapshots available on the roster page.
-              </span>
-            ) : step1Done ? (
-              <span>
-                Head to <Link to="/solve" className="text-indigo-600 underline dark:text-indigo-300">Solve</Link> and press Solve. Expect a few seconds of live updates, then a verdict banner.
-              </span>
-            ) : (
-              <span>Available once you have doctors and stations.</span>
-            )
-          }
-          action={
-            step1Done &&
-            !step2Done && (
-              <Link
-                to="/solve"
-                className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
-              >
-                <PlayCircle className="h-3.5 w-3.5" />
-                Go to Solve <ArrowRight className="h-3.5 w-3.5" />
-              </Link>
-            )
-          }
-        />
-        <Step
-          n={4}
-          done={false}
-          dim={!step3Done}
-          active={step3Done}
-          title="Review & publish"
-          body={
-            step3Done ? (
-              <span>
-                Open <Link to="/roster" className="text-indigo-600 underline dark:text-indigo-300">Roster</Link> to
-                eyeball the grid, lock cells, or re-solve. Then <Link to="/export" className="text-indigo-600 underline dark:text-indigo-300">Export</Link> as JSON / CSV / ICS / PDF.
-              </span>
-            ) : (
-              <span>Available once a solve finishes.</span>
-            )
-          }
-          action={
-            step3Done && (
-              <Link
-                to="/roster"
-                className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
-              >
-                <Download className="h-3.5 w-3.5" />
-                Open roster
-              </Link>
-            )
-          }
-        />
+      <CardContent className="mt-auto space-y-3">
+        <ul className="flex flex-wrap gap-1">
+          {s.highlights.slice(0, 4).map((h) => (
+            <li
+              key={h}
+              className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+            >
+              {h}
+            </li>
+          ))}
+        </ul>
+        <Button
+          onClick={onLoad}
+          disabled={pending}
+          variant={featured ? "primary" : "secondary"}
+          size="sm"
+          className="w-full"
+        >
+          {pending ? "Loading…" : "Load scenario"}
+        </Button>
       </CardContent>
     </Card>
   );

@@ -292,6 +292,14 @@ def v1_dict_to_session(update: dict[str, Any], base: SessionState | None = None)
 
 # --------------------------------------------------------------- Instance
 
+_BLOCK_TYPE_ALIAS = {
+    # build_instance's normalizer produces "NO_ON_CALL" from "No on-call"
+    # (spaces and hyphens both become underscores), which isn't in its
+    # accepted set. Remap to "CALL_BLOCK" which it does understand.
+    "No on-call": "CALL_BLOCK",
+}
+
+
 def session_to_instance(state: SessionState) -> Instance:
     """Build a solver `Instance` from the current session state.
 
@@ -303,7 +311,7 @@ def session_to_instance(state: SessionState) -> Instance:
         raise ValueError("start_date is required to build a solver instance.")
     v1 = session_to_v1_dict(state)
     block_entries = [
-        (b.doctor, b.date, b.end_date, b.type)
+        (b.doctor, b.date, b.end_date, _BLOCK_TYPE_ALIAS.get(b.type, b.type))
         for b in state.blocks
     ]
     override_entries = [(o.doctor, o.date, o.role) for o in state.overrides]

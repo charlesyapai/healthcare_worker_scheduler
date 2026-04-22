@@ -90,23 +90,44 @@ def seed_defaults(session: ServerSession = Depends(get_session)) -> SessionState
     return session.state
 
 
-SAMPLE_PATH = (
-    Path(__file__).resolve().parent.parent.parent
-    / "configs"
-    / "sample_feasible.yaml"
+SCENARIOS_DIR = (
+    Path(__file__).resolve().parent.parent.parent / "configs" / "scenarios"
 )
 
 
-@router.post("/sample", response_model=SessionState)
-def load_sample(session: ServerSession = Depends(get_session)) -> SessionState:
-    """Load the known-feasible 15-doctor × 7-day sample config bundled in the
-    repo at configs/sample_feasible.yaml. Proves the solver works end-to-end
-    and gives the user a starting point they can tweak."""
-    if not SAMPLE_PATH.exists():
-        raise HTTPException(status_code=500, detail="Sample config not bundled.")
-    updates = load_state(SAMPLE_PATH.read_text())
+@router.get("/scenarios")
+def list_scenarios() -> list[dict]:
+    """Return the manifest of pre-built scenarios (id, title, description,
+    stats, highlights) for the SPA's scenario picker."""
+    manifest_path = SCENARIOS_DIR / "manifest.json"
+    if not manifest_path.exists():
+        return []
+    import json
+
+    return json.loads(manifest_path.read_text())
+
+
+@router.post("/scenarios/{scenario_id}", response_model=SessionState)
+def load_scenario(
+    scenario_id: str,
+    session: ServerSession = Depends(get_session),
+) -> SessionState:
+    """Load one of the bundled scenarios into the current session."""
+    yaml_path = SCENARIOS_DIR / f"{scenario_id}.yaml"
+    if not yaml_path.exists():
+        raise HTTPException(
+            status_code=404, detail=f"Unknown scenario: {scenario_id}"
+        )
+    updates = load_state(yaml_path.read_text())
     session.state = v1_dict_to_session(updates, base=SessionState())
     return session.state
+
+
+# Back-compat alias: the old /api/state/sample endpoint loads the first
+# scenario (keeps existing SPA bundles working during a rolling upgrade).
+@router.post("/sample", response_model=SessionState)
+def load_sample(session: ServerSession = Depends(get_session)) -> SessionState:
+    return load_scenario("radiology_small", session)
 
 
 @router.post("/prev_workload", response_model=list[DoctorEntry])

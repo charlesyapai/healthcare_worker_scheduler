@@ -964,7 +964,6 @@
     },
     "/api/state/sample": {
       "post": {
-        "description": "Load the known-feasible 15-doctor \u00d7 7-day sample config bundled in the\nrepo at configs/sample_feasible.yaml. Proves the solver works end-to-end\nand gives the user a starting point they can tweak.",
         "operationId": "load_sample_api_state_sample_post",
         "responses": {
           "200": {
@@ -979,6 +978,76 @@
           }
         },
         "summary": "Load Sample",
+        "tags": [
+          "state"
+        ]
+      }
+    },
+    "/api/state/scenarios": {
+      "get": {
+        "description": "Return the manifest of pre-built scenarios (id, title, description,\nstats, highlights) for the SPA's scenario picker.",
+        "operationId": "list_scenarios_api_state_scenarios_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response List Scenarios Api State Scenarios Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Scenarios",
+        "tags": [
+          "state"
+        ]
+      }
+    },
+    "/api/state/scenarios/{scenario_id}": {
+      "post": {
+        "description": "Load one of the bundled scenarios into the current session.",
+        "operationId": "load_scenario_api_state_scenarios__scenario_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "scenario_id",
+            "required": true,
+            "schema": {
+              "title": "Scenario Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Load Scenario",
         "tags": [
           "state"
         ]

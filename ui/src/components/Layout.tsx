@@ -1,5 +1,7 @@
 import {
   Calendar,
+  ChevronLeft,
+  ChevronRight,
   Download,
   Home,
   LayoutDashboard,
@@ -15,6 +17,7 @@ import { SaveIndicator } from "@/components/SaveIndicator";
 import { YamlMenu } from "@/components/YamlMenu";
 import { useGlobalShortcuts } from "@/lib/keys";
 import { cn } from "@/lib/utils";
+import { useUIStore } from "@/store/ui";
 
 interface NavItem {
   to: string;
@@ -25,13 +28,8 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { to: "/", label: "Dashboard", icon: Home },
-  {
-    to: "/setup",
-    label: "Setup",
-    hint: "per-period",
-    icon: LayoutDashboard,
-  },
-  { to: "/rules", label: "Rules", hint: "once per dept", icon: Sliders },
+  { to: "/setup", label: "Setup", hint: "per-period", icon: LayoutDashboard },
+  { to: "/rules", label: "Rules", hint: "department", icon: Sliders },
   { to: "/solve", label: "Solve", icon: Play },
   { to: "/roster", label: "Roster", icon: Calendar },
   { to: "/export", label: "Export", icon: Download },
@@ -42,12 +40,10 @@ export function Layout() {
   return (
     <div className="flex min-h-screen flex-col">
       <TopBar />
-      <div className="flex flex-1 flex-col md:flex-row">
-        <SideNav />
-        <main className="flex-1 p-4 md:p-6">
-          <Outlet />
-        </main>
-      </div>
+      <main className="flex-1 p-4 md:p-6">
+        <Outlet />
+      </main>
+      <SideNav />
       <BottomNav />
     </div>
   );
@@ -75,47 +71,55 @@ function TopBar() {
 }
 
 function SideNav() {
+  const expanded = useUIStore((s) => s.navExpanded);
+  const toggle = useUIStore((s) => s.toggleNav);
   return (
-    <nav className="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-52 border-r border-slate-200 bg-slate-50/60 p-3 dark:border-slate-800 dark:bg-slate-950/60 md:block">
-      <ul className="flex flex-col gap-1">
-        {NAV.map(({ to, label, hint, icon: Icon }) => (
-          <li key={to}>
-            <NavLink
-              to={to}
-              end={to === "/"}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
-                  isActive
-                    ? "bg-indigo-600 text-white shadow-sm"
-                    : "text-slate-700 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-800",
-                )
-              }
-            >
-              {({ isActive }: { isActive: boolean }) => (
-                <>
-                  <Icon className="h-4 w-4" />
-                  <div className="flex flex-col leading-tight">
-                    <span>{label}</span>
-                    {hint && (
-                      <span
-                        className={cn(
-                          "text-[10px]",
-                          isActive
-                            ? "text-indigo-100"
-                            : "text-slate-400 dark:text-slate-500",
-                        )}
-                      >
-                        {hint}
-                      </span>
-                    )}
-                  </div>
-                </>
+    <nav
+      aria-label="Primary"
+      className={cn(
+        "fixed right-3 top-1/2 z-30 hidden -translate-y-1/2 flex-col gap-0.5 rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-lg backdrop-blur transition-[width] dark:border-slate-800 dark:bg-slate-950/95 md:flex",
+        expanded ? "w-40" : "w-11",
+      )}
+    >
+      {NAV.map(({ to, label, hint, icon: Icon }) => (
+        <NavLink
+          key={to}
+          to={to}
+          end={to === "/"}
+          title={!expanded ? (hint ? `${label} · ${hint}` : label) : undefined}
+          className={({ isActive }) =>
+            cn(
+              "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
+              expanded ? "justify-start" : "justify-center",
+              isActive
+                ? "bg-indigo-600 text-white shadow-sm"
+                : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800",
+            )
+          }
+        >
+          <Icon className="h-4 w-4 flex-shrink-0" />
+          {expanded && (
+            <span className="flex flex-col leading-tight">
+              <span className="font-medium">{label}</span>
+              {hint && (
+                <span className="text-[10px] text-current opacity-70">{hint}</span>
               )}
-            </NavLink>
-          </li>
-        ))}
-      </ul>
+            </span>
+          )}
+        </NavLink>
+      ))}
+      <button
+        type="button"
+        onClick={toggle}
+        aria-label={expanded ? "Collapse navigation" : "Expand navigation"}
+        className="mt-0.5 flex items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800"
+      >
+        {expanded ? (
+          <ChevronRight className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronLeft className="h-3.5 w-3.5" />
+        )}
+      </button>
     </nav>
   );
 }

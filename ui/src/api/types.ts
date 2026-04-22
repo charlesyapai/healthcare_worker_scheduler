@@ -134,13 +134,49 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Load Sample
-         * @description Load the known-feasible 15-doctor × 7-day sample config bundled in the
-         *     repo at configs/sample_feasible.yaml. Proves the solver works end-to-end
-         *     and gives the user a starting point they can tweak.
-         */
+        /** Load Sample */
         post: operations["load_sample_api_state_sample_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/state/scenarios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Scenarios
+         * @description Return the manifest of pre-built scenarios (id, title, description,
+         *     stats, highlights) for the SPA's scenario picker.
+         */
+        get: operations["list_scenarios_api_state_scenarios_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/state/scenarios/{scenario_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Load Scenario
+         * @description Load one of the bundled scenarios into the current session.
+         */
+        post: operations["load_scenario_api_state_scenarios__scenario_id__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -833,6 +869,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionState"];
+                };
+            };
+        };
+    };
+    list_scenarios_api_state_scenarios_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+        };
+    };
+    load_scenario_api_state_scenarios__scenario_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scenario_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

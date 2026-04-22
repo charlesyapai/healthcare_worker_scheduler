@@ -1,0 +1,44 @@
+[
+  {
+    "id": "radiology_small",
+    "title": "Radiology department \u2014 1 week",
+    "description": "15 doctors across junior / senior / consultant. Clean slate. Solves to OPTIMAL in seconds \u2014 great smoke test.",
+    "n_doctors": 15,
+    "n_stations": 8,
+    "n_days": 7,
+    "highlights": [
+      "15 doctors (5/4/6)",
+      "8 stations",
+      "7-day horizon"
+    ]
+  },
+  {
+    "id": "busy_month_with_leave",
+    "title": "Busy hospital \u2014 2 weeks with leave",
+    "description": "22 doctors, a public holiday, and a handful of leave blocks. Realistic mid-sized problem; shows how leave affects coverage.",
+    "n_doctors": 22,
+    "n_stations": 8,
+    "n_days": 14,
+    "highlights": [
+      "22 doctors (8/6/8)",
+      "8 stations",
+      "14-day horizon",
+      "1 public holiday(s)",
+      "4 leave / block entries"
+    ]
+  },
+  {
+    "id": "nursing_ward",
+    "title": "Nursing ward \u2014 2 weeks",
+    "description": "17 nurses across ward / senior / manager tiers with Medical and Surgical sub-wards. Same engine, different vocabulary.",
+    "n_doctors": 17,
+    "n_stations": 5,
+    "n_days": 14,
+    "highlights": [
+      "17 people (8/5/4)",
+      "5 stations",
+      "14-day horizon",
+      "Tiers: Staff Nurse / Senior Nurse / Ward Manager"
+    ]
+  }
+]
