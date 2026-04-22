@@ -177,6 +177,7 @@ def solve(
     on_intermediate: IntermediateCallback | None = None,
     snapshot_assignments: bool = False,
     stop_event: threading.Event | None = None,
+    warm_start: dict[str, Any] | None = None,
 ) -> SolveResult:
     """Build and solve the CP-SAT model for `inst`.
 
@@ -185,6 +186,13 @@ def solve(
     on_intermediate : optional callable invoked with a dict
         `{wall_s, objective, best_bound}` each time CP-SAT finds a new
         improving solution. Lets the caller stream progress.
+    warm_start : optional assignments dict in the same shape as
+        `SolveResult.assignments` (keys: "stations", "oncall", "ext",
+        "wconsult"; each a tuple-keyed dict of 1-values). Registered as
+        CP-SAT hints so the solver finds the previous solution first
+        and then spends the rest of its budget trying to improve on it.
+        Mismatched keys (e.g. the instance changed since) are silently
+        ignored — the solver falls back to a fresh search.
     """
     weights = weights or Weights()
     workload_weights = workload_weights or WorkloadWeights()
@@ -763,6 +771,22 @@ def solve(
 
         if penalties:
             model.Minimize(sum(penalties))
+
+    # --------------------------------------------------------------- Warm start
+    if warm_start:
+        for kind, vmap in (("stations", assign), ("oncall", oncall),
+                           ("ext", ext), ("wconsult", wconsult)):
+            hinted = warm_start.get(kind) or {}
+            for key, val in hinted.items():
+                var = vmap.get(key)
+                if var is None:
+                    continue  # instance changed since the hint was recorded
+                try:
+                    model.AddHint(var, int(bool(val)))
+                except Exception:
+                    # CP-SAT raises if hints conflict with earlier hints for
+                    # the same var; ignore and let the solver search freely.
+                    continue
 
     # --------------------------------------------------------------- Solve
     solver = cp_model.CpSolver()

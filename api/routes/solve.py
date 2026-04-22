@@ -30,6 +30,7 @@ from api.sessions import (
     assignments_to_rows,
     get_or_create_session_by_id,
     get_session,
+    rows_to_assignments_dict,
     session_to_instance,
     session_to_solver_configs,
     solve_result_to_payload,
@@ -63,6 +64,16 @@ async def solve_ws(websocket: WebSocket) -> None:
         await websocket.close()
         return
     snapshot = bool(first.get("snapshot_assignments", True))
+    mode = str(first.get("mode") or "new")
+
+    warm_start: dict[str, dict] | None = None
+    if mode == "continue" and session.last_solve is not None:
+        try:
+            warm_start = rows_to_assignments_dict(
+                session.state, session.last_solve.assignments
+            )
+        except Exception:
+            warm_start = None
 
     # Build the Instance up front so invalid config fails fast.
     try:
@@ -100,6 +111,7 @@ async def solve_ws(websocket: WebSocket) -> None:
                 on_intermediate=_on_intermediate,
                 snapshot_assignments=snapshot,
                 stop_event=stop_event,
+                warm_start=warm_start,
             )
             loop.call_soon_threadsafe(event_queue.put_nowait,
                                       {"type": "done", "_result": result})
@@ -226,6 +238,7 @@ def _snapshot_to_rows(state, snapshot: dict) -> list[AssignmentRow]:
 
 class RestSolveRequest(BaseModel):
     snapshot_assignments: bool = False
+    mode: str = "new"  # "new" or "continue"
 
 
 @router.post("/api/solve/run", response_model=SolveResultPayload)
@@ -246,6 +259,14 @@ def solve_sync(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     weights, wl_weights, cfg = session_to_solver_configs(session.state)
+    warm_start: dict[str, dict] | None = None
+    if req.mode == "continue" and session.last_solve is not None:
+        try:
+            warm_start = rows_to_assignments_dict(
+                session.state, session.last_solve.assignments
+            )
+        except Exception:
+            warm_start = None
     try:
         result = scheduler_solve(
             inst,
@@ -256,6 +277,7 @@ def solve_sync(
             num_workers=session.state.solver.num_workers,
             feasibility_only=session.state.solver.feasibility_only,
             snapshot_assignments=req.snapshot_assignments,
+            warm_start=warm_start,
         )
     except Exception as e:
         raise HTTPException(

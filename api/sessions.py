@@ -420,6 +420,44 @@ def assignments_to_rows(
     return rows
 
 
+def rows_to_assignments_dict(
+    state: SessionState,
+    rows: list[AssignmentRow],
+) -> dict[str, dict]:
+    """Inverse of assignments_to_rows — convert list[AssignmentRow] back to
+    the tuple-keyed shape the solver uses internally. Used for warm-start
+    hints on Continue solving."""
+    if state.horizon.start_date is None:
+        return {}
+    name_to_id: dict[str, int] = {d.name: i for i, d in enumerate(state.doctors)}
+    start = state.horizon.start_date
+    out: dict[str, dict] = {"stations": {}, "oncall": {}, "ext": {}, "wconsult": {}}
+    for r in rows:
+        did = name_to_id.get(r.doctor)
+        if did is None:
+            continue
+        day = (r.date - start).days
+        if day < 0 or day >= state.horizon.n_days:
+            continue
+        role = r.role.upper()
+        if role.startswith("STATION_"):
+            inner = role[len("STATION_"):]
+            parts = inner.rsplit("_", 1)
+            if len(parts) != 2:
+                continue
+            station, sess = parts
+            if sess not in ("AM", "PM"):
+                continue
+            out["stations"][(did, day, station, sess)] = 1
+        elif role == "ONCALL":
+            out["oncall"][(did, day)] = 1
+        elif role in ("WEEKEND_EXT", "EXT"):
+            out["ext"][(did, day)] = 1
+        elif role in ("WEEKEND_CONSULT", "WCONSULT"):
+            out["wconsult"][(did, day)] = 1
+    return out
+
+
 def solve_result_to_payload(
     state: SessionState,
     result: SolveResult,

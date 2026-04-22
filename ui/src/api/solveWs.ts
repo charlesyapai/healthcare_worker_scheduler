@@ -102,6 +102,7 @@ export function startSolve(options: SolveOptions) {
       JSON.stringify({
         action: "start",
         snapshot_assignments: options.snapshotAssignments,
+        mode: options.mode ?? "new",
       }),
     );
   };
@@ -179,7 +180,10 @@ async function runRestFallback(
       }
       const result = await apiFetch<SolveResultPayload>("/api/solve/run", {
         method: "POST",
-        body: { snapshot_assignments: options.snapshotAssignments },
+        body: {
+          snapshot_assignments: options.snapshotAssignments,
+          mode: options.mode ?? "new",
+        },
       });
       onFinished(result);
       if (!silent) toast.success(`Solved (${result.status.toLowerCase()})`);
