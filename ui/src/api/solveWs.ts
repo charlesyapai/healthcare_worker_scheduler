@@ -2,8 +2,7 @@
  * Solve driver. Prefers the /api/solve WebSocket (live events) but falls
  * back to POST /api/solve/run if the proxy drops the connection. After
  * two consecutive WS failures the driver remembers that and skips the
- * WS entirely until the next tab session, so unreliable networks don't
- * repeatedly pay the fallback penalty.
+ * WS entirely until the next tab session.
  */
 
 import { toast } from "sonner";
@@ -22,7 +21,7 @@ type Incoming =
   | { type: "heartbeat" };
 
 const WS_FAIL_KEY = "hws-ws-fails";
-const WS_FAIL_CAP = 2; // after N consecutive failures, stop trying WS
+const WS_FAIL_CAP = 2;
 
 let current: WebSocket | null = null;
 let pendingRestFallback: Promise<void> | null = null;
@@ -51,18 +50,37 @@ function resetWsFails(): void {
   }
 }
 
-export function startSolve(options: { snapshotAssignments: boolean }) {
-  if (current || pendingRestFallback) return;
+interface SolveOptions {
+  snapshotAssignments: boolean;
+  mode?: "new" | "continue";
+}
 
-  // Skip WS if it's repeatedly failed this tab-session.
+function beginStore(mode: "new" | "continue", transport: "ws" | "rest"): void {
+  const store = useSolveStore.getState();
+  if (mode === "continue") store.beginContinue(transport);
+  else store.begin(transport);
+}
+
+function onFinished(result: SolveResultPayload): void {
+  const { kept, previous } = useSolveStore.getState().finish(result);
+  if (kept === "previous" && previous) {
+    toast.message(
+      `Continue didn't improve — kept previous best (score ${previous.objective ?? "?"}). Try raising the time limit.`,
+    );
+  }
+}
+
+export function startSolve(options: SolveOptions) {
+  if (current || pendingRestFallback) return;
+  const mode = options.mode ?? "new";
+
   if (getWsFailCount() >= WS_FAIL_CAP) {
-    useSolveStore.getState().begin();
+    beginStore(mode, "rest");
     void runRestFallback(options, { silent: true });
     return;
   }
 
-  const store = useSolveStore.getState();
-  store.begin();
+  beginStore(mode, "ws");
 
   const url = wsUrl("/api/solve");
   let ws: WebSocket;
@@ -100,8 +118,8 @@ export function startSolve(options: { snapshotAssignments: boolean }) {
       s.pushEvent(msg);
     } else if (msg.type === "done") {
       receivedDone = true;
-      resetWsFails(); // WS worked end-to-end — forgive earlier failures
-      s.finish(msg.result);
+      resetWsFails();
+      onFinished(msg.result);
       cleanup();
     } else if (msg.type === "error") {
       lastServerError = msg.message ?? "solver error";
@@ -109,7 +127,6 @@ export function startSolve(options: { snapshotAssignments: boolean }) {
       toast.error(`Solver: ${lastServerError}`);
       cleanup();
     }
-    // heartbeat: ignore, connection stays open.
   };
 
   ws.onerror = () => {
@@ -134,9 +151,7 @@ export function startSolve(options: { snapshotAssignments: boolean }) {
         return;
       }
       bumpWsFails();
-      // Silent fallback — the user doesn't need to know how their solve was
-      // carried out, just that it worked. The console log above is enough
-      // for diagnosis.
+      useSolveStore.setState({ mode: "rest" });
       void runRestFallback(options, { silent: true });
     }
     cleanup();
@@ -153,19 +168,20 @@ export function stopSolve() {
 }
 
 async function runRestFallback(
-  options: { snapshotAssignments: boolean },
+  options: SolveOptions,
   { silent = false }: { silent?: boolean } = {},
 ) {
   if (pendingRestFallback) return;
-  const store = useSolveStore.getState();
   pendingRestFallback = (async () => {
     try {
-      if (store.status !== "running") store.begin();
+      if (useSolveStore.getState().status !== "running") {
+        beginStore(options.mode ?? "new", "rest");
+      }
       const result = await apiFetch<SolveResultPayload>("/api/solve/run", {
         method: "POST",
         body: { snapshot_assignments: options.snapshotAssignments },
       });
-      useSolveStore.getState().finish(result);
+      onFinished(result);
       if (!silent) toast.success(`Solved (${result.status.toLowerCase()})`);
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Solve failed";

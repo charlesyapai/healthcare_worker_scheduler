@@ -72,8 +72,14 @@ export function Solve() {
   };
 
   const continueSolving = () => {
-    toast.message(`Continuing for another ${timeLimit}s…`);
-    kickoff();
+    if (!state?.horizon?.start_date) {
+      toast.error("Set a horizon start date in Setup → When first.");
+      return;
+    }
+    toast.message(
+      `Running another ${timeLimit}s search. If it doesn't improve, your previous best is kept.`,
+    );
+    startSolve({ snapshotAssignments: true, mode: "continue" });
   };
 
   const canContinue = solve.status === "done" && !isOptimal(solve.result);
@@ -328,6 +334,7 @@ function VerdictBanner({ elapsed }: { elapsed: number }) {
   }
 
   if (status === "running") {
+    const mode = useSolveStore.getState().mode;
     const obj = events.length ? events[events.length - 1].objective : null;
     return (
       <Card className="border-indigo-300 bg-indigo-50 dark:border-indigo-800 dark:bg-indigo-950/60">
@@ -338,10 +345,17 @@ function VerdictBanner({ elapsed }: { elapsed: number }) {
           </span>
           <div>
             <p className="font-medium">Solving…</p>
-            <p className="text-xs">
-              {elapsed.toFixed(1)}s · {events.length} solution{events.length === 1 ? "" : "s"} found
-              {obj != null ? ` · objective ${obj.toFixed(0)}` : ""}
-            </p>
+            {mode === "rest" ? (
+              <p className="text-xs">
+                {elapsed.toFixed(1)}s · live updates unavailable on this connection,
+                waiting for the solver's final result.
+              </p>
+            ) : (
+              <p className="text-xs">
+                {elapsed.toFixed(1)}s · {events.length} improving solution{events.length === 1 ? "" : "s"} found
+                {obj != null ? ` · objective ${obj.toFixed(0)}` : ""}
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
