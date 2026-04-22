@@ -55,6 +55,8 @@ interface Props {
   components: Record<string, number>;
   weights: SoftWeightsLike;
   tierLabels?: TierLabels;
+  /** Optional — total filled (doctor, date, role) cells in the roster. */
+  assignmentCount?: number;
   /** Display mode: "full" for the Solve page, "compact" for the Roster sidebar. */
   mode?: "full" | "compact";
 }
@@ -65,6 +67,7 @@ export function ObjectiveBreakdown({
   components,
   weights,
   tierLabels,
+  assignmentCount,
   mode = "full",
 }: Props) {
   const groups = useMemo(
@@ -89,18 +92,30 @@ export function ObjectiveBreakdown({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-3 text-sm sm:grid-cols-3">
+        <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
           <Metric label="Total objective" value={fmt(total)}>
-            Sum of weighted penalties below.
+            Sum of weighted penalties below. Lower is better; 0 = perfect.
           </Metric>
           <Metric label="Best bound" value={fmt(bestBound ?? null)}>
-            Lowest objective the solver could prove is achievable.
+            Lowest objective the solver could prove is achievable. The
+            solver tries to push <em>objective</em> down toward this value.
           </Metric>
           <Metric
             label="Optimality gap"
             value={gap != null ? `${gap.toFixed(1)} %` : "—"}
           >
-            0 % means optimal. Under 5 % is usually good enough.
+            (objective − bound) ÷ objective. <strong>0 %</strong> means
+            the solver proved no better roster exists.{" "}
+            <strong>Under 5 %</strong> is usually good enough; everything
+            above is a sign the time limit was the bottleneck.
+          </Metric>
+          <Metric
+            label="Assignments"
+            value={assignmentCount != null ? fmt(assignmentCount) : "—"}
+          >
+            Total filled cells across the horizon: each station-session,
+            on-call night, weekend EXT, and weekend consultant role
+            counts as one assignment.
           </Metric>
         </div>
 
@@ -221,7 +236,9 @@ function Metric({ label, value, children }: { label: string; value: string; chil
         {label}
       </p>
       <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
-      <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{children}</p>
+      <p className="mt-1 text-[11px] leading-tight text-slate-500 dark:text-slate-400">
+        {children}
+      </p>
     </div>
   );
 }

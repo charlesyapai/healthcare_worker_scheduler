@@ -21,6 +21,11 @@ export interface CellContent {
   ext?: boolean;
   wconsult?: boolean;
   leave?: boolean;
+  noOncall?: boolean;
+  noAm?: boolean;
+  noPm?: boolean;
+  preferAm?: boolean;
+  preferPm?: boolean;
 }
 
 export type CellKind =
@@ -31,6 +36,7 @@ export type CellKind =
   | "oncall"
   | "weekend"
   | "leave"
+  | "blocked"
   | "idle";
 
 export function cellKind(c: CellContent, isWeekday: boolean): CellKind {
@@ -40,6 +46,7 @@ export function cellKind(c: CellContent, isWeekday: boolean): CellKind {
   if (c.am && c.pm) return "station-both";
   if (c.am) return "station-am";
   if (c.pm) return "station-pm";
+  if (c.noOncall || c.noAm || c.noPm) return "blocked";
   if (isWeekday) return "idle";
   return "empty";
 }
@@ -57,6 +64,8 @@ export function cellColorClass(kind: CellKind): string {
       return "bg-teal-200 dark:bg-teal-900/60 text-teal-900 dark:text-teal-100";
     case "leave":
       return "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300";
+    case "blocked":
+      return "bg-rose-100 dark:bg-rose-950/40 text-rose-900 dark:text-rose-200";
     case "idle":
       return "bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200";
     default:
@@ -72,7 +81,31 @@ export function cellLabel(c: CellContent): string {
   if (c.oncall) parts.push("OC");
   if (c.ext) parts.push("EXT");
   if (c.wconsult) parts.push("WC");
-  return parts.join(" / ");
+  if (parts.length > 0) return parts.join(" / ");
+  // No assignment — surface block constraints so the user can see why
+  // the cell is empty.
+  const blocks: string[] = [];
+  if (c.noOncall) blocks.push("no OC");
+  if (c.noAm) blocks.push("no AM");
+  if (c.noPm) blocks.push("no PM");
+  if (blocks.length > 0) return blocks.join(" / ");
+  return "";
+}
+
+export function cellTooltip(c: CellContent): string {
+  const parts: string[] = [];
+  if (c.leave) parts.push("On leave");
+  if (c.am) parts.push(`AM: ${c.am}`);
+  if (c.pm) parts.push(`PM: ${c.pm}`);
+  if (c.oncall) parts.push("On-call (night)");
+  if (c.ext) parts.push("Weekend extended duty");
+  if (c.wconsult) parts.push("Weekend consultant");
+  if (c.noOncall) parts.push("Blocked from on-call");
+  if (c.noAm) parts.push("Blocked from AM session");
+  if (c.noPm) parts.push("Blocked from PM session");
+  if (c.preferAm) parts.push("Prefers AM");
+  if (c.preferPm) parts.push("Prefers PM");
+  return parts.join(" · ");
 }
 
 export function horizonDates(h: Horizon): Date[] {
@@ -90,6 +123,10 @@ export function isWeekendOrHoliday(d: Date, holidays: string[]): boolean {
   if (dow === 0 || dow === 6) return true;
   const iso = format(d, "yyyy-MM-dd");
   return holidays.includes(iso);
+}
+
+export function isPublicHoliday(d: Date, holidays: string[]): boolean {
+  return holidays.includes(format(d, "yyyy-MM-dd"));
 }
 
 interface LeaveBlock {
@@ -114,16 +151,35 @@ export function buildCellMap(
     }
   }
 
-  // Leave first (from blocks)
+  // Apply blocks (leave + no-X + prefer-X) onto each affected cell.
   for (const b of blocks) {
-    if (b.type !== "Leave") continue;
     const start = parseISO(b.date);
     const end = b.end_date ? parseISO(b.end_date) : start;
     for (let ts = start.getTime(); ts <= end.getTime(); ts += 86_400_000) {
       const iso = format(new Date(ts), "yyyy-MM-dd");
       const k = key(b.doctor, iso);
       const existing = map.get(k);
-      if (existing) existing.leave = true;
+      if (!existing) continue;
+      switch (b.type) {
+        case "Leave":
+          existing.leave = true;
+          break;
+        case "No on-call":
+          existing.noOncall = true;
+          break;
+        case "No AM":
+          existing.noAm = true;
+          break;
+        case "No PM":
+          existing.noPm = true;
+          break;
+        case "Prefer AM":
+          existing.preferAm = true;
+          break;
+        case "Prefer PM":
+          existing.preferPm = true;
+          break;
+      }
     }
   }
 

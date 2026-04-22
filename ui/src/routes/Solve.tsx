@@ -159,6 +159,7 @@ export function Solve() {
               objective={solve.result.objective}
               bestBound={solve.result.best_bound}
               components={solve.result.penalty_components}
+              assignmentCount={solve.result.assignments?.length ?? 0}
               weights={
                 state?.soft_weights ?? {
                   workload: 40,
@@ -308,6 +309,8 @@ function IntermediateTable() {
           The solver tries to drive{" "}
           <strong title="Sum of weighted soft penalties — lower is better">objective</strong> down toward{" "}
           <strong title="Lowest achievable objective the solver has proved">bound</strong>; when they meet, the result is optimal.
+          The <strong title="Filled (doctor, date, role) cells">Assignments</strong> column counts
+          how many roster cells were filled in that snapshot.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -319,7 +322,7 @@ function IntermediateTable() {
                 <th className="px-2 py-1.5">t (s)</th>
                 <th className="px-2 py-1.5" title="Current weighted-penalty total">Objective</th>
                 <th className="px-2 py-1.5" title="Best lower bound the solver has proved">Bound</th>
-                <th className="px-2 py-1.5">Assignments</th>
+                <th className="px-2 py-1.5" title="Filled (doctor, date, role) cells in this snapshot">Assignments</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">

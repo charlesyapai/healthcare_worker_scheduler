@@ -8,8 +8,10 @@ import {
   cellColorClass,
   cellKind,
   cellLabel,
+  cellTooltip,
   formatDay,
   horizonDates,
+  isPublicHoliday,
   isWeekendOrHoliday,
 } from "@/lib/roster";
 import { cn } from "@/lib/utils";
@@ -55,15 +57,26 @@ export function RosterHeatmap({
             </th>
             {dates.map((d) => {
               const we = isWeekendOrHoliday(d, holidays);
+              const ph = isPublicHoliday(d, holidays);
               return (
                 <th
                   key={format(d, "yyyy-MM-dd")}
                   className={cn(
                     "border-b border-r border-slate-200 px-1.5 py-1 text-center font-medium dark:border-slate-800",
-                    we && "bg-slate-100 dark:bg-slate-800/60",
+                    ph
+                      ? "bg-amber-100 dark:bg-amber-950/60"
+                      : we
+                        ? "bg-slate-100 dark:bg-slate-800/60"
+                        : "",
                   )}
+                  title={ph ? "Public holiday" : we ? "Weekend" : undefined}
                 >
                   <div className="whitespace-nowrap">{formatDay(d)}</div>
+                  {ph && (
+                    <div className="text-[9px] font-semibold uppercase text-amber-700 dark:text-amber-300">
+                      Holiday
+                    </div>
+                  )}
                 </th>
               );
             })}
@@ -86,18 +99,28 @@ export function RosterHeatmap({
                 const label = cellLabel(content);
                 const key = `${d.name}|${iso}`;
                 const highlight = highlightKeys?.has(key);
+                const hasPref = content.preferAm || content.preferPm;
+                const tooltip = cellTooltip(content) || (we ? "" : "idle");
                 return (
                   <td
                     key={iso}
                     className={cn(
-                      "h-8 min-w-[4.5rem] cursor-pointer border-b border-r border-slate-200 px-1 text-center align-middle font-mono text-[10px] leading-tight transition-colors dark:border-slate-800",
+                      "relative h-8 min-w-[4.5rem] cursor-pointer border-b border-r border-slate-200 px-1 text-center align-middle font-mono text-[10px] leading-tight transition-colors dark:border-slate-800",
                       cellColorClass(kind),
                       highlight && "outline outline-2 outline-indigo-500",
                     )}
                     onClick={() => onCellClick?.({ doctor: d.name, date: iso, content })}
-                    title={label || (we ? "" : "idle")}
+                    title={tooltip}
                   >
                     {label}
+                    {hasPref && (
+                      <span
+                        className="absolute right-0.5 top-0.5 text-[8px] font-semibold text-indigo-500 dark:text-indigo-300"
+                        aria-hidden
+                      >
+                        ★
+                      </span>
+                    )}
                   </td>
                 );
               })}

@@ -223,6 +223,7 @@ export function Roster() {
                   objective={result.objective}
                   bestBound={result.best_bound}
                   components={result.penalty_components}
+                  assignmentCount={selectedAssignments.length}
                   weights={
                     data?.soft_weights ?? {
                       workload: 40,
@@ -364,7 +365,9 @@ function Legend() {
     ["On-call", "bg-purple-200"],
     ["Weekend EXT/WC", "bg-teal-200"],
     ["Leave", "bg-slate-200"],
+    ["Session/oncall block", "bg-rose-100"],
     ["Idle weekday", "bg-amber-200"],
+    ["Public holiday header", "bg-amber-100"],
   ];
   return (
     <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 dark:text-slate-400">
@@ -374,6 +377,10 @@ function Legend() {
           {label}
         </span>
       ))}
+      <span className="inline-flex items-center gap-1.5">
+        <span className="text-indigo-500 dark:text-indigo-300">★</span>
+        Soft preference (AM/PM)
+      </span>
     </div>
   );
 }
