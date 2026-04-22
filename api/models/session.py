@@ -144,6 +144,9 @@ class ConstraintsConfig(StrictModel):
     h9_enabled: bool = True
     h11_enabled: bool = True
     weekend_am_pm: bool = False
+    # Default on so Minimal-staffing mode still produces an on-call-covered
+    # roster every weekday night.
+    weekday_oncall_coverage: bool = True
 
 
 class SolverSettings(StrictModel):

@@ -112,6 +112,11 @@
             "title": "H9 Enabled",
             "type": "boolean"
           },
+          "weekday_oncall_coverage": {
+            "default": true,
+            "title": "Weekday Oncall Coverage",
+            "type": "boolean"
+          },
           "weekend_am_pm": {
             "default": false,
             "title": "Weekend Am Pm",

@@ -179,6 +179,7 @@ constraints:
   h9_enabled: true
   h11_enabled: true
   weekend_am_pm: false
+  weekday_oncall_coverage: true
 solver:
   time_limit: 30
   num_workers: 8

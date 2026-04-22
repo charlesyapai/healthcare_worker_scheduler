@@ -51,6 +51,12 @@ const RULES = [
     label: "Also roster AM/PM stations on weekends",
     description: "Off by default. Enable only if your hospital staffs weekday-style stations on weekends.",
   },
+  {
+    key: "weekday_oncall_coverage",
+    label: "Weekday on-call coverage",
+    description:
+      "Require exactly 1 junior + 1 senior on-call every weekday night. Weekends are handled by the weekend-coverage rule. Leave on unless you really want weekdays uncovered.",
+  },
 ] as const;
 
 type ConstraintKey = (typeof RULES)[number]["key"];
@@ -68,6 +74,7 @@ export function Constraints() {
     h9_enabled: true,
     h11_enabled: true,
     weekend_am_pm: false,
+    weekday_oncall_coverage: true,
   };
 
   const toggle = (key: ConstraintKey) =>

@@ -194,6 +194,7 @@ def session_to_v1_dict(state: SessionState) -> dict[str, Any]:
         "h9_enabled": state.constraints.h9_enabled,
         "h11_enabled": state.constraints.h11_enabled,
         "weekend_am_pm": state.constraints.weekend_am_pm,
+        "weekday_oncall_coverage": state.constraints.weekday_oncall_coverage,
         # Solver.
         "time_limit": state.solver.time_limit,
         "num_workers": state.solver.num_workers,
@@ -279,6 +280,7 @@ def v1_dict_to_session(update: dict[str, Any], base: SessionState | None = None)
         "h9_enabled": ("constraints", "h9_enabled"),
         "h11_enabled": ("constraints", "h11_enabled"),
         "weekend_am_pm": ("constraints", "weekend_am_pm"),
+        "weekday_oncall_coverage": ("constraints", "weekday_oncall_coverage"),
         "time_limit": ("solver", "time_limit"),
         "num_workers": ("solver", "num_workers"),
         "feasibility_only": ("solver", "feasibility_only"),
@@ -358,6 +360,7 @@ def session_to_solver_configs(
         h8_weekend_coverage_enabled=state.constraints.h8_enabled,
         h9_lieu_day_enabled=state.constraints.h9_enabled,
         h11_mandatory_weekday_enabled=state.constraints.h11_enabled,
+        weekday_oncall_coverage_enabled=state.constraints.weekday_oncall_coverage,
     )
     return weights, wl, cfg
 

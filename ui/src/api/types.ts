@@ -333,6 +333,11 @@ export interface components {
              */
             h9_enabled: boolean;
             /**
+             * Weekday Oncall Coverage
+             * @default true
+             */
+            weekday_oncall_coverage: boolean;
+            /**
              * Weekend Am Pm
              * @default false
              */

@@ -67,6 +67,13 @@ class ConstraintConfig:
     h8_weekend_coverage_enabled: bool = True
     h9_lieu_day_enabled: bool = True
     h11_mandatory_weekday_enabled: bool = True   # Soft: penalty per idle doc-day
+    # Gap #4 from CONSTRAINTS.md §5: "1 junior + 1 senior every night
+    # (weekday and weekend)". Weekends are handled by H8; weekdays need
+    # their own constraint. Default OFF here so legacy callers (direct
+    # scheduler.solve invocations, existing tests) are unaffected. The
+    # v2 API layer defaults this to True in `ConstraintsConfig` so SPA
+    # users get weekday coverage unless they explicitly opt out.
+    weekday_oncall_coverage_enabled: bool = False
 
 
 @dataclass
@@ -386,6 +393,21 @@ def solve(
                 # PM == 1 on weekdays (on weekends PM vars don't exist by default).
                 if pm_vars and not inst.is_weekend(day):
                     model.Add(sum(pm_vars) == 1).OnlyEnforceIf(oc)
+
+    # Weekday on-call coverage: 1 junior + 1 senior on-call every weekday
+    # night (spec §5 gap #4). H8 covers weekends; this closes the weekday
+    # gap so Minimal-staffing mode (H11 off) still produces an on-call-
+    # covered roster.
+    if cfg.weekday_oncall_coverage_enabled:
+        juniors_all = [d for d in inst.doctors if d.tier == "junior"]
+        seniors_all = [d for d in inst.doctors if d.tier == "senior"]
+        for day in range(inst.n_days):
+            if inst.is_weekend(day):
+                continue
+            oc_j = [oncall[(d.id, day)] for d in juniors_all if (d.id, day) in oncall]
+            oc_s = [oncall[(d.id, day)] for d in seniors_all if (d.id, day) in oncall]
+            _exact_one(model, oc_j)
+            _exact_one(model, oc_s)
 
     # H8 — Weekend coverage.
     if cfg.h8_weekend_coverage_enabled:

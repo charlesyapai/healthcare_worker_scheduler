@@ -4,11 +4,18 @@ from __future__ import annotations
 
 
 def _seed_small(client) -> None:
-    """Seed a 20-doctor default roster, then shrink it for fast solves."""
+    """Seed a 20-doctor default roster, then shrink it for fast solves.
+
+    The default seed has 3 seniors (tier-split minimum). Weekend coverage +
+    weekday on-call coverage over 7 days with only 3 seniors is infeasible;
+    turn weekday coverage off here so the test stays focused on WS mechanics
+    rather than constraint realism. Scenario YAMLs ship with enough seniors
+    to keep it enabled."""
     client.post("/api/state/seed")
     client.patch("/api/state", json={
         "horizon": {"n_days": 7},
         "solver": {"time_limit": 10, "num_workers": 4},
+        "constraints": {"weekday_oncall_coverage": False},
     })
 
 

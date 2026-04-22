@@ -131,6 +131,7 @@ def dump_state(ss) -> str:
             "h9_enabled": bool(get("h9_enabled", True)),
             "h11_enabled": bool(get("h11_enabled", True)),
             "weekend_am_pm": bool(get("weekend_am_pm", False)),
+            "weekday_oncall_coverage": bool(get("weekday_oncall_coverage", True)),
         },
         "solver": {
             "time_limit": int(get("time_limit", 60)),
@@ -216,6 +217,7 @@ def load_state(yaml_text: str) -> dict[str, Any]:
             "h7_enabled": "h7_enabled", "h8_enabled": "h8_enabled",
             "h9_enabled": "h9_enabled", "h11_enabled": "h11_enabled",
             "weekend_am_pm": "weekend_am_pm",
+            "weekday_oncall_coverage": "weekday_oncall_coverage",
         }),
         ("solver", {
             "time_limit": "time_limit", "num_workers": "num_workers",
