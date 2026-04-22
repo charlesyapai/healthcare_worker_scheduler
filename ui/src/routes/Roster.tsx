@@ -177,29 +177,27 @@ export function Roster() {
               diffCount={diffKeys.size}
             />
           )}
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-            <div className="min-w-0 space-y-4">
-              {mode === "heatmap" && (
-                <RosterHeatmap
-                  doctors={doctors}
-                  assignments={selectedAssignments}
-                  blocks={blocks}
-                  horizon={horizon}
-                  highlightKeys={diffKeys}
-                />
-              )}
-              {mode === "station" && (
-                <StationByDate
-                  assignments={selectedAssignments}
-                  horizon={horizon}
-                  stationNames={(data?.stations ?? [])
-                    .map((s) => s.name)
-                    .filter(Boolean) as string[]}
-                />
-              )}
-              <Legend />
-            </div>
-            <div className="space-y-4">
+          <div className="space-y-4">
+            {mode === "heatmap" && (
+              <RosterHeatmap
+                doctors={doctors}
+                assignments={selectedAssignments}
+                blocks={blocks}
+                horizon={horizon}
+                highlightKeys={diffKeys}
+              />
+            )}
+            {mode === "station" && (
+              <StationByDate
+                assignments={selectedAssignments}
+                horizon={horizon}
+                stationNames={(data?.stations ?? [])
+                  .map((s) => s.name)
+                  .filter(Boolean) as string[]}
+              />
+            )}
+            <Legend />
+            <div className="grid gap-4 lg:grid-cols-2">
               <Card>
                 <CardHeader>
                   <CardTitle>Workload</CardTitle>
