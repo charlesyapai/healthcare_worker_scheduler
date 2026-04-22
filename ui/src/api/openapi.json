@@ -777,6 +777,64 @@
         "title": "TierLabels",
         "type": "object"
       },
+      "ValidateRequest": {
+        "properties": {
+          "assignments": {
+            "items": {
+              "$ref": "#/components/schemas/AssignmentRow"
+            },
+            "title": "Assignments",
+            "type": "array"
+          }
+        },
+        "required": [
+          "assignments"
+        ],
+        "title": "ValidateRequest",
+        "type": "object"
+      },
+      "ValidateResponse": {
+        "properties": {
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "rules_failed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rules Failed",
+            "type": "array"
+          },
+          "rules_passed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rules Passed",
+            "type": "array"
+          },
+          "violation_count": {
+            "title": "Violation Count",
+            "type": "integer"
+          },
+          "violations": {
+            "items": {
+              "$ref": "#/components/schemas/Violation"
+            },
+            "title": "Violations",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ok",
+          "violation_count",
+          "violations",
+          "rules_passed",
+          "rules_failed"
+        ],
+        "title": "ValidateResponse",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -815,6 +873,34 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "Violation": {
+        "properties": {
+          "location": {
+            "title": "Location",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule",
+          "severity",
+          "location",
+          "message"
+        ],
+        "title": "Violation",
         "type": "object"
       },
       "WorkloadWeights": {
@@ -998,6 +1084,48 @@
         "summary": "Fill From Snapshot",
         "tags": [
           "solve"
+        ]
+      }
+    },
+    "/api/roster/validate": {
+      "post": {
+        "description": "Run hard-constraint checks on a caller-provided assignment list.\nDoes not run the solver \u2014 pure validation.",
+        "operationId": "validate_roster_api_roster_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate Roster",
+        "tags": [
+          "roster"
         ]
       }
     },

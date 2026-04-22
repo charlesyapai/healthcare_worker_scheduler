@@ -131,3 +131,32 @@ export function useYamlImport() {
     onSuccess: (data) => qc.setQueryData(queryKeys.sessionState, data),
   });
 }
+
+export interface ValidationResponse {
+  ok: boolean;
+  violation_count: number;
+  violations: Array<{
+    rule: string;
+    severity: string;
+    location: string;
+    message: string;
+  }>;
+  rules_passed: string[];
+  rules_failed: string[];
+}
+
+export interface AssignmentRow {
+  doctor: string;
+  date: string;
+  role: string;
+}
+
+export function useValidateRoster() {
+  return useMutation({
+    mutationFn: (assignments: AssignmentRow[]) =>
+      apiFetch<ValidationResponse>("/api/roster/validate", {
+        method: "POST",
+        body: { assignments },
+      }),
+  });
+}

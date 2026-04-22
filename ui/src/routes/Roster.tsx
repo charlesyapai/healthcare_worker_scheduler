@@ -1,12 +1,14 @@
 import { format } from "date-fns";
-import { Copy, Diff, Download, Lock } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Copy, Diff, Download, Edit3, Lock, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { ApiError, apiFetch } from "@/api/client";
-import { useSessionState } from "@/api/hooks";
+import { useSessionState, useValidateRoster } from "@/api/hooks";
+import { CellEditor } from "@/components/CellEditor";
 import { ObjectiveBreakdown } from "@/components/ObjectiveBreakdown";
 import { RosterHeatmap } from "@/components/RosterHeatmap";
+import { ValidationPanel } from "@/components/ValidationPanel";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -24,6 +26,7 @@ import {
   isWeekendOrHoliday,
 } from "@/lib/roster";
 import { cn } from "@/lib/utils";
+import { draftChangeCount, useDraftStore } from "@/store/draft";
 import { type AssignmentRow, useSolveStore } from "@/store/solve";
 
 type ViewMode = "heatmap" | "station";
@@ -31,18 +34,47 @@ type ViewMode = "heatmap" | "station";
 export function Roster() {
   const { data } = useSessionState();
   const solve = useSolveStore();
+  const draft = useDraftStore();
+  const validator = useValidateRoster();
   const [mode, setMode] = useState<ViewMode>("heatmap");
   const [diffAgainst, setDiffAgainst] = useState<"final" | number | null>(null);
+  const [editTarget, setEditTarget] = useState<
+    { doctor: string; date: string } | null
+  >(null);
 
   const events = solve.events;
   const result = solve.result;
   const selected = solve.selectedSnapshot;
 
-  const selectedAssignments: AssignmentRow[] = useMemo(() => {
+  const solverAssignments: AssignmentRow[] = useMemo(() => {
     if (!result) return [];
     if (selected === "final") return result.assignments ?? [];
     return events[selected]?.assignments ?? result.assignments ?? [];
   }, [result, events, selected]);
+
+  const selectedAssignments: AssignmentRow[] = draft.active
+    ? draft.assignments
+    : solverAssignments;
+
+  // Debounced validation whenever the draft changes.
+  useEffect(() => {
+    if (!draft.active) return;
+    const t = setTimeout(async () => {
+      draft.setValidating(true);
+      try {
+        const res = await validator.mutateAsync(draft.assignments);
+        draft.setValidation(res);
+      } catch (e) {
+        toast.error(
+          e instanceof ApiError ? e.message : "Validation request failed",
+        );
+      } finally {
+        draft.setValidating(false);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.active, draft.assignments]);
 
   const compareAssignments: AssignmentRow[] | null = useMemo(() => {
     if (diffAgainst == null || !result) return null;
@@ -122,6 +154,12 @@ export function Roster() {
     }
   };
 
+  const doctorsByName = useMemo(() => {
+    const out = new Map<string, typeof doctors[number]>();
+    for (const d of doctors) out.set(d.name, d);
+    return out;
+  }, [doctors]);
+
   return (
     <div className="mx-auto max-w-7xl space-y-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -133,8 +171,17 @@ export function Roster() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ModeToggle mode={mode} setMode={setMode} />
-          {hasResult && (
+          {hasResult && !draft.active && (
             <>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => draft.enable(solverAssignments)}
+                title="Manually edit the roster and see which hard constraints break"
+              >
+                <Edit3 className="h-4 w-4" />
+                Edit a new version
+              </Button>
               <Button size="sm" variant="secondary" onClick={lockToOverrides}>
                 <Lock className="h-4 w-4" />
                 Lock to overrides
@@ -152,6 +199,27 @@ export function Roster() {
               <Button size="sm" variant="ghost" onClick={() => downloadAssignmentsCsv(selectedAssignments)}>
                 <Download className="h-4 w-4" />
                 CSV
+              </Button>
+            </>
+          )}
+          {draft.active && (
+            <>
+              <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                Draft mode · {draftChangeCount()} change{draftChangeCount() === 1 ? "" : "s"}
+              </span>
+              <Button size="sm" variant="ghost" onClick={() => draft.resetDraft()}>
+                Reset draft
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  draft.disable();
+                  setEditTarget(null);
+                }}
+              >
+                <X className="h-4 w-4" />
+                Exit edit mode
               </Button>
             </>
           )}
@@ -179,13 +247,44 @@ export function Roster() {
           )}
           <div className="space-y-4">
             {mode === "heatmap" && (
-              <RosterHeatmap
-                doctors={doctors}
-                assignments={selectedAssignments}
-                blocks={blocks}
-                horizon={horizon}
-                highlightKeys={diffKeys}
-              />
+              <div className="relative">
+                <RosterHeatmap
+                  doctors={doctors}
+                  assignments={selectedAssignments}
+                  blocks={blocks}
+                  horizon={horizon}
+                  highlightKeys={diffKeys}
+                  onCellClick={
+                    draft.active
+                      ? ({ doctor, date }) => setEditTarget({ doctor, date })
+                      : undefined
+                  }
+                />
+                {editTarget && draft.active && (() => {
+                  const d = doctorsByName.get(editTarget.doctor);
+                  if (!d) return null;
+                  const cellAssignments = draft.assignments.filter(
+                    (a) => a.doctor === editTarget.doctor && a.date === editTarget.date,
+                  );
+                  return (
+                    <div
+                      className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/30 p-4"
+                      onClick={() => setEditTarget(null)}
+                    >
+                      <CellEditor
+                        doctor={d}
+                        date={editTarget.date}
+                        stations={data?.stations ?? []}
+                        assignments={cellAssignments}
+                        onChange={(next) =>
+                          draft.replaceCell(editTarget.doctor, editTarget.date, next)
+                        }
+                        onClose={() => setEditTarget(null)}
+                      />
+                    </div>
+                  );
+                })()}
+              </div>
             )}
             {mode === "station" && (
               <StationByDate
@@ -197,6 +296,13 @@ export function Roster() {
               />
             )}
             <Legend />
+            {draft.active && (
+              <ValidationPanel
+                result={draft.validation}
+                validating={draft.validating}
+                changeCount={draftChangeCount()}
+              />
+            )}
             <div className="grid gap-4 lg:grid-cols-2">
               <Card>
                 <CardHeader>
@@ -216,7 +322,7 @@ export function Roster() {
                   />
                 </CardContent>
               </Card>
-              {result && (
+              {result && !draft.active && (
                 <ObjectiveBreakdown
                   objective={result.objective}
                   bestBound={result.best_bound}

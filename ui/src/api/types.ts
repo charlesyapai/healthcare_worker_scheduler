@@ -84,6 +84,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/roster/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validate Roster
+         * @description Run hard-constraint checks on a caller-provided assignment list.
+         *     Does not run the solver — pure validation.
+         */
+        post: operations["validate_roster_api_roster_validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/solve/run": {
         parameters: {
             query?: never;
@@ -680,6 +701,24 @@ export interface components {
              */
             senior: string;
         };
+        /** ValidateRequest */
+        ValidateRequest: {
+            /** Assignments */
+            assignments: components["schemas"]["AssignmentRow"][];
+        };
+        /** ValidateResponse */
+        ValidateResponse: {
+            /** Ok */
+            ok: boolean;
+            /** Rules Failed */
+            rules_failed: string[];
+            /** Rules Passed */
+            rules_passed: string[];
+            /** Violation Count */
+            violation_count: number;
+            /** Violations */
+            violations: components["schemas"]["Violation"][];
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -692,6 +731,17 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /** Violation */
+        Violation: {
+            /** Location */
+            location: string;
+            /** Message */
+            message: string;
+            /** Rule */
+            rule: string;
+            /** Severity */
+            severity: string;
         };
         /** WorkloadWeights */
         WorkloadWeights: {
@@ -827,6 +877,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OverrideEntry"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    validate_roster_api_roster_validate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValidateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidateResponse"];
                 };
             };
             /** @description Validation Error */
