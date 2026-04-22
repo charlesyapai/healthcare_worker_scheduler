@@ -18,6 +18,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { type SolveResultPayload, useSolveStore } from "@/store/solve";
 
+function fmt(n: number | null): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return Number.isInteger(n) ? n.toLocaleString() : n.toFixed(1);
+}
+
 export function Solve() {
   const { data: state } = useSessionState();
   const { schedule: save } = useAutoSavePatch();
@@ -344,12 +349,11 @@ function VerdictBanner({ elapsed }: { elapsed: number }) {
   }
 
   if (status === "done" && result) {
-    const gap =
-      result.objective != null && result.best_bound != null && result.objective > 0
-        ? Math.max(0, (result.objective - result.best_bound) / result.objective) * 100
+    const headroom =
+      result.objective != null && result.best_bound != null
+        ? Math.max(0, result.objective - result.best_bound)
         : null;
-    const good =
-      result.status === "OPTIMAL" || (result.status === "FEASIBLE" && (gap ?? 100) < 5);
+    const good = result.status === "OPTIMAL" || headroom === 0;
     return (
       <Card
         className={
@@ -364,9 +368,11 @@ function VerdictBanner({ elapsed }: { elapsed: number }) {
               {result.status === "OPTIMAL"
                 ? "Optimal roster found"
                 : result.status === "FEASIBLE"
-                  ? gap != null
-                    ? `Feasible roster (gap ${gap.toFixed(1)}%)`
-                    : "Feasible roster"
+                  ? headroom === 0
+                    ? "Feasible & provably optimal"
+                    : headroom != null
+                      ? `Feasible roster (${fmt(headroom)} headroom to theoretical minimum)`
+                      : "Feasible roster"
                   : `Status: ${result.status}`}
             </p>
             <p className="text-xs text-slate-600 dark:text-slate-300">
@@ -377,8 +383,11 @@ function VerdictBanner({ elapsed }: { elapsed: number }) {
             </p>
             {!good && (
               <p className="mt-1 text-xs text-amber-900 dark:text-amber-200">
-                Gap above 5% — try <strong>Continue solving</strong> on the left to run the search for another {Math.max(5, (useSolveStore.getState().result?.wall_time_s ?? 30)).toFixed(0)}s,
-                or raise the time limit.
+                The solver didn't prove optimality before the time limit.
+                Try <strong>Continue solving</strong> to give it more time.
+                If the score doesn't improve after another run, this is
+                probably the practical optimum — CP-SAT's lower bound is
+                often loose in roster problems.
               </p>
             )}
           </div>

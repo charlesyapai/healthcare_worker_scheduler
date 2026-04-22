@@ -89,9 +89,9 @@ export function ObjectiveBreakdown({
   );
 
   const total = objective ?? groups.reduce((s, g) => s + groupTotal(g), 0);
-  const gap =
-    objective != null && bestBound != null && objective > 0
-      ? Math.max(0, (objective - bestBound) / objective) * 100
+  const headroom =
+    objective != null && bestBound != null
+      ? Math.max(0, objective - bestBound)
       : null;
 
   const scored = groups
@@ -115,14 +115,19 @@ export function ObjectiveBreakdown({
             Sum of weighted penalties below. Lower is better; 0 = perfect.
           </Metric>
           <Metric label="Best bound" value={fmt(bestBound ?? null)}>
-            Lowest objective the solver could prove is achievable. The
-            solver tries to push <em>objective</em> down toward this value.
+            Lowest objective the solver could prove is <em>theoretically</em>
+            achievable. Often loose for roster problems — it doesn't mean a
+            roster that good actually exists.
           </Metric>
-          <Metric label="Optimality gap" value={gap != null ? `${gap.toFixed(1)} %` : "—"}>
-            (objective − bound) ÷ objective. <strong>0 %</strong> means
-            the solver proved no better roster exists.{" "}
-            <strong>Under 5 %</strong> is usually good enough; above that
-            is a sign the time limit cut the search short.
+          <Metric
+            label="Improvement headroom"
+            value={headroom != null ? fmt(headroom) : "—"}
+          >
+            objective − bound, in the same units as the total. <strong>0</strong>{" "}
+            means provably optimal; anything else is the theoretical gap. In
+            practice, large headrooms in roster problems usually mean the
+            bound is loose, not that a much better roster exists. If
+            "Continue solving" doesn't close it, this is your ceiling.
           </Metric>
           <Metric
             label="Assignments"
