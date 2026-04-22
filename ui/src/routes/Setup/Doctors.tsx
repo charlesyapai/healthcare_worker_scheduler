@@ -1,9 +1,14 @@
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Users } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { useAutoSavePatch } from "@/api/autosave";
-import { type DoctorEntry, useSessionState } from "@/api/hooks";
+import {
+  type DoctorEntry,
+  useLoadSample,
+  useSessionState,
+} from "@/api/hooks";
+import { EmptyState } from "@/components/EmptyState";
 import { StationChips } from "@/components/StationChips";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +26,10 @@ const TIERS = ["junior", "senior", "consultant"] as const;
 export function Doctors() {
   const { data } = useSessionState();
   const { schedule: save } = useAutoSavePatch();
+  const sample = useLoadSample({
+    onSuccess: () => toast.success("Sample loaded"),
+    onError: () => toast.error("Failed to load sample"),
+  });
   const doctors = data?.doctors ?? [];
   const stations = data?.stations ?? [];
   const subspecs = data?.subspecs ?? [];
@@ -62,6 +71,35 @@ export function Doctors() {
     return dedup.length;
   };
 
+  if (doctors.length === 0) {
+    return (
+      <div className="space-y-4">
+        <EmptyState
+          icon={Users}
+          title="No doctors yet"
+          description={
+            <>
+              Add doctors one at a time, paste a CSV, or load the pre-built
+              scenario if you just want to see the solver work.
+            </>
+          }
+          actions={
+            <>
+              <Button onClick={addRow} variant="primary" disabled={stationNames.length === 0}>
+                <Plus className="h-4 w-4" />
+                Add first doctor
+              </Button>
+              <Button onClick={() => sample.mutate()} variant="secondary" disabled={sample.isPending}>
+                {sample.isPending ? "Loading…" : "Load sample scenario"}
+              </Button>
+            </>
+          }
+        />
+        <DoctorsCsvDrawer subspecs={subspecs} stationNames={stationNames} onImport={importCsv} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
     <Card>
@@ -90,9 +128,24 @@ export function Doctors() {
                 <th className="px-2 py-2">Tier</th>
                 <th className="px-2 py-2">Sub-spec</th>
                 <th className="px-2 py-2">Eligible stations</th>
-                <th className="px-2 py-2">Prev wl</th>
-                <th className="px-2 py-2">FTE</th>
-                <th className="px-2 py-2">Max OC</th>
+                <th
+                  className="px-2 py-2"
+                  title="Prior-period workload score — carry-in from last month so doctors who did more then get less this period. Leave at 0 if none."
+                >
+                  Prev wl
+                </th>
+                <th
+                  className="px-2 py-2"
+                  title="Full-time equivalent, 0.1–1.0. 0.5 means half a full-timer's workload."
+                >
+                  FTE
+                </th>
+                <th
+                  className="px-2 py-2"
+                  title="Optional hard cap on on-call nights this doctor can receive. Blank = no cap."
+                >
+                  Max OC
+                </th>
                 <th className="px-2 py-2 w-10"></th>
               </tr>
             </thead>

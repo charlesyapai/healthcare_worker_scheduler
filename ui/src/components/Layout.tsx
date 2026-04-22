@@ -11,6 +11,7 @@ import type { ComponentType } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 
 import { DarkModeToggle } from "@/components/DarkModeToggle";
+import { SaveIndicator } from "@/components/SaveIndicator";
 import { YamlMenu } from "@/components/YamlMenu";
 import { useGlobalShortcuts } from "@/lib/keys";
 import { cn } from "@/lib/utils";
@@ -18,13 +19,19 @@ import { cn } from "@/lib/utils";
 interface NavItem {
   to: string;
   label: string;
+  hint?: string;
   icon: ComponentType<{ className?: string }>;
 }
 
 const NAV: NavItem[] = [
   { to: "/", label: "Dashboard", icon: Home },
-  { to: "/setup", label: "Setup", icon: LayoutDashboard },
-  { to: "/rules", label: "Rules", icon: Sliders },
+  {
+    to: "/setup",
+    label: "Setup",
+    hint: "per-period",
+    icon: LayoutDashboard,
+  },
+  { to: "/rules", label: "Rules", hint: "once per dept", icon: Sliders },
   { to: "/solve", label: "Solve", icon: Play },
   { to: "/roster", label: "Roster", icon: Calendar },
   { to: "/export", label: "Export", icon: Download },
@@ -56,9 +63,12 @@ function TopBar() {
           v2
         </span>
       </div>
-      <div className="flex items-center gap-1">
-        <YamlMenu />
-        <DarkModeToggle />
+      <div className="flex items-center gap-2">
+        <SaveIndicator />
+        <div className="flex items-center gap-1">
+          <YamlMenu />
+          <DarkModeToggle />
+        </div>
       </div>
     </header>
   );
@@ -68,7 +78,7 @@ function SideNav() {
   return (
     <nav className="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-52 border-r border-slate-200 bg-slate-50/60 p-3 dark:border-slate-800 dark:bg-slate-950/60 md:block">
       <ul className="flex flex-col gap-1">
-        {NAV.map(({ to, label, icon: Icon }) => (
+        {NAV.map(({ to, label, hint, icon: Icon }) => (
           <li key={to}>
             <NavLink
               to={to}
@@ -82,8 +92,26 @@ function SideNav() {
                 )
               }
             >
-              <Icon className="h-4 w-4" />
-              <span>{label}</span>
+              {({ isActive }: { isActive: boolean }) => (
+                <>
+                  <Icon className="h-4 w-4" />
+                  <div className="flex flex-col leading-tight">
+                    <span>{label}</span>
+                    {hint && (
+                      <span
+                        className={cn(
+                          "text-[10px]",
+                          isActive
+                            ? "text-indigo-100"
+                            : "text-slate-400 dark:text-slate-500",
+                        )}
+                      >
+                        {hint}
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
             </NavLink>
           </li>
         ))}

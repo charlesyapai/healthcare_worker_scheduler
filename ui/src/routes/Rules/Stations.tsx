@@ -1,7 +1,13 @@
-import { Plus, Trash2 } from "lucide-react";
+import { Building2, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { useAutoSavePatch } from "@/api/autosave";
-import { type StationEntry, useSessionState } from "@/api/hooks";
+import {
+  type StationEntry,
+  useLoadSample,
+  useSessionState,
+} from "@/api/hooks";
+import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -18,6 +24,10 @@ const SESSIONS = ["AM", "PM"] as const;
 export function StationsEditor() {
   const { data } = useSessionState();
   const { schedule: save } = useAutoSavePatch();
+  const sample = useLoadSample({
+    onSuccess: () => toast.success("Sample loaded"),
+    onError: () => toast.error("Failed to load sample"),
+  });
   const stations = data?.stations ?? [];
 
   const update = (idx: number, patch: Partial<StationEntry>) =>
@@ -39,6 +49,33 @@ export function StationsEditor() {
         },
       ],
     });
+
+  if (stations.length === 0) {
+    return (
+      <EmptyState
+        icon={Building2}
+        title="No stations configured"
+        description={
+          <>
+            Stations are the workstations / roles that doctors rotate through
+            (e.g. CT, MR, US, on-call). Add the first one, or load the sample
+            scenario to see a realistic set-up.
+          </>
+        }
+        actions={
+          <>
+            <Button onClick={add} variant="primary">
+              <Plus className="h-4 w-4" />
+              Add first station
+            </Button>
+            <Button onClick={() => sample.mutate()} variant="secondary" disabled={sample.isPending}>
+              {sample.isPending ? "Loading…" : "Load sample scenario"}
+            </Button>
+          </>
+        }
+      />
+    );
+  }
 
   return (
     <div className="space-y-4">

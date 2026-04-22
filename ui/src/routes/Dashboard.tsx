@@ -1,6 +1,18 @@
 import { format } from "date-fns";
-import { FileDown, FileUp, FlaskConical, PlayCircle } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  Circle,
+  Download,
+  FileDown,
+  FileUp,
+  FlaskConical,
+  LayoutDashboard,
+  PlayCircle,
+  Sliders,
+} from "lucide-react";
 import { useRef } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
 import { ApiError } from "@/api/client";
@@ -20,10 +32,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
+import { useSolveStore } from "@/store/solve";
 
 export function Dashboard() {
   const health = useHealth();
   const state = useSessionState();
+  const solve = useSolveStore();
   const seed = useSeedDefaults({
     onSuccess: () => toast.success("Loaded default 20-doctor roster"),
     onError: (e) =>
@@ -31,7 +46,7 @@ export function Dashboard() {
   });
   const sample = useLoadSample({
     onSuccess: () =>
-      toast.success("Loaded sample — head to Solve, it's known-feasible"),
+      toast.success("Loaded sample — head to Solve to try it out"),
     onError: (e) =>
       toast.error(e instanceof ApiError ? e.message : "Failed to load sample"),
   });
@@ -69,62 +84,28 @@ export function Dashboard() {
   const doctors = state.data?.doctors ?? [];
   const stations = state.data?.stations ?? [];
   const horizon = state.data?.horizon;
-  const hasConfig = doctors.length > 0;
+  const hasConfig = doctors.length > 0 && stations.length > 0;
   const startDate = horizon?.start_date ?? null;
   const nDays = horizon?.n_days ?? 0;
-  const publicHolidays = horizon?.public_holidays ?? [];
+  const hasResult = !!solve.result;
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Overview of the current roster-in-progress.
+          Build a monthly on-call roster in four steps. Takes about 5 minutes
+          with the sample scenario.
         </p>
       </header>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Configuration</CardTitle>
-            <CardDescription>
-              {hasConfig
-                ? `${doctors.length} doctors, ${stations.length} stations.`
-                : "No configuration yet — load a YAML or start with defaults."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2 text-sm">
-            <Stat label="Horizon">
-              {nDays > 0 && startDate
-                ? `${nDays} days from ${format(new Date(startDate), "d MMM yyyy")}`
-                : nDays > 0
-                  ? `${nDays} days (start date not set)`
-                  : "—"}
-            </Stat>
-            <Stat label="Tier mix">{tierSummary(doctors)}</Stat>
-            <Stat label="Public holidays">{publicHolidays.length}</Stat>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Backend</CardTitle>
-            <CardDescription>FastAPI runtime status.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2 text-sm">
-            <Stat label="API">
-              {health.isLoading
-                ? "checking…"
-                : health.data
-                  ? `ok · phase ${health.data.phase}`
-                  : "unreachable"}
-            </Stat>
-            <Stat label="Solver build">
-              {health.data?.scheduler_version ?? "—"}
-            </Stat>
-          </CardContent>
-        </Card>
-      </div>
+      <Steps
+        step1Done={hasConfig}
+        step1Counts={{ doctors: doctors.length, stations: stations.length, days: nDays, startDate }}
+        step2Done={hasResult}
+        step2Status={solve.status === "running" ? "running" : hasResult ? solve.result?.status ?? "done" : null}
+        step3Done={hasResult}
+      />
 
       <Card className="border-indigo-300 bg-indigo-50/50 dark:border-indigo-900 dark:bg-indigo-950/30">
         <CardHeader>
@@ -251,24 +232,216 @@ export function Dashboard() {
           </div>
         </CardContent>
       </Card>
+
+      <p className="text-center text-xs text-slate-400 dark:text-slate-600">
+        Backend {health.data ? `ok · ${health.data.scheduler_version}` : "checking…"}
+      </p>
     </div>
   );
 }
 
-function Stat({ label, children }: { label: string; children: React.ReactNode }) {
+function Steps({
+  step1Done,
+  step1Counts,
+  step2Done,
+  step2Status,
+  step3Done,
+}: {
+  step1Done: boolean;
+  step1Counts: {
+    doctors: number;
+    stations: number;
+    days: number;
+    startDate: string | null;
+  };
+  step2Done: boolean;
+  step2Status: string | null;
+  step3Done: boolean;
+}) {
+  // Step 1: config present
+  // Step 2: review setup + rules (active once step 1 done, never blocked)
+  // Step 3: solve finished
+  // Step 4: export (active once step 3 done)
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-1 last:border-0 dark:border-slate-800">
-      <span className="text-slate-500 dark:text-slate-400">{label}</span>
-      <span className="font-medium">{children}</span>
-    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Getting started</CardTitle>
+        <CardDescription>Follow the steps in order. This panel updates as you go.</CardDescription>
+      </CardHeader>
+      <CardContent className="divide-y divide-slate-200 dark:divide-slate-800">
+        <Step
+          n={1}
+          done={step1Done}
+          active={!step1Done}
+          title="Load or build a configuration"
+          body={
+            step1Done ? (
+              <span>
+                {step1Counts.doctors} doctors, {step1Counts.stations} stations,{" "}
+                {step1Counts.days}-day horizon
+                {step1Counts.startDate
+                  ? ` starting ${format(new Date(step1Counts.startDate), "d MMM yyyy")}`
+                  : ""}
+                .
+              </span>
+            ) : (
+              <span>
+                Use <strong>Load this scenario</strong> below, drop a YAML,
+                or start from scratch in <Link to="/setup" className="text-indigo-600 underline dark:text-indigo-300">Setup</Link>.
+              </span>
+            )
+          }
+          action={
+            step1Done && (
+              <Link
+                to="/setup"
+                className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+              >
+                <LayoutDashboard className="h-3.5 w-3.5" />
+                Review setup
+              </Link>
+            )
+          }
+        />
+        <Step
+          n={2}
+          done={step1Done /* implicit review once config exists */ && true}
+          dim={!step1Done}
+          active={step1Done && !step2Done}
+          title="Review rules (optional)"
+          body={
+            <span>
+              Tweak constraint toggles, fairness weights, or shift hours in{" "}
+              <Link to="/rules" className="text-indigo-600 underline dark:text-indigo-300">Rules</Link>.
+              Safe to skip if you're just trying the scenario.
+            </span>
+          }
+          action={
+            step1Done && (
+              <Link
+                to="/rules"
+                className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+              >
+                <Sliders className="h-3.5 w-3.5" />
+                Open rules
+              </Link>
+            )
+          }
+        />
+        <Step
+          n={3}
+          done={step2Done}
+          dim={!step1Done}
+          active={step1Done && !step2Done}
+          title="Run the solver"
+          body={
+            step2Done ? (
+              <span>
+                {step2Status}
+                {" — "}snapshots available on the roster page.
+              </span>
+            ) : step1Done ? (
+              <span>
+                Head to <Link to="/solve" className="text-indigo-600 underline dark:text-indigo-300">Solve</Link> and press Solve. Expect a few seconds of live updates, then a verdict banner.
+              </span>
+            ) : (
+              <span>Available once you have doctors and stations.</span>
+            )
+          }
+          action={
+            step1Done &&
+            !step2Done && (
+              <Link
+                to="/solve"
+                className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+              >
+                <PlayCircle className="h-3.5 w-3.5" />
+                Go to Solve <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            )
+          }
+        />
+        <Step
+          n={4}
+          done={false}
+          dim={!step3Done}
+          active={step3Done}
+          title="Review & publish"
+          body={
+            step3Done ? (
+              <span>
+                Open <Link to="/roster" className="text-indigo-600 underline dark:text-indigo-300">Roster</Link> to
+                eyeball the grid, lock cells, or re-solve. Then <Link to="/export" className="text-indigo-600 underline dark:text-indigo-300">Export</Link> as JSON / CSV / ICS / PDF.
+              </span>
+            ) : (
+              <span>Available once a solve finishes.</span>
+            )
+          }
+          action={
+            step3Done && (
+              <Link
+                to="/roster"
+                className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Open roster
+              </Link>
+            )
+          }
+        />
+      </CardContent>
+    </Card>
   );
 }
 
-function tierSummary(
-  doctors: Array<{ tier: "junior" | "senior" | "consultant" }>,
-): string {
-  if (doctors.length === 0) return "—";
-  const counts = { junior: 0, senior: 0, consultant: 0 };
-  for (const d of doctors) counts[d.tier]++;
-  return `J ${counts.junior} · S ${counts.senior} · C ${counts.consultant}`;
+function Step({
+  n,
+  done,
+  active,
+  dim,
+  title,
+  body,
+  action,
+}: {
+  n: number;
+  done: boolean;
+  active?: boolean;
+  dim?: boolean;
+  title: string;
+  body: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "grid grid-cols-[auto_1fr_auto] items-start gap-3 py-3 first:pt-0 last:pb-0",
+        dim && !done && "opacity-50",
+      )}
+    >
+      <div
+        className={cn(
+          "mt-0.5 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
+          done
+            ? "bg-emerald-500 text-white"
+            : active
+              ? "bg-indigo-600 text-white"
+              : "border border-slate-300 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400",
+        )}
+      >
+        {done ? <Check className="h-3.5 w-3.5" /> : active ? n : <Circle className="h-2 w-2" />}
+      </div>
+      <div>
+        <p className="text-sm font-medium">
+          {title}
+          {active && !done && (
+            <span className="ml-2 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+              next
+            </span>
+          )}
+        </p>
+        <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">{body}</p>
+      </div>
+      <div className="whitespace-nowrap">{action}</div>
+    </div>
+  );
 }
