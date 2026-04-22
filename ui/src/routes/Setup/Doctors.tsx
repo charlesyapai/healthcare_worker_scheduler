@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import { useAutoSavePatch } from "@/api/autosave";
 import { type DoctorEntry, useSessionState } from "@/api/hooks";
+import { StationChips } from "@/components/StationChips";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -72,18 +73,14 @@ export function Doctors() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {stationNames.length > 0 ? (
-          <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
-            Available stations:{" "}
-            <code className="rounded bg-slate-100 px-1 py-0.5 dark:bg-slate-800">
-              {stationNames.join(", ")}
-            </code>
-          </p>
-        ) : (
+        {stationNames.length === 0 && (
           <p className="mb-2 text-xs text-amber-700 dark:text-amber-400">
             No stations configured. Go to Department rules → Stations first.
           </p>
         )}
+        <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+          Click a station chip to toggle whether a doctor is eligible for it.
+        </p>
 
         <div className="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-800">
           <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-800">
@@ -149,19 +146,11 @@ export function Doctors() {
                       <span className="text-xs text-slate-400">—</span>
                     )}
                   </td>
-                  <td className="px-2 py-1">
-                    <Input
-                      className="h-8"
-                      placeholder="CT,MR,US"
-                      value={(d.eligible_stations ?? []).join(",")}
-                      onChange={(e) =>
-                        updateRow(i, {
-                          eligible_stations: e.target.value
-                            .split(",")
-                            .map((s) => s.trim())
-                            .filter(Boolean),
-                        })
-                      }
+                  <td className="px-2 py-1 min-w-[14rem]">
+                    <StationChips
+                      value={d.eligible_stations ?? []}
+                      options={stationNames}
+                      onChange={(next) => updateRow(i, { eligible_stations: next })}
                     />
                   </td>
                   <td className="px-2 py-1 w-20">

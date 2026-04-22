@@ -1,3 +1,4 @@
+import { format } from "date-fns";
 import { Copy, Diff, Download, Lock } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -14,7 +15,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { WorkloadTable } from "@/components/WorkloadTable";
-import { computeWorkload, type Horizon } from "@/lib/roster";
+import {
+  computeWorkload,
+  formatDay,
+  type Horizon,
+  horizonDates,
+  isWeekendOrHoliday,
+} from "@/lib/roster";
 import { cn } from "@/lib/utils";
 import { type AssignmentRow, useSolveStore } from "@/store/solve";
 
@@ -184,7 +191,9 @@ export function Roster() {
                 <StationByDate
                   assignments={selectedAssignments}
                   horizon={horizon}
-                  stationNames={(data?.stations ?? []).map((s) => s.name)}
+                  stationNames={(data?.stations ?? [])
+                    .map((s) => s.name)
+                    .filter(Boolean) as string[]}
                 />
               )}
               <Legend />
@@ -348,6 +357,60 @@ function Legend() {
   );
 }
 
+type RoleKind = "station-am" | "station-pm" | "oncall" | "weekend-ext" | "weekend-consult";
+
+function roleKind(role: string): RoleKind | null {
+  if (role === "ONCALL") return "oncall";
+  if (role === "WEEKEND_EXT") return "weekend-ext";
+  if (role === "WEEKEND_CONSULT") return "weekend-consult";
+  if (role.startsWith("STATION_")) {
+    const sess = role.split("_").pop();
+    return sess === "AM" ? "station-am" : "station-pm";
+  }
+  return null;
+}
+
+function roleKindClasses(kind: RoleKind): { label: string; filled: string } {
+  switch (kind) {
+    case "station-am":
+    case "station-pm":
+      return {
+        label:
+          "bg-emerald-50 text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-200",
+        filled:
+          "bg-emerald-100 text-emerald-900 dark:bg-emerald-950/80 dark:text-emerald-100",
+      };
+    case "oncall":
+      return {
+        label:
+          "bg-purple-50 text-purple-900 dark:bg-purple-950/60 dark:text-purple-200",
+        filled:
+          "bg-purple-200 text-purple-900 dark:bg-purple-900/60 dark:text-purple-100",
+      };
+    case "weekend-ext":
+    case "weekend-consult":
+      return {
+        label:
+          "bg-teal-50 text-teal-900 dark:bg-teal-950/60 dark:text-teal-200",
+        filled:
+          "bg-teal-200 text-teal-900 dark:bg-teal-900/60 dark:text-teal-100",
+      };
+  }
+}
+
+function roleDisplayName(role: string): string {
+  if (role === "ONCALL") return "On-call";
+  if (role === "WEEKEND_EXT") return "Weekend EXT";
+  if (role === "WEEKEND_CONSULT") return "Weekend consultant";
+  if (role.startsWith("STATION_")) {
+    const inner = role.slice(8);
+    const parts = inner.split("_");
+    const sess = parts.pop();
+    return `${parts.join("_")} · ${sess}`;
+  }
+  return role;
+}
+
 function StationByDate({
   assignments,
   horizon,
@@ -357,73 +420,91 @@ function StationByDate({
   horizon: Horizon;
   stationNames: string[];
 }) {
-  const rows: Array<{ role: string; byDate: Map<string, string[]> }> = [];
   const byRole = new Map<string, Map<string, string[]>>();
-
-  const push = (role: string, date: string, doctor: string) => {
-    if (!byRole.has(role)) byRole.set(role, new Map());
-    const m = byRole.get(role)!;
-    const list = m.get(date) ?? [];
-    list.push(doctor);
-    m.set(date, list);
-  };
-
-  for (const a of assignments) push(a.role, a.date, a.doctor);
-
-  const dates = Array.from({ length: horizon.n_days }, (_, i) => {
-    if (!horizon.start_date) return "";
-    const d = new Date(horizon.start_date);
-    d.setDate(d.getDate() + i);
-    return d.toISOString().slice(0, 10);
-  }).filter(Boolean);
+  for (const a of assignments) {
+    if (!byRole.has(a.role)) byRole.set(a.role, new Map());
+    const m = byRole.get(a.role)!;
+    const list = m.get(a.date) ?? [];
+    list.push(a.doctor);
+    m.set(a.date, list);
+  }
 
   const ordered: string[] = [];
-  for (const s of stationNames) {
-    ordered.push(`STATION_${s}_AM`, `STATION_${s}_PM`);
-  }
+  for (const s of stationNames) ordered.push(`STATION_${s}_AM`, `STATION_${s}_PM`);
   ordered.push("ONCALL", "WEEKEND_EXT", "WEEKEND_CONSULT");
 
-  for (const role of ordered) {
-    const m = byRole.get(role);
-    if (!m) continue;
-    rows.push({ role, byDate: m });
-  }
+  // Include any roles from assignments that weren't enumerated above (e.g.
+  // stations the user renamed after solving).
+  for (const role of byRole.keys()) if (!ordered.includes(role)) ordered.push(role);
 
-  if (rows.length === 0) return null;
+  const rows = ordered.filter((r) => byRole.has(r)).map((r) => ({ role: r, byDate: byRole.get(r)! }));
+  const dates = horizonDates(horizon);
+  const holidays = horizon.public_holidays ?? [];
+
+  if (rows.length === 0 || dates.length === 0) return null;
+
   return (
     <div className="overflow-auto rounded-md border border-slate-200 dark:border-slate-800">
-      <table className="min-w-full text-[11px]">
-        <thead className="sticky top-0 bg-slate-50 dark:bg-slate-900">
+      <table className="min-w-full border-collapse text-[11px]">
+        <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-900">
           <tr>
-            <th className="sticky left-0 z-10 min-w-[12rem] border-b border-r border-slate-200 bg-slate-50 px-2 py-1.5 text-left font-semibold dark:border-slate-800 dark:bg-slate-900">
+            <th className="sticky left-0 z-20 min-w-[11rem] border-b border-r border-slate-200 bg-slate-50 px-2 py-1.5 text-left font-semibold dark:border-slate-800 dark:bg-slate-900">
               Role
             </th>
-            {dates.map((d) => (
-              <th
-                key={d}
-                className="border-b border-r border-slate-200 px-1.5 py-1 text-center font-medium dark:border-slate-800"
-              >
-                {d.slice(5)}
-              </th>
-            ))}
+            {dates.map((d) => {
+              const we = isWeekendOrHoliday(d, holidays);
+              return (
+                <th
+                  key={format(d, "yyyy-MM-dd")}
+                  className={cn(
+                    "border-b border-r border-slate-200 px-1.5 py-1 text-center font-medium dark:border-slate-800",
+                    we && "bg-slate-100 dark:bg-slate-800/60",
+                  )}
+                >
+                  <div className="whitespace-nowrap">{formatDay(d)}</div>
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
-          {rows.map(({ role, byDate }) => (
-            <tr key={role}>
-              <td className="sticky left-0 z-10 min-w-[12rem] border-b border-r border-slate-200 bg-white px-2 py-1 font-medium dark:border-slate-800 dark:bg-slate-950">
-                {role}
-              </td>
-              {dates.map((d) => (
+          {rows.map(({ role, byDate }, rowIdx) => {
+            const kind = roleKind(role);
+            const cls = kind ? roleKindClasses(kind) : null;
+            return (
+              <tr key={role} className={rowIdx % 2 ? "bg-slate-50/50 dark:bg-slate-900/40" : ""}>
                 <td
-                  key={d}
-                  className="border-b border-r border-slate-200 px-1 py-1 text-center align-middle dark:border-slate-800"
+                  className={cn(
+                    "sticky left-0 z-10 min-w-[11rem] border-b border-r border-slate-200 bg-inherit px-2 py-1 font-medium dark:border-slate-800",
+                    cls?.label,
+                  )}
                 >
-                  {(byDate.get(d) ?? []).join(", ") || <span className="text-slate-300 dark:text-slate-600">·</span>}
+                  {roleDisplayName(role)}
                 </td>
-              ))}
-            </tr>
-          ))}
+                {dates.map((dt) => {
+                  const iso = format(dt, "yyyy-MM-dd");
+                  const doctors = byDate.get(iso) ?? [];
+                  const filled = doctors.length > 0;
+                  return (
+                    <td
+                      key={iso}
+                      className={cn(
+                        "h-8 min-w-[4.5rem] border-b border-r border-slate-200 px-1 text-center align-middle font-mono text-[10px] leading-tight dark:border-slate-800",
+                        filled ? cls?.filled : "",
+                      )}
+                      title={filled ? doctors.join(", ") : ""}
+                    >
+                      {filled ? (
+                        doctors.join(", ")
+                      ) : (
+                        <span className="text-slate-300 dark:text-slate-600">·</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
