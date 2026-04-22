@@ -1,4 +1,4 @@
-import { Pause, Play, RefreshCw } from "lucide-react";
+import { Pause, Play, PlusCircle, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
@@ -16,7 +16,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { useSolveStore } from "@/store/solve";
+import { type SolveResultPayload, useSolveStore } from "@/store/solve";
 
 export function Solve() {
   const { data: state } = useSessionState();
@@ -24,6 +24,7 @@ export function Solve() {
   const solve = useSolveStore();
 
   const solver = state?.solver ?? { time_limit: 60, num_workers: 8, feasibility_only: false };
+  const timeLimit = solver.time_limit ?? 30;
 
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -50,9 +51,6 @@ export function Solve() {
       );
       return;
     }
-    // Sanity-check: every doctor must have at least one eligible station
-    // that exists in the current station list, otherwise build_instance
-    // throws and the WebSocket closes on first message.
     const stationNames = new Set(state.stations?.map((s) => s.name) ?? []);
     const broken = (state.doctors ?? []).find((d) => {
       const el = d.eligible_stations ?? [];
@@ -61,12 +59,19 @@ export function Solve() {
     });
     if (broken) {
       toast.error(
-        `${broken.name} has no eligible stations in your station list. Fix on Setup → Doctors.`,
+        `${broken.name} has no eligible stations in your station list. Fix on Setup → People.`,
       );
       return;
     }
     startSolve({ snapshotAssignments: true });
   };
+
+  const continueSolving = () => {
+    toast.message(`Continuing for another ${timeLimit}s…`);
+    kickoff();
+  };
+
+  const canContinue = solve.status === "done" && !isOptimal(solve.result);
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
@@ -129,7 +134,9 @@ export function Solve() {
               Feasibility only (skip fairness objective)
             </label>
 
-            <div className="mt-2 flex flex-col gap-2">
+            <StaffingMode />
+
+            <div className="mt-2 flex flex-col gap-2 border-t border-slate-200 pt-3 dark:border-slate-800">
               {solve.status === "running" ? (
                 <Button variant="destructive" onClick={stopSolve}>
                   <Pause className="h-4 w-4" />
@@ -138,11 +145,21 @@ export function Solve() {
               ) : (
                 <Button onClick={kickoff}>
                   <Play className="h-4 w-4" />
-                  Solve
+                  {solve.status === "done" ? "Solve again" : "Solve"}
+                </Button>
+              )}
+              {canContinue && (
+                <Button
+                  variant="secondary"
+                  onClick={continueSolving}
+                  title="Re-run the solver with the current time budget. A new search may find a lower objective."
+                >
+                  <PlusCircle className="h-4 w-4" />
+                  Continue solving (+{timeLimit}s)
                 </Button>
               )}
               {solve.status !== "idle" && solve.status !== "running" && (
-                <Button variant="secondary" onClick={solve.reset}>
+                <Button variant="ghost" onClick={solve.reset}>
                   <RefreshCw className="h-4 w-4" />
                   Clear
                 </Button>
@@ -179,6 +196,107 @@ export function Solve() {
       </div>
     </div>
   );
+}
+
+function StaffingMode() {
+  const { data } = useSessionState();
+  const { schedule: save } = useAutoSavePatch();
+  const h11 = !!data?.constraints?.h11_enabled;
+  const idleWeight = data?.soft_weights?.idle_weekday ?? 100;
+  const current: "balanced" | "minimal" = h11 && idleWeight > 0 ? "balanced" : "minimal";
+
+  const setMode = (mode: "balanced" | "minimal") => {
+    if (mode === "minimal") {
+      save({
+        constraints: { ...(data?.constraints ?? {}), h11_enabled: false } as never,
+        soft_weights: { ...(data?.soft_weights ?? {}), idle_weekday: 0 } as never,
+      });
+    } else {
+      save({
+        constraints: { ...(data?.constraints ?? {}), h11_enabled: true } as never,
+        soft_weights: {
+          ...(data?.soft_weights ?? {}),
+          idle_weekday: Math.max(idleWeight, 100),
+        } as never,
+      });
+    }
+  };
+
+  return (
+    <div className="border-t border-slate-200 pt-3 dark:border-slate-800">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        Staffing mode
+      </p>
+      <div className="mt-1.5 flex flex-col gap-1.5">
+        <ModeOption
+          active={current === "balanced"}
+          onClick={() => setMode("balanced")}
+          title="Balanced (default)"
+          body="Every person must have a duty every weekday unless excused. Good for full utilisation."
+        />
+        <ModeOption
+          active={current === "minimal"}
+          onClick={() => setMode("minimal")}
+          title="Minimal staffing"
+          body="Only fill what hard constraints require. People without a strictly-needed duty get the day off — useful to see who's actually essential."
+        />
+      </div>
+      <p className="mt-1.5 text-[10px] text-slate-500 dark:text-slate-400">
+        Toggles H11 (mandatory-weekday rule) and the idle-weekday penalty
+        under the hood.
+      </p>
+    </div>
+  );
+}
+
+function ModeOption({
+  active,
+  onClick,
+  title,
+  body,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  body: string;
+}) {
+  return (
+    <label
+      className={
+        "flex cursor-pointer gap-2 rounded-md border px-2.5 py-1.5 text-xs " +
+        (active
+          ? "border-indigo-300 bg-indigo-50 dark:border-indigo-800 dark:bg-indigo-950/40"
+          : "border-slate-200 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900/50")
+      }
+    >
+      <input
+        type="radio"
+        name="staffing-mode"
+        checked={active}
+        onChange={onClick}
+        className="mt-0.5"
+      />
+      <div>
+        <p className="font-medium">{title}</p>
+        <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+          {body}
+        </p>
+      </div>
+    </label>
+  );
+}
+
+function isOptimal(result: SolveResultPayload | null | undefined): boolean {
+  if (!result) return false;
+  if (result.status === "OPTIMAL") return true;
+  if (
+    result.objective != null &&
+    result.best_bound != null &&
+    result.objective <= result.best_bound + 0.5
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function VerdictBanner({ elapsed }: { elapsed: number }) {
@@ -257,6 +375,12 @@ function VerdictBanner({ elapsed }: { elapsed: number }) {
                 ? ` · first feasible at ${result.first_feasible_s.toFixed(1)}s`
                 : ""}
             </p>
+            {!good && (
+              <p className="mt-1 text-xs text-amber-900 dark:text-amber-200">
+                Gap above 5% — try <strong>Continue solving</strong> on the left to run the search for another {Math.max(5, (useSolveStore.getState().result?.wall_time_s ?? 30)).toFixed(0)}s,
+                or raise the time limit.
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>

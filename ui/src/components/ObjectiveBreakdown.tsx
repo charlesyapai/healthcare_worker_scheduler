@@ -329,9 +329,9 @@ function buildGroups(
         "Weekdays where someone had no station, on-call, or excuse (leave / post-call / lieu).",
       rawUnit: "idle days",
       rawMeaning:
-        "Number of (person, weekday) slots the solver left unassigned despite no valid excuse.",
+        "Number of (person, weekday) slots the solver left unassigned despite no valid excuse. A high count here means you have more people than the roster strictly needs — the solver is filling on-call / stations with 'extras' just to avoid the idle penalty.",
       advice:
-        "Widen station eligibility so more people can cover open slots, bump required_per_session on under-used stations in Rules → Stations, or lower the 'Penalty per day a doctor has no duty' weight in Rules → Priorities if some idle days are acceptable.",
+        "If you actually want people to have days off: switch to Minimal staffing on the Solve page — it turns off this penalty and leaves extras unassigned. If you want everyone fully utilised: widen station eligibility on Setup → People, or bump required_per_session on under-used stations in Rules → Stations.",
       weight: weights.idle_weekday,
       details: [],
     },
