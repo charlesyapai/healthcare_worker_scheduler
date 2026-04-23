@@ -1,3 +1,5 @@
+import os
+import subprocess
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -33,12 +35,40 @@ app.include_router(metrics.router)          # /api/metrics/{fairness,coverage}
 app.include_router(lab.router)              # /api/lab/*
 
 
+def _resolve_git_sha() -> str:
+    """Best-effort code-revision identifier. Reviewers need it in every
+    exported bundle so they can replay against the exact solver.
+
+    Priority: GIT_SHA env var (set at container build time on HF Spaces) →
+    `git rev-parse HEAD` on a dev machine → "unknown".
+    """
+    env = os.environ.get("GIT_SHA") or os.environ.get("SPACE_COMMIT")
+    if env:
+        return env.strip()
+    try:
+        out = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(Path(__file__).resolve().parent.parent),
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        )
+        return out.decode().strip()
+    except Exception:
+        return "unknown"
+
+
+# Resolved once at import time. HF Spaces are stateless containers —
+# the SHA doesn't change across requests on a live deployment.
+GIT_SHA = _resolve_git_sha()
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {
         "status": "ok",
-        "phase": 1,
+        "phase": 3,
         "scheduler_version": getattr(scheduler, "__version__", "unknown"),
+        "git_sha": GIT_SHA,
     }
 
 

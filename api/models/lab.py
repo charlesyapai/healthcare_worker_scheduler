@@ -21,15 +21,33 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+SearchBranching = Literal[
+    "AUTOMATIC",
+    "FIXED_SEARCH",
+    "PORTFOLIO_SEARCH",
+    "LP_SEARCH",
+    "PSEUDO_COST_SEARCH",
+    "PORTFOLIO_WITH_QUICK_RESTART_SEARCH",
+]
+
+
 class RunConfig(StrictModel):
-    """CP-SAT knobs. Phase 2 exposes only `time_limit_s`, `num_workers`,
-    `random_seed`, and `feasibility_only`; Phase 3 extends this with
-    branching / linearization / presolve levers."""
+    """Full CP-SAT parameter surface — the set of knobs a reviewer needs
+    to replay a batch bit-for-bit. Pass-through to `scheduler.solve()`.
+
+    For reproducible runs set `num_workers=1` — the parallel portfolio
+    is not deterministic even with a fixed `random_seed`.
+    """
 
     time_limit_s: float = 30.0
-    num_workers: int = 1            # 1 = deterministic; higher = faster but non-reproducible
+    num_workers: int = 1
     random_seed: int = 0
     feasibility_only: bool = False
+    search_branching: SearchBranching = "AUTOMATIC"
+    linearization_level: int = 1
+    cp_model_presolve: bool = True
+    optimize_with_core: bool = False
+    use_lns_only: bool = False
 
 
 class BatchRunRequest(StrictModel):

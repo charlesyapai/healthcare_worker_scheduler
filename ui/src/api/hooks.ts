@@ -215,11 +215,24 @@ export function useComputeFairness() {
 
 export type SolverKey = "cpsat" | "greedy" | "random_repair";
 
+export type SearchBranching =
+  | "AUTOMATIC"
+  | "FIXED_SEARCH"
+  | "PORTFOLIO_SEARCH"
+  | "LP_SEARCH"
+  | "PSEUDO_COST_SEARCH"
+  | "PORTFOLIO_WITH_QUICK_RESTART_SEARCH";
+
 export interface RunConfig {
   time_limit_s: number;
   num_workers: number;
   random_seed: number;
   feasibility_only: boolean;
+  search_branching: SearchBranching;
+  linearization_level: number;
+  cp_model_presolve: boolean;
+  optimize_with_core: boolean;
+  use_lns_only: boolean;
 }
 
 export interface SingleRun {

@@ -11,12 +11,13 @@
  * deep-dive subtabs land in Phase 3 / 4.
  */
 
-import { AlertTriangle, CheckCircle2, Play } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, Play, Settings } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import {
   type BatchSummary,
+  type SearchBranching,
   type SingleRun,
   type SolverKey,
   useBatchHistory,
@@ -59,6 +60,12 @@ export function LabBenchmark() {
   const [timeLimit, setTimeLimit] = useState(30);
   const [workers, setWorkers] = useState(1);
   const [feasibilityOnly, setFeasibilityOnly] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [branching, setBranching] = useState<SearchBranching>("AUTOMATIC");
+  const [linearization, setLinearization] = useState(1);
+  const [presolve, setPresolve] = useState(true);
+  const [optCore, setOptCore] = useState(false);
+  const [lnsOnly, setLnsOnly] = useState(false);
 
   const chosen: SolverKey[] = useMemo(
     () => (Object.keys(solvers) as SolverKey[]).filter((k) => solvers[k]),
@@ -93,6 +100,11 @@ export function LabBenchmark() {
           num_workers: workers,
           random_seed: seeds[0] ?? 0,
           feasibility_only: feasibilityOnly,
+          search_branching: branching,
+          linearization_level: linearization,
+          cp_model_presolve: presolve,
+          optimize_with_core: optCore,
+          use_lns_only: lnsOnly,
         },
       });
     } catch (e) {
@@ -194,6 +206,77 @@ export function LabBenchmark() {
             Feasibility-only (skip the fairness objective — CP-SAT only)
           </label>
 
+          <details open={showAdvanced} onToggle={(e) => setShowAdvanced((e.target as HTMLDetailsElement).open)} className="rounded-md border border-slate-200 p-2 text-xs dark:border-slate-800">
+            <summary className="flex cursor-pointer items-center gap-1.5 font-medium text-slate-700 dark:text-slate-200">
+              <Settings className="h-3.5 w-3.5" />
+              Advanced CP-SAT knobs
+            </summary>
+            <div className="mt-2 space-y-2">
+              <label className="block">
+                <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Search branching
+                </span>
+                <select
+                  className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-900"
+                  value={branching}
+                  onChange={(e) => setBranching(e.target.value as SearchBranching)}
+                >
+                  <option value="AUTOMATIC">AUTOMATIC (default)</option>
+                  <option value="FIXED_SEARCH">FIXED_SEARCH</option>
+                  <option value="PORTFOLIO_SEARCH">PORTFOLIO_SEARCH</option>
+                  <option value="LP_SEARCH">LP_SEARCH</option>
+                  <option value="PSEUDO_COST_SEARCH">PSEUDO_COST_SEARCH</option>
+                  <option value="PORTFOLIO_WITH_QUICK_RESTART_SEARCH">
+                    PORTFOLIO_WITH_QUICK_RESTART_SEARCH
+                  </option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Linearization level (0–2)
+                </span>
+                <Input
+                  type="number"
+                  min={0}
+                  max={2}
+                  className="mt-1 h-8 text-right text-xs"
+                  value={linearization}
+                  onChange={(e) =>
+                    setLinearization(Math.max(0, Math.min(2, Number(e.target.value) || 1)))
+                  }
+                />
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={presolve}
+                  onChange={(e) => setPresolve(e.target.checked)}
+                />
+                cp_model_presolve
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={optCore}
+                  onChange={(e) => setOptCore(e.target.checked)}
+                />
+                optimize_with_core
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={lnsOnly}
+                  onChange={(e) => setLnsOnly(e.target.checked)}
+                />
+                use_lns_only
+              </label>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                These map straight to CP-SAT's SatParameters fields. See{" "}
+                <code>docs/RESEARCH_METRICS.md §6</code>.
+              </p>
+            </div>
+          </details>
+
           <div className="rounded-md border border-indigo-200 bg-indigo-50 p-2 text-xs dark:border-indigo-900 dark:bg-indigo-950/40">
             <p>
               <strong>{nRuns}</strong> run{nRuns === 1 ? "" : "s"} · budget ≤{" "}
@@ -224,6 +307,7 @@ export function LabBenchmark() {
         {run.data ? (
           <>
             <ReliabilityBanner summary={run.data} />
+            <BundleDownload batchId={run.data.batch_id} />
             <ResultsTable summary={run.data} />
           </>
         ) : (
@@ -426,6 +510,31 @@ function RunRow({ row }: { row: SingleRun }) {
         {row.coverage_over}
       </td>
     </tr>
+  );
+}
+
+function BundleDownload({ batchId }: { batchId: string }) {
+  const href = `/api/lab/runs/${batchId}/bundle.zip`;
+  return (
+    <Card className="border-indigo-200 bg-indigo-50 dark:border-indigo-900 dark:bg-indigo-950/40">
+      <CardContent className="flex flex-wrap items-center justify-between gap-3 py-3 text-xs">
+        <div>
+          <p className="font-semibold">Reproducibility bundle ready</p>
+          <p className="text-slate-600 dark:text-slate-300">
+            state.yaml · run_config.json · results.json · git_sha.txt ·
+            requirements.txt · README.md — everything a reviewer needs to
+            replay this run. See <code>docs/HOW_TO_REPRODUCE.md</code>.
+          </p>
+        </div>
+        <a
+          href={href}
+          className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-indigo-700"
+        >
+          <Download className="h-3.5 w-3.5" />
+          Download bundle
+        </a>
+      </CardContent>
+    </Card>
   );
 }
 

@@ -14,8 +14,10 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 
 from api.lab.batch import get_batch, list_batches, run_batch
+from api.lab.bundle import build_bundle
 from api.models.lab import (
     BatchRunRequest,
     BatchSummary,
@@ -72,3 +74,24 @@ def get_run_detail(batch_id: str, run_id: str) -> SingleRunDetail:
             status_code=404, detail=f"Unknown run in this batch: {run_id}"
         )
     return d
+
+
+@router.get("/runs/{batch_id}/bundle.zip")
+def download_bundle(batch_id: str) -> Response:
+    """Reproducibility bundle (ZIP): state.yaml + run_config.json +
+    results.json + git_sha.txt + requirements.txt + README.md. See
+    `docs/HOW_TO_REPRODUCE.md` for the replay walkthrough."""
+    b = get_batch(batch_id)
+    if b is None:
+        raise HTTPException(status_code=404, detail=f"Unknown batch: {batch_id}")
+    # Lazy import to avoid a cycle at module load.
+    from api.main import GIT_SHA
+    body = build_bundle(b, GIT_SHA)
+    return Response(
+        content=body,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="lab_bundle_{batch_id}.zip"',
+        },
+    )

@@ -178,6 +178,16 @@ def solve(
     snapshot_assignments: bool = False,
     stop_event: threading.Event | None = None,
     warm_start: dict[str, Any] | None = None,
+    # CP-SAT parameter passthrough — additive kwargs that map straight
+    # onto `solver.parameters.*`. Used by the Lab tab's batch runner
+    # to make runs reproducible and to sweep parameters. Defaults match
+    # OR-Tools defaults so existing call sites are unaffected.
+    random_seed: int = 0,
+    search_branching: str = "AUTOMATIC",
+    linearization_level: int = 1,
+    cp_model_presolve: bool = True,
+    optimize_with_core: bool = False,
+    use_lns_only: bool = False,
 ) -> SolveResult:
     """Build and solve the CP-SAT model for `inst`.
 
@@ -193,6 +203,14 @@ def solve(
         and then spends the rest of its budget trying to improve on it.
         Mismatched keys (e.g. the instance changed since) are silently
         ignored — the solver falls back to a fresh search.
+    random_seed, search_branching, linearization_level, cp_model_presolve,
+    optimize_with_core, use_lns_only : CP-SAT parameter levers exposed
+        for reproducibility + parameter-sweep experiments. For
+        bit-deterministic runs, set `num_workers=1` AND a fixed
+        `random_seed` — the parallel portfolio is not deterministic.
+        `search_branching` values follow CP-SAT's enum
+        (AUTOMATIC, FIXED_SEARCH, PORTFOLIO_SEARCH,
+        LP_SEARCH, PSEUDO_COST_SEARCH, PORTFOLIO_WITH_QUICK_RESTART_SEARCH).
     """
     weights = weights or Weights()
     workload_weights = workload_weights or WorkloadWeights()
@@ -793,6 +811,39 @@ def solve(
     solver.parameters.max_time_in_seconds = time_limit_s
     solver.parameters.num_search_workers = num_workers
     solver.parameters.log_search_progress = log_search_progress
+    # Reproducibility / parameter-sweep levers. Map straight onto CP-SAT's
+    # protobuf fields. Unknown search_branching values fall back to AUTOMATIC
+    # so the solver always has a valid strategy.
+    solver.parameters.random_seed = int(random_seed)
+    solver.parameters.linearization_level = int(linearization_level)
+    solver.parameters.cp_model_presolve = bool(cp_model_presolve)
+    solver.parameters.optimize_with_core = bool(optimize_with_core)
+    solver.parameters.use_lns_only = bool(use_lns_only)
+    # CP-SAT exposes the SearchBranching enum as integer constants on the
+    # SatParameters message (accessible via `solver.parameters.<NAME>`).
+    # Unknown strings fall back to AUTOMATIC_SEARCH so a typo can't wedge
+    # a batch.
+    _branching_keys = {
+        "AUTOMATIC", "AUTOMATIC_SEARCH",
+        "FIXED", "FIXED_SEARCH",
+        "PORTFOLIO", "PORTFOLIO_SEARCH",
+        "LP", "LP_SEARCH",
+        "PSEUDO_COST", "PSEUDO_COST_SEARCH",
+        "PORTFOLIO_WITH_QUICK_RESTART", "PORTFOLIO_WITH_QUICK_RESTART_SEARCH",
+        "HINT", "HINT_SEARCH",
+        "PARTIAL_FIXED", "PARTIAL_FIXED_SEARCH",
+        "RANDOMIZED", "RANDOMIZED_SEARCH",
+    }
+    branching_key = str(search_branching).upper().strip()
+    if branching_key in _branching_keys:
+        if not branching_key.endswith("_SEARCH"):
+            branching_key = f"{branching_key}_SEARCH"
+        solver.parameters.search_branching = getattr(
+            solver.parameters, branching_key,
+            solver.parameters.AUTOMATIC_SEARCH,
+        )
+    else:
+        solver.parameters.search_branching = solver.parameters.AUTOMATIC_SEARCH
 
     # Always capture first-feasible time, even if the caller didn't pass a
     # streaming callback. Chain caller's callback if present.

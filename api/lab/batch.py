@@ -46,11 +46,19 @@ _BATCH_STORE: "OrderedDict[str, _StoredBatch]" = OrderedDict()
 
 
 class _StoredBatch:
-    __slots__ = ("summary", "details")
+    __slots__ = ("summary", "details", "state_yaml")
 
-    def __init__(self, summary: BatchSummary, details: dict[str, SingleRunDetail]) -> None:
+    def __init__(
+        self,
+        summary: BatchSummary,
+        details: dict[str, SingleRunDetail],
+        state_yaml: str,
+    ) -> None:
         self.summary = summary
         self.details = details
+        # Frozen at batch-run time so bundle export is deterministic even
+        # if the live session changes afterwards.
+        self.state_yaml = state_yaml
 
 
 def _remember(batch: _StoredBatch) -> None:
@@ -98,10 +106,11 @@ def _run_one(
     inst = session_to_instance(state)
     if solver == "cpsat":
         weights, wl_weights, cfg = session_to_solver_configs(state)
-        # Inst has no per-solve seed field; CP-SAT parameters are threaded
-        # through scheduler.solve() directly. For Phase 2 we only vary the
-        # num_workers + time_limit + feasibility_only; `random_seed` hook
-        # lands with Phase 3's RunConfig expansion.
+        # Thread every CP-SAT parameter the RunConfig exposes through to
+        # the solver. `seed` here is the batch-level iteration seed; it
+        # shifts the CP-SAT random seed on top of the run_config baseline
+        # so one RunConfig can sweep seeds without mutating the config
+        # object.
         result = cpsat_solve(
             inst,
             time_limit_s=float(run_config.time_limit_s),
@@ -110,6 +119,12 @@ def _run_one(
             constraints=cfg,
             num_workers=int(run_config.num_workers),
             feasibility_only=bool(run_config.feasibility_only),
+            random_seed=int(run_config.random_seed) + int(seed),
+            search_branching=str(run_config.search_branching),
+            linearization_level=int(run_config.linearization_level),
+            cp_model_presolve=bool(run_config.cp_model_presolve),
+            optimize_with_core=bool(run_config.optimize_with_core),
+            use_lns_only=bool(run_config.use_lns_only),
         )
     elif solver == "greedy":
         result = greedy_baseline(inst)
@@ -223,7 +238,12 @@ def run_batch(
         runs=runs,
     )
     _populate_aggregates(summary)
-    _remember(_StoredBatch(summary=summary, details=details))
+    # Snapshot the YAML that produced this batch so bundle export can
+    # hand a reviewer an exactly-reproducible instance later.
+    from api.sessions import session_to_v1_dict
+    from scheduler.persistence import dump_state
+    state_yaml = dump_state(session_to_v1_dict(state))
+    _remember(_StoredBatch(summary=summary, details=details, state_yaml=state_yaml))
     return summary
 
 

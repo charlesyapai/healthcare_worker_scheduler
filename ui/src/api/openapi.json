@@ -574,27 +574,60 @@
         "type": "object"
       },
       "RunConfig": {
-        "description": "CP-SAT knobs. Phase 2 exposes only `time_limit_s`, `num_workers`,\n`random_seed`, and `feasibility_only`; Phase 3 extends this with\nbranching / linearization / presolve levers.",
+        "description": "Full CP-SAT parameter surface \u2014 the set of knobs a reviewer needs\nto replay a batch bit-for-bit. Pass-through to `scheduler.solve()`.\n\nFor reproducible runs set `num_workers=1` \u2014 the parallel portfolio\nis not deterministic even with a fixed `random_seed`.",
         "properties": {
+          "cp_model_presolve": {
+            "default": true,
+            "title": "Cp Model Presolve",
+            "type": "boolean"
+          },
           "feasibility_only": {
             "default": false,
             "title": "Feasibility Only",
             "type": "boolean"
+          },
+          "linearization_level": {
+            "default": 1,
+            "title": "Linearization Level",
+            "type": "integer"
           },
           "num_workers": {
             "default": 1,
             "title": "Num Workers",
             "type": "integer"
           },
+          "optimize_with_core": {
+            "default": false,
+            "title": "Optimize With Core",
+            "type": "boolean"
+          },
           "random_seed": {
             "default": 0,
             "title": "Random Seed",
             "type": "integer"
           },
+          "search_branching": {
+            "default": "AUTOMATIC",
+            "enum": [
+              "AUTOMATIC",
+              "FIXED_SEARCH",
+              "PORTFOLIO_SEARCH",
+              "LP_SEARCH",
+              "PSEUDO_COST_SEARCH",
+              "PORTFOLIO_WITH_QUICK_RESTART_SEARCH"
+            ],
+            "title": "Search Branching",
+            "type": "string"
+          },
           "time_limit_s": {
             "default": 30.0,
             "title": "Time Limit S",
             "type": "number"
+          },
+          "use_lns_only": {
+            "default": false,
+            "title": "Use Lns Only",
+            "type": "boolean"
           }
         },
         "title": "RunConfig",
@@ -1611,6 +1644,47 @@
           }
         },
         "summary": "Get Batch Detail",
+        "tags": [
+          "lab"
+        ]
+      }
+    },
+    "/api/lab/runs/{batch_id}/bundle.zip": {
+      "get": {
+        "description": "Reproducibility bundle (ZIP): state.yaml + run_config.json +\nresults.json + git_sha.txt + requirements.txt + README.md. See\n`docs/HOW_TO_REPRODUCE.md` for the replay walkthrough.",
+        "operationId": "download_bundle_api_lab_runs__batch_id__bundle_zip_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Bundle",
         "tags": [
           "lab"
         ]

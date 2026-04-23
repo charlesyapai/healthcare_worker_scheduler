@@ -121,6 +121,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lab/runs/{batch_id}/bundle.zip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Bundle
+         * @description Reproducibility bundle (ZIP): state.yaml + run_config.json +
+         *     results.json + git_sha.txt + requirements.txt + README.md. See
+         *     `docs/HOW_TO_REPRODUCE.md` for the replay walkthrough.
+         */
+        get: operations["download_bundle_api_lab_runs__batch_id__bundle_zip_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/lab/runs/{batch_id}/details/{run_id}": {
         parameters: {
             query?: never;
@@ -724,31 +746,59 @@ export interface components {
         };
         /**
          * RunConfig
-         * @description CP-SAT knobs. Phase 2 exposes only `time_limit_s`, `num_workers`,
-         *     `random_seed`, and `feasibility_only`; Phase 3 extends this with
-         *     branching / linearization / presolve levers.
+         * @description Full CP-SAT parameter surface — the set of knobs a reviewer needs
+         *     to replay a batch bit-for-bit. Pass-through to `scheduler.solve()`.
+         *
+         *     For reproducible runs set `num_workers=1` — the parallel portfolio
+         *     is not deterministic even with a fixed `random_seed`.
          */
         RunConfig: {
+            /**
+             * Cp Model Presolve
+             * @default true
+             */
+            cp_model_presolve: boolean;
             /**
              * Feasibility Only
              * @default false
              */
             feasibility_only: boolean;
             /**
+             * Linearization Level
+             * @default 1
+             */
+            linearization_level: number;
+            /**
              * Num Workers
              * @default 1
              */
             num_workers: number;
+            /**
+             * Optimize With Core
+             * @default false
+             */
+            optimize_with_core: boolean;
             /**
              * Random Seed
              * @default 0
              */
             random_seed: number;
             /**
+             * Search Branching
+             * @default AUTOMATIC
+             * @enum {string}
+             */
+            search_branching: "AUTOMATIC" | "FIXED_SEARCH" | "PORTFOLIO_SEARCH" | "LP_SEARCH" | "PSEUDO_COST_SEARCH" | "PORTFOLIO_WITH_QUICK_RESTART_SEARCH";
+            /**
              * Time Limit S
              * @default 30
              */
             time_limit_s: number;
+            /**
+             * Use Lns Only
+             * @default false
+             */
+            use_lns_only: boolean;
         };
         /** RunHistoryEntry */
         RunHistoryEntry: {
@@ -1265,6 +1315,37 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_bundle_api_lab_runs__batch_id__bundle_zip_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

@@ -2,6 +2,65 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-23 — Validation Phase 3: reproducibility bundle + CP-SAT lever exposure
+
+**What:** A Lab batch now downloads as a replayable ZIP and exposes
+every CP-SAT parameter a reviewer needs to reproduce a run. Closes
+Phase 3 of [`docs/VALIDATION_PLAN.md`](VALIDATION_PLAN.md).
+
+**Scheduler — additive CP-SAT kwargs (`scheduler/model.py`):**
+- `random_seed`, `search_branching`, `linearization_level`,
+  `cp_model_presolve`, `optimize_with_core`, `use_lns_only`. Each
+  maps straight onto `solver.parameters.*`. Defaults unchanged, so
+  every existing call site behaves identically.
+- `search_branching` accepts the SearchBranching enum names
+  (AUTOMATIC / FIXED_SEARCH / PORTFOLIO_SEARCH / LP_SEARCH /
+  PSEUDO_COST_SEARCH / PORTFOLIO_WITH_QUICK_RESTART_SEARCH); unknown
+  values fall back to AUTOMATIC.
+
+**API — RunConfig + bundle export:**
+- `api/models/lab.py` `RunConfig` expanded with the six CP-SAT levers.
+- `api/lab/batch.py` threads every lever through to `scheduler.solve`.
+  Per-seed adjustment: `random_seed_effective = base_seed + iter_seed`
+  so one RunConfig can sweep seeds without mutating the record.
+- `api/lab/bundle.py` + `GET /api/lab/runs/{batch_id}/bundle.zip`:
+  returns a ZIP with `state.yaml`, `run_config.json`, `results.json`,
+  `git_sha.txt`, `requirements.txt`, and a README with the exact
+  `git checkout <sha> && python scripts/replay_bundle.py` workflow.
+- `api/main.GIT_SHA` resolved once at import time from
+  `$GIT_SHA` → `$SPACE_COMMIT` → `git rev-parse HEAD` → `"unknown"`.
+  Exposed via `/api/health`.
+- `_StoredBatch` now freezes the YAML at batch-run time so later
+  state edits don't poison the bundle.
+
+**Replay (`scripts/replay_bundle.py`):**
+- Unpacks a bundle, re-runs every (solver × seed) cell against the
+  recorded RunConfig, diffs status / objective / self_check_ok /
+  coverage_shortfall / coverage_over. Zero divergences = bit-for-bit
+  reproduction (with `num_workers=1`).
+
+**Front-end:**
+- `/lab/benchmark` gains a collapsible **Advanced CP-SAT knobs**
+  section (search_branching dropdown, linearization 0–2, three
+  presolve/core/lns checkboxes) and a **Download bundle** button
+  that fires `GET /api/lab/runs/.../bundle.zip`.
+
+**Tests:** 5 new (`tests/test_lab_bundle.py`) —
+  - Determinism: two back-to-back runs with num_workers=1 + fixed seed
+    produce identical objective + assignment count.
+  - Bundle manifest: ZIP contains every artefact VALIDATION_PLAN §1.3
+    specifies.
+  - Bundle README embeds the batch's git SHA.
+  - `/api/health` exposes `git_sha`.
+  - 404 on unknown batch.
+- 52/52 pytest pass; `pnpm build` clean.
+
+**Reliability posture after Phase 3:** Bundle + replay script deliver
+the "solutions are reproducible" pillar from VALIDATION_PLAN §1.
+Determinism is documented + tested; a reviewer reading
+`HOW_TO_REPRODUCE.md` (Phase 5) can now re-generate any published
+number.
+
 ## 2026-04-23 — Validation Phase 2: baselines + /lab/benchmark + coverage metrics
 
 **What:** The research tab's first real surface. Researchers can now

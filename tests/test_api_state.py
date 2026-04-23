@@ -8,8 +8,12 @@ from datetime import date
 def test_health(client) -> None:
     r = client.get("/api/health")
     assert r.status_code == 200
-    assert r.json()["status"] == "ok"
-    assert r.json()["phase"] == 1
+    body = r.json()
+    assert body["status"] == "ok"
+    assert isinstance(body["phase"], int)
+    assert body["phase"] >= 1
+    # Every bundle embeds the SHA so health must surface it too.
+    assert "git_sha" in body
 
 
 def test_seed_populates_defaults(client) -> None:
