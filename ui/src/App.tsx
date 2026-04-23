@@ -5,6 +5,8 @@ import { Toaster } from "sonner";
 import { Layout } from "@/components/Layout";
 import { Dashboard } from "@/routes/Dashboard";
 import { Export } from "@/routes/Export";
+import { LabLayout } from "@/routes/Lab";
+import { LabBenchmark } from "@/routes/Lab/Benchmark";
 import { Roster } from "@/routes/Roster";
 import { RulesLayout } from "@/routes/Rules";
 import { Constraints } from "@/routes/Rules/Constraints";
@@ -60,6 +62,10 @@ export function App() {
             <Route path="solve" element={<Solve />} />
             <Route path="roster" element={<Roster />} />
             <Route path="export" element={<Export />} />
+            <Route path="lab" element={<LabLayout />}>
+              <Route index element={<Navigate to="benchmark" replace />} />
+              <Route path="benchmark" element={<LabBenchmark />} />
+            </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

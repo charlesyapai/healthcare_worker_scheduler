@@ -210,3 +210,79 @@ export function useComputeFairness() {
       }),
   });
 }
+
+// --------------------------------------------------------------- lab batch
+
+export type SolverKey = "cpsat" | "greedy" | "random_repair";
+
+export interface RunConfig {
+  time_limit_s: number;
+  num_workers: number;
+  random_seed: number;
+  feasibility_only: boolean;
+}
+
+export interface SingleRun {
+  run_id: string;
+  solver: SolverKey;
+  seed: number;
+  status: string;
+  wall_time_s: number;
+  objective: number | null;
+  best_bound: number | null;
+  headroom: number | null;
+  first_feasible_s: number | null;
+  self_check_ok: boolean | null;
+  violation_count: number | null;
+  coverage_shortfall: number;
+  coverage_over: number;
+  n_assignments: number;
+  notes: string;
+}
+
+export interface BatchSummary {
+  batch_id: string;
+  created_at: string;
+  instance_label: string;
+  n_doctors: number;
+  n_stations: number;
+  n_days: number;
+  run_config: RunConfig;
+  runs: SingleRun[];
+  feasibility_rate: Record<string, number>;
+  mean_objective: Record<string, number | null>;
+  mean_shortfall: Record<string, number>;
+  quality_ratios: Record<string, number>;
+}
+
+export interface BatchHistoryEntry {
+  batch_id: string;
+  created_at: string;
+  instance_label: string;
+  n_runs: number;
+  solvers: string[];
+  n_seeds: number;
+}
+
+export interface BatchRunRequest {
+  solvers: SolverKey[];
+  seeds: number[];
+  run_config: RunConfig;
+}
+
+export function useRunBatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: BatchRunRequest) =>
+      apiFetch<BatchSummary>("/api/lab/run", { method: "POST", body: req }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["lab-runs"] }),
+  });
+}
+
+export function useBatchHistory() {
+  return useQuery({
+    queryKey: ["lab-runs"],
+    queryFn: () => apiFetch<BatchHistoryEntry[]>("/api/lab/runs"),
+    staleTime: 5_000,
+  });
+}

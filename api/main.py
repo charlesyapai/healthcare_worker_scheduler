@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 import scheduler
-from api.routes import diagnostics, metrics, roster, solve, state, yaml_io
+from api.routes import diagnostics, lab, metrics, roster, solve, state, yaml_io
 
 app = FastAPI(
     title="Healthcare Roster Scheduler v2",
@@ -29,7 +29,8 @@ app.include_router(diagnostics.router)      # /api/diagnose, /api/explain
 app.include_router(solve.router)            # WebSocket /api/solve
 app.include_router(solve.overrides_router)  # /api/overrides/fill-from-snapshot
 app.include_router(roster.router)           # /api/roster/validate
-app.include_router(metrics.router)          # /api/metrics/fairness
+app.include_router(metrics.router)          # /api/metrics/{fairness,coverage}
+app.include_router(lab.router)              # /api/lab/*
 
 
 @app.get("/api/health")

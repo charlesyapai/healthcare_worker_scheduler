@@ -61,6 +61,107 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lab/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run
+         * @description Execute a cross-product of (solver × seed) on the current session
+         *     state. Blocks until every cell finishes. Callers should keep batches
+         *     modest (≤ 3 solvers × ≤ 5 seeds × ≤ 30 s budget) until Phase 3 adds
+         *     a background-job path.
+         */
+        post: operations["run_api_lab_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lab/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Runs
+         * @description Most-recent-first list of batches stored in memory (LRU cap 50).
+         */
+        get: operations["list_runs_api_lab_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lab/runs/{batch_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Batch Detail */
+        get: operations["get_batch_detail_api_lab_runs__batch_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lab/runs/{batch_id}/details/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run Detail */
+        get: operations["get_run_detail_api_lab_runs__batch_id__details__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metrics/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Coverage
+         * @description Coverage shortfall + over-coverage per the NRP literature.
+         *
+         *     Formulae in `docs/RESEARCH_METRICS.md §5.1b`. For a feasible solve
+         *     under H1 both totals are zero — useful signal comes from running
+         *     the greedy / random-repair baselines, which frequently leave gaps.
+         */
+        post: operations["coverage_api_metrics_coverage_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/metrics/fairness": {
         parameters: {
             query?: never;
@@ -318,6 +419,64 @@ export interface components {
             /** Role */
             role: string;
         };
+        /** AssignmentsBody */
+        AssignmentsBody: {
+            /** Assignments */
+            assignments: components["schemas"]["AssignmentRow"][];
+        };
+        /**
+         * BatchRunRequest
+         * @description One batch = current session state × listed solvers × listed seeds.
+         */
+        BatchRunRequest: {
+            run_config?: components["schemas"]["RunConfig"];
+            /** Seeds */
+            seeds?: number[];
+            /** Solvers */
+            solvers?: ("cpsat" | "greedy" | "random_repair")[];
+        };
+        /**
+         * BatchSummary
+         * @description Aggregate of one batch run. Quality ratio vs the first baseline
+         *     in the request is reported as `quality_ratio_vs_*` if both solvers
+         *     ran on at least one shared seed.
+         */
+        BatchSummary: {
+            /** Batch Id */
+            batch_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Feasibility Rate */
+            feasibility_rate?: {
+                [key: string]: number;
+            };
+            /** Instance Label */
+            instance_label: string;
+            /** Mean Objective */
+            mean_objective?: {
+                [key: string]: number | null;
+            };
+            /** Mean Shortfall */
+            mean_shortfall?: {
+                [key: string]: number;
+            };
+            /** N Days */
+            n_days: number;
+            /** N Doctors */
+            n_doctors: number;
+            /** N Stations */
+            n_stations: number;
+            /** Quality Ratios */
+            quality_ratios?: {
+                [key: string]: number;
+            };
+            run_config: components["schemas"]["RunConfig"];
+            /** Runs */
+            runs: components["schemas"]["SingleRun"][];
+        };
         /** BlockEntry */
         BlockEntry: {
             /**
@@ -441,11 +600,6 @@ export interface components {
             /** Message */
             message: string;
         };
-        /** FairnessRequest */
-        FairnessRequest: {
-            /** Assignments */
-            assignments: components["schemas"]["AssignmentRow"][];
-        };
         /** FeasibilityIssueOut */
         FeasibilityIssueOut: {
             /** Code */
@@ -568,6 +722,52 @@ export interface components {
              */
             snapshot_assignments: boolean;
         };
+        /**
+         * RunConfig
+         * @description CP-SAT knobs. Phase 2 exposes only `time_limit_s`, `num_workers`,
+         *     `random_seed`, and `feasibility_only`; Phase 3 extends this with
+         *     branching / linearization / presolve levers.
+         */
+        RunConfig: {
+            /**
+             * Feasibility Only
+             * @default false
+             */
+            feasibility_only: boolean;
+            /**
+             * Num Workers
+             * @default 1
+             */
+            num_workers: number;
+            /**
+             * Random Seed
+             * @default 0
+             */
+            random_seed: number;
+            /**
+             * Time Limit S
+             * @default 30
+             */
+            time_limit_s: number;
+        };
+        /** RunHistoryEntry */
+        RunHistoryEntry: {
+            /** Batch Id */
+            batch_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Instance Label */
+            instance_label: string;
+            /** N Runs */
+            n_runs: number;
+            /** N Seeds */
+            n_seeds: number;
+            /** Solvers */
+            solvers: string[];
+        };
         /** SelfCheckViolation */
         SelfCheckViolation: {
             /** Location */
@@ -603,6 +803,76 @@ export interface components {
             subspecs?: string[];
             tier_labels?: components["schemas"]["TierLabels"];
             workload_weights?: components["schemas"]["WorkloadWeights"];
+        };
+        /**
+         * SingleRun
+         * @description One cell of (solver, seed) in the batch's cross product.
+         */
+        SingleRun: {
+            /** Best Bound */
+            best_bound: number | null;
+            /** Coverage Over */
+            coverage_over: number;
+            /** Coverage Shortfall */
+            coverage_shortfall: number;
+            /** First Feasible S */
+            first_feasible_s: number | null;
+            /** Headroom */
+            headroom: number | null;
+            /** N Assignments */
+            n_assignments: number;
+            /**
+             * Notes
+             * @default
+             */
+            notes: string;
+            /** Objective */
+            objective: number | null;
+            /** Run Id */
+            run_id: string;
+            /** Seed */
+            seed: number;
+            /** Self Check Ok */
+            self_check_ok: boolean | null;
+            /**
+             * Solver
+             * @enum {string}
+             */
+            solver: "cpsat" | "greedy" | "random_repair";
+            /** Status */
+            status: string;
+            /** Violation Count */
+            violation_count: number | null;
+            /** Wall Time S */
+            wall_time_s: number;
+        };
+        /**
+         * SingleRunDetail
+         * @description Full payload for one run — the assignments + self-check are kept
+         *     here rather than on `SingleRun` so the benchmark-table response
+         *     stays lightweight.
+         */
+        SingleRunDetail: {
+            /** Batch Id */
+            batch_id: string;
+            /** Coverage */
+            coverage?: {
+                [key: string]: unknown;
+            };
+            /** Fairness */
+            fairness?: {
+                [key: string]: unknown;
+            };
+            result: components["schemas"]["SolveResultPayload"];
+            /** Run Id */
+            run_id: string;
+            /** Seed */
+            seed: number;
+            /**
+             * Solver
+             * @enum {string}
+             */
+            solver: "cpsat" | "greedy" | "random_repair";
         };
         /** SoftWeights */
         SoftWeights: {
@@ -922,6 +1192,159 @@ export interface operations {
             };
         };
     };
+    run_api_lab_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_runs_api_lab_runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunHistoryEntry"][];
+                };
+            };
+        };
+    };
+    get_batch_detail_api_lab_runs__batch_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_detail_api_lab_runs__batch_id__details__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SingleRunDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    coverage_api_metrics_coverage_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignmentsBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     fairness_api_metrics_fairness_post: {
         parameters: {
             query?: never;
@@ -931,7 +1354,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["FairnessRequest"];
+                "application/json": components["schemas"]["AssignmentsBody"];
             };
         };
         responses: {

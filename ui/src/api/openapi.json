@@ -26,6 +26,138 @@
         "title": "AssignmentRow",
         "type": "object"
       },
+      "AssignmentsBody": {
+        "properties": {
+          "assignments": {
+            "items": {
+              "$ref": "#/components/schemas/AssignmentRow"
+            },
+            "title": "Assignments",
+            "type": "array"
+          }
+        },
+        "required": [
+          "assignments"
+        ],
+        "title": "AssignmentsBody",
+        "type": "object"
+      },
+      "BatchRunRequest": {
+        "description": "One batch = current session state \u00d7 listed solvers \u00d7 listed seeds.",
+        "properties": {
+          "run_config": {
+            "$ref": "#/components/schemas/RunConfig"
+          },
+          "seeds": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Seeds",
+            "type": "array"
+          },
+          "solvers": {
+            "items": {
+              "enum": [
+                "cpsat",
+                "greedy",
+                "random_repair"
+              ],
+              "type": "string"
+            },
+            "title": "Solvers",
+            "type": "array"
+          }
+        },
+        "title": "BatchRunRequest",
+        "type": "object"
+      },
+      "BatchSummary": {
+        "description": "Aggregate of one batch run. Quality ratio vs the first baseline\nin the request is reported as `quality_ratio_vs_*` if both solvers\nran on at least one shared seed.",
+        "properties": {
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "feasibility_rate": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Feasibility Rate",
+            "type": "object"
+          },
+          "instance_label": {
+            "title": "Instance Label",
+            "type": "string"
+          },
+          "mean_objective": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Mean Objective",
+            "type": "object"
+          },
+          "mean_shortfall": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Mean Shortfall",
+            "type": "object"
+          },
+          "n_days": {
+            "title": "N Days",
+            "type": "integer"
+          },
+          "n_doctors": {
+            "title": "N Doctors",
+            "type": "integer"
+          },
+          "n_stations": {
+            "title": "N Stations",
+            "type": "integer"
+          },
+          "quality_ratios": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Quality Ratios",
+            "type": "object"
+          },
+          "run_config": {
+            "$ref": "#/components/schemas/RunConfig"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/SingleRun"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "batch_id",
+          "created_at",
+          "instance_label",
+          "n_doctors",
+          "n_stations",
+          "n_days",
+          "run_config",
+          "runs"
+        ],
+        "title": "BatchSummary",
+        "type": "object"
+      },
       "BlockEntry": {
         "properties": {
           "date": {
@@ -252,22 +384,6 @@
         "title": "ExplainViolation",
         "type": "object"
       },
-      "FairnessRequest": {
-        "properties": {
-          "assignments": {
-            "items": {
-              "$ref": "#/components/schemas/AssignmentRow"
-            },
-            "title": "Assignments",
-            "type": "array"
-          }
-        },
-        "required": [
-          "assignments"
-        ],
-        "title": "FairnessRequest",
-        "type": "object"
-      },
       "FeasibilityIssueOut": {
         "properties": {
           "code": {
@@ -457,6 +573,75 @@
         "title": "RestSolveRequest",
         "type": "object"
       },
+      "RunConfig": {
+        "description": "CP-SAT knobs. Phase 2 exposes only `time_limit_s`, `num_workers`,\n`random_seed`, and `feasibility_only`; Phase 3 extends this with\nbranching / linearization / presolve levers.",
+        "properties": {
+          "feasibility_only": {
+            "default": false,
+            "title": "Feasibility Only",
+            "type": "boolean"
+          },
+          "num_workers": {
+            "default": 1,
+            "title": "Num Workers",
+            "type": "integer"
+          },
+          "random_seed": {
+            "default": 0,
+            "title": "Random Seed",
+            "type": "integer"
+          },
+          "time_limit_s": {
+            "default": 30.0,
+            "title": "Time Limit S",
+            "type": "number"
+          }
+        },
+        "title": "RunConfig",
+        "type": "object"
+      },
+      "RunHistoryEntry": {
+        "properties": {
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "instance_label": {
+            "title": "Instance Label",
+            "type": "string"
+          },
+          "n_runs": {
+            "title": "N Runs",
+            "type": "integer"
+          },
+          "n_seeds": {
+            "title": "N Seeds",
+            "type": "integer"
+          },
+          "solvers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Solvers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "batch_id",
+          "created_at",
+          "instance_label",
+          "n_runs",
+          "solvers",
+          "n_seeds"
+        ],
+        "title": "RunHistoryEntry",
+        "type": "object"
+      },
       "SelfCheckViolation": {
         "properties": {
           "location": {
@@ -550,6 +735,185 @@
           }
         },
         "title": "SessionState",
+        "type": "object"
+      },
+      "SingleRun": {
+        "description": "One cell of (solver, seed) in the batch's cross product.",
+        "properties": {
+          "best_bound": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Bound"
+          },
+          "coverage_over": {
+            "title": "Coverage Over",
+            "type": "integer"
+          },
+          "coverage_shortfall": {
+            "title": "Coverage Shortfall",
+            "type": "integer"
+          },
+          "first_feasible_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Feasible S"
+          },
+          "headroom": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headroom"
+          },
+          "n_assignments": {
+            "title": "N Assignments",
+            "type": "integer"
+          },
+          "notes": {
+            "default": "",
+            "title": "Notes",
+            "type": "string"
+          },
+          "objective": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "seed": {
+            "title": "Seed",
+            "type": "integer"
+          },
+          "self_check_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Self Check Ok"
+          },
+          "solver": {
+            "enum": [
+              "cpsat",
+              "greedy",
+              "random_repair"
+            ],
+            "title": "Solver",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "violation_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Violation Count"
+          },
+          "wall_time_s": {
+            "title": "Wall Time S",
+            "type": "number"
+          }
+        },
+        "required": [
+          "run_id",
+          "solver",
+          "seed",
+          "status",
+          "wall_time_s",
+          "objective",
+          "best_bound",
+          "headroom",
+          "first_feasible_s",
+          "self_check_ok",
+          "violation_count",
+          "coverage_shortfall",
+          "coverage_over",
+          "n_assignments"
+        ],
+        "title": "SingleRun",
+        "type": "object"
+      },
+      "SingleRunDetail": {
+        "description": "Full payload for one run \u2014 the assignments + self-check are kept\nhere rather than on `SingleRun` so the benchmark-table response\nstays lightweight.",
+        "properties": {
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "coverage": {
+            "additionalProperties": true,
+            "title": "Coverage",
+            "type": "object"
+          },
+          "fairness": {
+            "additionalProperties": true,
+            "title": "Fairness",
+            "type": "object"
+          },
+          "result": {
+            "$ref": "#/components/schemas/SolveResultPayload"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "seed": {
+            "title": "Seed",
+            "type": "integer"
+          },
+          "solver": {
+            "enum": [
+              "cpsat",
+              "greedy",
+              "random_repair"
+            ],
+            "title": "Solver",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "batch_id",
+          "solver",
+          "seed",
+          "result"
+        ],
+        "title": "SingleRunDetail",
         "type": "object"
       },
       "SoftWeights": {
@@ -1140,6 +1504,213 @@
         "summary": "Health"
       }
     },
+    "/api/lab/run": {
+      "post": {
+        "description": "Execute a cross-product of (solver \u00d7 seed) on the current session\nstate. Blocks until every cell finishes. Callers should keep batches\nmodest (\u2264 3 solvers \u00d7 \u2264 5 seeds \u00d7 \u2264 30 s budget) until Phase 3 adds\na background-job path.",
+        "operationId": "run_api_lab_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run",
+        "tags": [
+          "lab"
+        ]
+      }
+    },
+    "/api/lab/runs": {
+      "get": {
+        "description": "Most-recent-first list of batches stored in memory (LRU cap 50).",
+        "operationId": "list_runs_api_lab_runs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RunHistoryEntry"
+                  },
+                  "title": "Response List Runs Api Lab Runs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Runs",
+        "tags": [
+          "lab"
+        ]
+      }
+    },
+    "/api/lab/runs/{batch_id}": {
+      "get": {
+        "operationId": "get_batch_detail_api_lab_runs__batch_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Batch Detail Api Lab Runs  Batch Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Batch Detail",
+        "tags": [
+          "lab"
+        ]
+      }
+    },
+    "/api/lab/runs/{batch_id}/details/{run_id}": {
+      "get": {
+        "operationId": "get_run_detail_api_lab_runs__batch_id__details__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "title": "Batch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleRunDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run Detail",
+        "tags": [
+          "lab"
+        ]
+      }
+    },
+    "/api/metrics/coverage": {
+      "post": {
+        "description": "Coverage shortfall + over-coverage per the NRP literature.\n\nFormulae in `docs/RESEARCH_METRICS.md \u00a75.1b`. For a feasible solve\nunder H1 both totals are zero \u2014 useful signal comes from running\nthe greedy / random-repair baselines, which frequently leave gaps.",
+        "operationId": "coverage_api_metrics_coverage_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignmentsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Coverage Api Metrics Coverage Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Coverage",
+        "tags": [
+          "metrics"
+        ]
+      }
+    },
     "/api/metrics/fairness": {
       "post": {
         "description": "FTE-aware per-tier fairness metrics for a caller-provided roster.\n\nFormulae documented in `docs/RESEARCH_METRICS.md \u00a74`. Reports Gini\n(our convention) + CV (NRP-literature standard) alongside range,\nstd, mean, and per-individual delta-from-median.",
@@ -1148,7 +1719,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/FairnessRequest"
+                "$ref": "#/components/schemas/AssignmentsBody"
               }
             }
           },

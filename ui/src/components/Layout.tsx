@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  FlaskConical,
   Home,
   LayoutDashboard,
   Play,
@@ -33,6 +34,7 @@ const NAV: NavItem[] = [
   { to: "/solve", label: "Solve", icon: Play },
   { to: "/roster", label: "Roster", icon: Calendar },
   { to: "/export", label: "Export", icon: Download },
+  { to: "/lab", label: "Lab", hint: "benchmark", icon: FlaskConical },
 ];
 
 export function Layout() {
@@ -127,7 +129,7 @@ function SideNav() {
 function BottomNav() {
   return (
     <nav className="sticky bottom-0 z-10 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 md:hidden">
-      <ul className="grid grid-cols-6">
+      <ul className="grid grid-cols-7">
         {NAV.map(({ to, label, icon: Icon }) => (
           <li key={to} className="contents">
             <NavLink

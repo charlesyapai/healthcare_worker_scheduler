@@ -2,6 +2,84 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-23 — Validation Phase 2: baselines + /lab/benchmark + coverage metrics
+
+**What:** The research tab's first real surface. Researchers can now
+pick a scenario, press Run, and see CP-SAT vs a greedy / random-repair
+baseline with the full set of industry-standard reliability metrics.
+This closes Phase 2 of [`docs/VALIDATION_PLAN.md`](VALIDATION_PLAN.md).
+
+**Baselines (`scheduler/baselines.py`):**
+- `greedy_baseline(inst)` — weekend H8 → weekday on-call → station
+  coverage, picking the lowest-load eligible doctor at each step.
+  Respects H3 / H10 / H12 / H13 exactly; approximates H4 / H5 with
+  no look-ahead.
+- `random_repair_baseline(inst, seed)` — random assignment +
+  fill-in-the-blanks repair loop. Only targets H1 / H3 / H10; H4 / H5 /
+  H8 are ignored by design (this is the weak baseline).
+- Both return `SolveResult`-compatible dataclasses with
+  `status="HEURISTIC"` and `objective=None`. The post-solve self-check
+  flags their violations exactly as it would for CP-SAT, so the Lab's
+  feasibility rate is directly comparable across methods.
+
+**Coverage metrics (`api/metrics/coverage.py`, `POST /api/metrics/coverage`):**
+- Shortfall / over-coverage per [`docs/RESEARCH_METRICS.md §5.1b`](RESEARCH_METRICS.md)
+  and [`docs/INDUSTRY_CONTEXT.md §3`](INDUSTRY_CONTEXT.md).
+- Per-station breakdown + top-20 (date, station, session) gap list so
+  the UI can drill into where a heuristic is failing.
+
+**Lab batch runner:**
+- `api/models/lab.py` — `RunConfig`, `BatchRunRequest`, `SingleRun`,
+  `BatchSummary`, `SingleRunDetail`, `RunHistoryEntry`.
+- `api/lab/batch.py` — single-process serial execution over a
+  cross-product of solvers × seeds. Each run computes self-check +
+  coverage + fairness and stores them. Aggregates feasibility rate,
+  mean objective, mean shortfall, and quality ratio
+  Q = Z<sub>baseline</sub> / Z<sub>ours</sub> per
+  [`docs/RESEARCH_METRICS.md §7`](RESEARCH_METRICS.md).
+- In-memory LRU store (cap 50 batches). Disk persistence + bundle
+  export land in Phase 3.
+- Endpoints: `POST /api/lab/run`, `GET /api/lab/runs`,
+  `GET /api/lab/runs/{batch_id}`, `GET /api/lab/runs/{batch_id}/details/{run_id}`.
+
+**Front-end (`/lab/benchmark`):**
+- New top-level `/lab` route (beaker icon in side + bottom nav).
+- Benchmark MVP: solver multi-select + comma-separated seed list +
+  time-limit / workers / feasibility-only knobs; per-batch
+  reliability cards (feasibility rate %, mean objective, mean
+  shortfall) coloured green when the method satisfies all industry
+  reliability thresholds; quality-ratio chips; per-run results table
+  with self-check ✓ / ✗ and coverage shortfall / over columns;
+  recent-batches sidebar.
+
+**Industry-reliability metrics status (the question you asked):**
+- **Feasibility rate per method** — computed, tested, surfaced
+  (`test_lab_batch::test_cpsat_vs_greedy_smoke`).
+- **Quality ratio Q** — computed per batch, surfaced in the
+  reliability banner. Only populated when both solvers return an
+  objective; greedy / random_repair return `None`, so for now Q is
+  only meaningful when comparing CP-SAT against a future MILP
+  baseline (Phase 2.5 / 4).
+- **Coverage shortfall + over-coverage** — first-class metric, tested
+  against a hand-constructed fixture (4 tests), reported per-run in
+  the Lab table, per-station breakdown stored in the batch detail.
+- **Gini + CV + range + std + FTE normalisation** — already shipped
+  in Phase 1, tested.
+- **Absolute headroom** (replaces relative optimality gap) — already
+  shipped.
+- **INRC-II penalty score + Curtois translator** — not yet
+  implemented (needs a benchmark-instance adapter; flagged for
+  Phase 4/5).
+- **Regulatory-conformance (UK WTD / ACGME)** — still future work;
+  current coverage + fairness are not a substitute.
+- **PuLP + CBC MILP baseline** — not yet implemented. It's the #1
+  priority baseline in [`docs/INDUSTRY_CONTEXT.md §6`](INDUSTRY_CONTEXT.md);
+  scoped as Phase 2.5 because it requires a new runtime dep + a full
+  MILP encoding of H1–H15. Will enable the meaningful Q metric.
+
+**Tests:** 47/47 pytest pass (32 existing + 6 baselines + 4 coverage +
+5 lab-batch). `pnpm build` clean (824 KB / 244 KB gzip).
+
 ## 2026-04-23 — Validation Phase 1: self-check + fairness audit
 
 **What:** Every solve now carries an automated hard-constraint audit,
