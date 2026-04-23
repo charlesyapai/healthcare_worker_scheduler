@@ -38,6 +38,16 @@ export interface Aggregates {
   mean_objective: Record<string, number | null>;
   mean_shortfall: Record<string, number>;
   quality_ratios: Record<string, number>;
+  /** Mean hard-constraint violations per run, per solver. Baselines
+   *  frequently produce rosters that break H4/H5/H8 — this number
+   *  quantifies "how bad" instead of just "pass/fail". */
+  mean_violations: Record<string, number>;
+  /** Number of runs completed per solver so "1 of 1" reads right on
+   *  small seed counts; `feasibility_rate` alone collapses this to a %
+   *  that can hide single-seed flukes. */
+  runs_by_solver: Record<string, number>;
+  /** Number of runs where self_check_ok === true, per solver. */
+  passing_by_solver: Record<string, number>;
 }
 
 export interface LabBatchState {
@@ -88,6 +98,9 @@ function emptyAggregates(): Aggregates {
     mean_objective: {},
     mean_shortfall: {},
     quality_ratios: {},
+    mean_violations: {},
+    runs_by_solver: {},
+    passing_by_solver: {},
   };
 }
 
@@ -102,6 +115,8 @@ function recomputeAggregates(runs: SingleRun[]): Aggregates {
   const out = emptyAggregates();
   for (const [solver, group] of Object.entries(bySolver)) {
     const feas = group.filter((g) => g.self_check_ok).length;
+    out.runs_by_solver[solver] = group.length;
+    out.passing_by_solver[solver] = feas;
     out.feasibility_rate[solver] = group.length
       ? round(feas / group.length, 3)
       : 0;
@@ -114,6 +129,12 @@ function recomputeAggregates(runs: SingleRun[]): Aggregates {
     const shorts = group.map((g) => g.coverage_shortfall);
     out.mean_shortfall[solver] = shorts.length
       ? round(shorts.reduce((s, v) => s + v, 0) / shorts.length, 2)
+      : 0;
+    const violCounts = group
+      .map((g) => g.violation_count)
+      .filter((v): v is number => v != null);
+    out.mean_violations[solver] = violCounts.length
+      ? round(violCounts.reduce((s, v) => s + v, 0) / violCounts.length, 2)
       : 0;
   }
   const ours = out.mean_objective["cpsat"];

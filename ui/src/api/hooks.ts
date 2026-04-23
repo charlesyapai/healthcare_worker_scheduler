@@ -266,6 +266,11 @@ export interface BatchSummary {
   mean_objective: Record<string, number | null>;
   mean_shortfall: Record<string, number>;
   quality_ratios: Record<string, number>;
+  // Client-synthesised aggregates from the labBatch store — the backend
+  // doesn't compute these today, but the streaming batch path does.
+  mean_violations?: Record<string, number>;
+  runs_by_solver?: Record<string, number>;
+  passing_by_solver?: Record<string, number>;
 }
 
 export interface BatchHistoryEntry {

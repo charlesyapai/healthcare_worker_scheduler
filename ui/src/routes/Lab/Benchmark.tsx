@@ -472,6 +472,9 @@ function synthesizeSummary(store: LabBatchState): BatchSummary | null {
     mean_objective: store.aggregates.mean_objective,
     mean_shortfall: store.aggregates.mean_shortfall,
     quality_ratios: store.aggregates.quality_ratios,
+    mean_violations: store.aggregates.mean_violations,
+    runs_by_solver: store.aggregates.runs_by_solver,
+    passing_by_solver: store.aggregates.passing_by_solver,
   };
 }
 
@@ -911,57 +914,30 @@ function RunScatter({ summary }: { summary: BatchSummary }) {
 
 function ReliabilityBanner({ summary }: { summary: BatchSummary }) {
   const rows = summary.runs;
-  const solvers = Array.from(new Set(rows.map((r) => r.solver)));
+  const solvers = Array.from(new Set(rows.map((r) => r.solver))) as SolverKey[];
   return (
     <Card>
       <CardHeader>
         <CardTitle>Industry reliability metrics</CardTitle>
         <CardDescription>
-          Cross-comparable with NRP literature. Feasibility rate per method
-          (§7.3), mean coverage shortfall (§5.1b), quality ratio Q =
-          Z<sub>baseline</sub> / Z<sub>ours</sub> (§7.1). Formulae in{" "}
-          <code>docs/RESEARCH_METRICS.md</code>.
+          Cross-comparable with NRP literature. Each card shows what
+          <em> that solver</em> actually produced on this instance —
+          baselines won't have an objective (by design), but their
+          coverage shortfall and violation count are real, measurable
+          output. Formulae in <code>docs/RESEARCH_METRICS.md §§5, 7</code>.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {solvers.map((s) => {
-            const feas = summary.feasibility_rate[s] ?? 0;
-            const mean = summary.mean_objective[s];
-            const meanShort = summary.mean_shortfall[s] ?? 0;
-            const green = feas === 1.0 && meanShort === 0;
-            return (
-              <div
-                key={s}
-                className={cn(
-                  "rounded-md border p-3 text-xs",
-                  green
-                    ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40"
-                    : "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40",
-                )}
-              >
-                <p className="flex items-center justify-between gap-2">
-                  <span className="font-semibold">
-                    {SOLVER_LABELS[s as SolverKey] ?? s}
-                  </span>
-                  {green && (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                  )}
-                </p>
-                <MetricRow label="Feasibility rate" value={`${(feas * 100).toFixed(0)}%`} />
-                <MetricRow label="Mean objective" value={mean == null ? "—" : mean.toFixed(0)} />
-                <MetricRow
-                  label="Mean shortfall"
-                  value={meanShort.toFixed(1)}
-                  muted={meanShort === 0}
-                />
-              </div>
-            );
-          })}
+          {solvers.map((s) => (
+            <SolverReliabilityCard key={s} solver={s} summary={summary} />
+          ))}
         </div>
         {Object.keys(summary.quality_ratios).length > 0 && (
           <div className="mt-4 rounded-md border border-slate-200 p-3 text-xs dark:border-slate-800">
-            <p className="mb-1 font-semibold">Quality ratio (baseline / CP-SAT)</p>
+            <p className="mb-1 font-semibold">
+              Quality ratio Q = Z<sub>baseline</sub> / Z<sub>ours</sub>
+            </p>
             <div className="flex flex-wrap gap-2">
               {Object.entries(summary.quality_ratios).map(([k, v]) => (
                 <span
@@ -973,10 +949,116 @@ function ReliabilityBanner({ summary }: { summary: BatchSummary }) {
                 </span>
               ))}
             </div>
+            <p className="mt-2 text-[10px] text-slate-500 dark:text-slate-400">
+              Only populated when both solvers in the pair report an
+              objective. Heuristic baselines don't, so Q will stay empty
+              until a MILP baseline ships.
+            </p>
           </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function SolverReliabilityCard({
+  solver,
+  summary,
+}: {
+  solver: SolverKey;
+  summary: BatchSummary;
+}) {
+  const isHeuristic = solver !== "cpsat";
+  const nRuns = summary.runs_by_solver?.[solver] ?? 0;
+  const nPassing = summary.passing_by_solver?.[solver] ?? 0;
+  const feas = summary.feasibility_rate[solver] ?? 0;
+  const meanObj = summary.mean_objective[solver];
+  const meanShort = summary.mean_shortfall[solver] ?? 0;
+  const meanViolations = summary.mean_violations?.[solver] ?? 0;
+
+  // Card colour encoding: CP-SAT green if it passed every run with zero
+  // shortfall. Baselines amber if they produced rosters but broke hard
+  // constraints (expected). Slate-neutral for "produced a roster with
+  // zero violations" for baselines that happened to pass.
+  const cpsatGreen = !isHeuristic && feas === 1.0 && meanShort === 0;
+  const baselineClean = isHeuristic && feas === 1.0 && meanShort === 0 && meanViolations === 0;
+  const green = cpsatGreen || baselineClean;
+
+  return (
+    <div
+      className={cn(
+        "rounded-md border p-3 text-xs",
+        green
+          ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40"
+          : "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40",
+      )}
+    >
+      <p className="flex items-center justify-between gap-2">
+        <span className="font-semibold">
+          {SOLVER_LABELS[solver] ?? solver}
+        </span>
+        {green && (
+          <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+        )}
+      </p>
+
+      {/* Pass rate — always shown, with absolute counts so single-seed
+          batches don't look 0% or 100% alarmingly. */}
+      <MetricRow
+        label="Hard-constraint pass"
+        value={`${nPassing}/${nRuns} runs${nRuns > 1 ? ` (${(feas * 100).toFixed(0)}%)` : ""}`}
+        muted={nRuns === 0}
+      />
+
+      {/* Objective — for CP-SAT only. Heuristics get a slug explainer. */}
+      {isHeuristic ? (
+        <MetricRow
+          label="Mean objective"
+          value="n/a (heuristic)"
+          muted
+        />
+      ) : (
+        <MetricRow
+          label="Mean objective"
+          value={meanObj == null ? "—" : meanObj.toFixed(0)}
+          muted={meanObj == null}
+        />
+      )}
+
+      {/* Shortfall — always shown; 0 in slate, >0 in amber colour. */}
+      <MetricRow
+        label="Mean shortfall"
+        value={`${meanShort.toFixed(1)} slot${meanShort === 1 ? "" : "s"}`}
+        muted={meanShort === 0}
+      />
+
+      {/* Violations — only surfaced when any exist, to keep CP-SAT cards
+          tidy and flag baseline behaviour. */}
+      {meanViolations > 0 && (
+        <MetricRow
+          label="Mean violations"
+          value={meanViolations.toFixed(1)}
+          muted={false}
+        />
+      )}
+
+      {/* Context footer — explain what the numbers mean for this solver
+          type. Removes the "card looks empty" confusion. */}
+      {isHeuristic && (
+        <p className="mt-2 text-[10px] text-amber-900 dark:text-amber-200">
+          Heuristic baselines skip H4 (on-call cap), H5 (post-call off),
+          H8 (weekend coverage) by design. A healthy result here is "a
+          roster was produced with measurable shortfall/violations" —
+          not zero.
+        </p>
+      )}
+      {!isHeuristic && !green && (
+        <p className="mt-2 text-[10px] text-amber-900 dark:text-amber-200">
+          CP-SAT produced a roster but the self-check flagged something
+          — check the per-run table for the failing rules.
+        </p>
+      )}
+    </div>
   );
 }
 
