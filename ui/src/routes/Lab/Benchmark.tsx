@@ -16,10 +16,12 @@ import {
   BookOpen,
   CheckCircle2,
   Download,
+  Loader2,
   Play,
+  RefreshCw,
   Settings,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -38,13 +40,13 @@ import { toast } from "sonner";
 
 import {
   type BatchSummary,
+  type RunConfig,
   type SearchBranching,
   type SingleRun,
   type SolverKey,
   useBatchHistory,
-  useRunBatch,
 } from "@/api/hooks";
-import { ApiError } from "@/api/client";
+import { ApiError, apiFetch } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -55,6 +57,10 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import {
+  type LabBatchState,
+  useLabBatchStore,
+} from "@/store/labBatch";
 
 const SOLVER_COLORS: Record<SolverKey, string> = {
   cpsat: "#4f46e5",         // indigo-600 — main CP-SAT colour
@@ -75,8 +81,8 @@ const SOLVER_HINTS: Record<SolverKey, string> = {
 };
 
 export function LabBenchmark() {
-  const run = useRunBatch();
   const history = useBatchHistory();
+  const store = useLabBatchStore();
 
   const [solvers, setSolvers] = useState<Record<SolverKey, boolean>>({
     cpsat: true,
@@ -109,6 +115,21 @@ export function LabBenchmark() {
   const nRuns = chosen.length * seeds.length;
   const estSec = nRuns * timeLimit;
 
+  const runConfig: RunConfig = useMemo(
+    () => ({
+      time_limit_s: timeLimit,
+      num_workers: workers,
+      random_seed: seeds[0] ?? 0,
+      feasibility_only: feasibilityOnly,
+      search_branching: branching,
+      linearization_level: linearization,
+      cp_model_presolve: presolve,
+      optimize_with_core: optCore,
+      use_lns_only: lnsOnly,
+    }),
+    [timeLimit, workers, seeds, feasibilityOnly, branching, linearization, presolve, optCore, lnsOnly],
+  );
+
   const kickoff = async () => {
     if (chosen.length === 0) {
       toast.error("Pick at least one solver.");
@@ -118,25 +139,57 @@ export function LabBenchmark() {
       toast.error("Provide at least one integer seed.");
       return;
     }
-    try {
-      await run.mutateAsync({
-        solvers: chosen,
-        seeds,
-        run_config: {
-          time_limit_s: timeLimit,
-          num_workers: workers,
-          random_seed: seeds[0] ?? 0,
-          feasibility_only: feasibilityOnly,
-          search_branching: branching,
-          linearization_level: linearization,
-          cp_model_presolve: presolve,
-          optimize_with_core: optCore,
-          use_lns_only: lnsOnly,
-        },
-      });
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Batch failed");
+    // Expand (solver × seed) cross-product into a flat, ordered plan.
+    // Baselines come first (they finish fast) so the user sees early
+    // cells populate before the slow CP-SAT runs. Within a solver we
+    // preserve seed order.
+    const solverOrder: SolverKey[] = (["greedy", "random_repair", "cpsat"] as SolverKey[]).filter(
+      (s) => chosen.includes(s),
+    );
+    const planned = solverOrder.flatMap((solver) =>
+      seeds.map((seed) => ({ solver, seed })),
+    );
+
+    useLabBatchStore.getState().begin(planned, runConfig);
+
+    for (let i = 0; i < planned.length; i++) {
+      const cell = planned[i];
+      useLabBatchStore.getState().startCell(i);
+      try {
+        const summary = await apiFetch<BatchSummary>("/api/lab/run", {
+          method: "POST",
+          body: {
+            solvers: [cell.solver],
+            seeds: [cell.seed],
+            run_config: runConfig,
+          },
+        });
+        const run = summary.runs[0];
+        if (!run) {
+          useLabBatchStore.getState().fail(`${cell.solver}/${cell.seed}: empty response`);
+          return;
+        }
+        useLabBatchStore.getState().completeCell(
+          run,
+          { batchId: summary.batch_id, solver: cell.solver, seed: cell.seed },
+          {
+            instanceLabel: summary.instance_label,
+            nDoctors: summary.n_doctors,
+            nDays: summary.n_days,
+          },
+        );
+      } catch (e) {
+        const msg = e instanceof ApiError ? e.message : "Batch cell failed";
+        useLabBatchStore.getState().fail(
+          `${cell.solver} / seed ${cell.seed}: ${msg}`,
+        );
+        toast.error(msg);
+        return;
+      }
     }
+
+    useLabBatchStore.getState().finish();
+    toast.success(`Benchmark finished — ${planned.length} runs`);
   };
 
   return (
@@ -321,36 +374,254 @@ export function LabBenchmark() {
 
           <Button
             className="w-full"
-            disabled={run.isPending || nRuns === 0}
+            disabled={store.status === "running" || nRuns === 0}
             onClick={kickoff}
           >
             <Play className="h-4 w-4" />
-            {run.isPending ? "Running…" : `Run benchmark`}
+            {store.status === "running" ? "Running…" : `Run benchmark`}
           </Button>
         </CardContent>
       </Card>
 
       <div className="space-y-4">
         <BenchmarkIntro />
-        {run.data ? (
-          <>
-            <ReliabilityBanner summary={run.data} />
-            <SolverComparisonChart summary={run.data} />
-            <RunScatter summary={run.data} />
-            <BundleDownload batchId={run.data.batch_id} />
-            <ResultsTable summary={run.data} />
-          </>
-        ) : (
-          <Card>
-            <CardContent className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
-              Press <strong>Run benchmark</strong> to compare CP-SAT against
-              the selected baselines. Results will stream in here.
-            </CardContent>
-          </Card>
-        )}
+        <BatchResults store={store} />
         <HistoryCard history={history.data ?? []} />
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------- live results
+
+function BatchResults({ store }: { store: LabBatchState }) {
+  const hasRuns = store.runs.length > 0;
+  const synthetic = useMemo(
+    () => synthesizeSummary(store),
+    // Recompute when the run list changes or when the store finishes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [store.runs, store.status, store.instanceLabel],
+  );
+  const latestBatchId = store.batchRefs[store.batchRefs.length - 1]?.batchId ?? null;
+
+  if (!hasRuns && store.status === "idle") {
+    return (
+      <Card>
+        <CardContent className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+          Press <strong>Run benchmark</strong> to compare CP-SAT against
+          the selected baselines. Every cell lands in the table as it
+          finishes, so you can watch the batch progress live.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      <LiveProgress store={store} />
+      {hasRuns && synthetic && (
+        <>
+          <ReliabilityBanner summary={synthetic} />
+          <SolverComparisonChart summary={synthetic} />
+          <RunScatter summary={synthetic} />
+          {latestBatchId && store.status !== "running" && (
+            <BundleDownload batchId={latestBatchId} />
+          )}
+          <ResultsTable summary={synthetic} />
+        </>
+      )}
+    </>
+  );
+}
+
+/** Rebuild the `BatchSummary` shape from the in-progress store so the
+ *  existing reliability / chart / table components don't need to know
+ *  about the new streaming model. Only fields downstream components
+ *  read are populated — the full run_config + created_at stay stubbed. */
+function synthesizeSummary(store: LabBatchState): BatchSummary | null {
+  if (store.runs.length === 0) return null;
+  return {
+    batch_id: store.batchRefs[store.batchRefs.length - 1]?.batchId ?? "live",
+    created_at: new Date(store.startedAt ?? Date.now()).toISOString(),
+    instance_label: store.instanceLabel ?? "live batch",
+    n_doctors: store.nDoctors ?? 0,
+    n_stations: 0,
+    n_days: store.nDays ?? 0,
+    run_config: store.runConfig ?? ({} as RunConfig),
+    runs: store.runs,
+    feasibility_rate: store.aggregates.feasibility_rate,
+    mean_objective: store.aggregates.mean_objective,
+    mean_shortfall: store.aggregates.mean_shortfall,
+    quality_ratios: store.aggregates.quality_ratios,
+  };
+}
+
+function LiveProgress({ store }: { store: LabBatchState }) {
+  const { status, planned, runs, currentCell, startedAt, lastError } = store;
+  const resetStore = useLabBatchStore((s) => s.reset);
+
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (status !== "running") return;
+    const id = setInterval(() => setNow(Date.now()), 200);
+    return () => clearInterval(id);
+  }, [status]);
+
+  if (status === "idle") return null;
+
+  const elapsedS = startedAt ? (now - startedAt) / 1000 : 0;
+  const done = runs.length;
+  const total = planned.length;
+  const pct = total > 0 ? Math.min(100, (done / total) * 100) : 0;
+
+  // ETA = sum of per-cell wall-time estimates for remaining cells.
+  // For CP-SAT we assume time_limit_s as the worst case; baselines are
+  // modelled as ~1s. After any cells have finished we also use their
+  // observed time as a sanity-check floor so the ETA doesn't undershoot.
+  const observedBySolver: Record<SolverKey, number[]> = {
+    cpsat: [], greedy: [], random_repair: [],
+  };
+  for (const r of runs) {
+    (observedBySolver[r.solver] ??= []).push(r.wall_time_s);
+  }
+  const etaPerCell = (cell: { solver: SolverKey }) => {
+    const seen = observedBySolver[cell.solver] ?? [];
+    if (seen.length > 0) {
+      return seen.reduce((s, v) => s + v, 0) / seen.length;
+    }
+    const cfgTime = store.runConfig?.time_limit_s ?? 30;
+    return cell.solver === "cpsat" ? cfgTime : 1;
+  };
+
+  const remainingCells = planned.slice(done);
+  // If a cell is currently running, subtract whatever time has passed
+  // on it so the ETA is tighter.
+  let remainingSeconds = remainingCells.reduce((s, c) => s + etaPerCell(c), 0);
+  if (currentCell && remainingCells[0]) {
+    const cellElapsed = Math.max(0, (now - currentCell.startedAt) / 1000);
+    remainingSeconds = Math.max(
+      0,
+      remainingSeconds - Math.min(cellElapsed, etaPerCell(remainingCells[0])),
+    );
+  }
+
+  const currentCellElapsed = currentCell
+    ? Math.max(0, (now - currentCell.startedAt) / 1000)
+    : 0;
+  const currentCellCap =
+    currentCell?.solver === "cpsat"
+      ? store.runConfig?.time_limit_s ?? 30
+      : 2;
+  const currentCellPct = currentCell
+    ? Math.min(100, (currentCellElapsed / currentCellCap) * 100)
+    : 0;
+
+  const cls =
+    status === "error"
+      ? "border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/40"
+      : status === "done"
+        ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40"
+        : "border-indigo-300 bg-indigo-50 dark:border-indigo-800 dark:bg-indigo-950/40";
+
+  return (
+    <Card className={cls}>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            {status === "running" && (
+              <Loader2 className="h-4 w-4 animate-spin text-indigo-600 dark:text-indigo-300" />
+            )}
+            {status === "done" && (
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-300" />
+            )}
+            {status === "error" && (
+              <AlertTriangle className="h-4 w-4 text-rose-600 dark:text-rose-300" />
+            )}
+            <CardTitle className="text-sm">
+              {status === "running"
+                ? `Running batch — ${done}/${total} cells done`
+                : status === "done"
+                  ? `Batch finished — ${done} cells, ${elapsedS.toFixed(1)}s total`
+                  : `Batch failed after ${done}/${total} cells`}
+            </CardTitle>
+          </div>
+          {status !== "running" && (
+            <Button size="sm" variant="ghost" onClick={resetStore}>
+              <RefreshCw className="h-3.5 w-3.5" />
+              Clear
+            </Button>
+          )}
+        </div>
+        {status === "error" && lastError && (
+          <CardDescription className="text-rose-900 dark:text-rose-200">
+            {lastError}
+          </CardDescription>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-2 text-xs">
+        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+          <div
+            className="h-full rounded-full bg-indigo-500 transition-[width] duration-150"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-slate-700 dark:text-slate-200">
+          <span>
+            Elapsed <strong>{elapsedS.toFixed(1)}s</strong>
+            {status === "running" && remainingSeconds > 0 && (
+              <>
+                {" "}
+                · ETA <strong>~{remainingSeconds.toFixed(0)}s</strong>
+              </>
+            )}
+            {status === "done" && (
+              <>
+                {" "}
+                · avg {(elapsedS / Math.max(1, total)).toFixed(1)}s/cell
+              </>
+            )}
+          </span>
+          <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+            {done}/{total}
+          </span>
+        </div>
+        {currentCell && status === "running" && (
+          <div className="rounded-md border border-indigo-200 bg-white/70 p-2 dark:border-indigo-900 dark:bg-slate-950/50">
+            <p className="flex items-center justify-between gap-2">
+              <span>
+                Solving{" "}
+                <strong className="font-semibold">
+                  {SOLVER_LABELS[currentCell.solver] ?? currentCell.solver}
+                </strong>{" "}
+                · seed <strong>{currentCell.seed}</strong>{" "}
+                <span className="text-slate-500">
+                  (cell {currentCell.index + 1}/{total})
+                </span>
+              </span>
+              <span className="font-mono text-[11px]">
+                {currentCellElapsed.toFixed(1)}s
+                {currentCell.solver === "cpsat" &&
+                  ` / ${currentCellCap.toFixed(0)}s max`}
+              </span>
+            </p>
+            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-indigo-100 dark:bg-indigo-950">
+              <div
+                className="h-full rounded-full bg-indigo-500 transition-[width] duration-150"
+                style={{
+                  width: `${currentCellPct}%`,
+                  backgroundColor: SOLVER_COLORS[currentCell.solver] ?? "#4f46e5",
+                }}
+              />
+            </div>
+            <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+              {currentCell.solver === "cpsat"
+                ? "CP-SAT will search until an optimum is proved or the time limit is hit. You'll see an event in the table as soon as it finishes."
+                : "Heuristic baselines usually finish in under a second."}
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

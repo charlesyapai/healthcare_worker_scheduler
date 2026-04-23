@@ -2,6 +2,54 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-23 — Lab: live per-cell progress + persistent batch state
+
+**What:** Two bugs in `/lab/benchmark`:
+
+1. **No progression during a run** — pressing Run sat idle for the
+   full CP-SAT time limit then dumped the final result. The entire
+   batch was one `POST /api/lab/run` with no intermediate feedback.
+2. **Results disappeared on tab switch** — the `useMutation` cache
+   was component-local. Leaving `/lab/benchmark` even briefly
+   wiped the run.
+
+**Fix — streaming batch execution:**
+- Batches are now executed one cell at a time. The client fires
+  `POST /api/lab/run` with a single `(solver, seed)` tuple per call,
+  updates the store on each completion, and renders the results
+  table live as each row lands.
+- Baselines (greedy, random_repair) run first inside each batch plan
+  so fast cells populate the reliability cards before the slow
+  CP-SAT cell starts.
+- New per-cell progress card:
+  - Overall progress bar (N/M cells done)
+  - Elapsed timer + ETA (data-driven — initial estimate uses
+    time_limit_s for CP-SAT + ~1s per baseline, then recalculates
+    from observed wall times as cells finish)
+  - Current cell mini-progress bar with "N seconds / cap seconds max"
+  - Coloured by solver (same palette as the comparison chart)
+
+**Fix — persistent state:**
+- New Zustand store `ui/src/store/labBatch.ts`. All batch state
+  (runs, aggregates, progress, current cell) lives at module scope
+  so tab switches no longer lose results.
+- Aggregates (feasibility rate, mean objective, mean shortfall,
+  quality ratios) are recomputed inside the store on every cell
+  completion — reliability banner + comparison charts always show
+  the latest numbers, not just what the last `POST` returned.
+- Bundle download uses the latest cell's `batch_id`; composite-
+  bundle (across all cells in a logical batch) is a follow-up.
+
+**Non-goals (intentionally deferred):**
+- No WebSocket / SSE streaming of CP-SAT intermediate solutions
+  inside a single cell. CP-SAT runs in the cell's POST and finishes
+  in `time_limit_s` either way; the progress bar communicates
+  "elapsed of max" clearly enough for now.
+- No multi-cell composite bundle. Each cell still makes its own
+  bundle on the backend; the UI exposes the most-recent one.
+
+**No backend changes.** 56/56 pytest still pass. `pnpm build` clean.
+
 ## 2026-04-23 — Lab UX: intros, comparison charts, richer visuals
 
 **What:** Every Lab sub-tab now has a reading-guide card and real
