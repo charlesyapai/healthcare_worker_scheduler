@@ -2,6 +2,52 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-23 — Benchmark-shaped scenarios (NSPLib + Curtois envelopes)
+
+**What:** Two new scenarios in the Dashboard's scenario picker so a
+reviewer can click "Curtois-shaped · BCV 4-week" and immediately see
+an NRP-literature-sized problem go through CP-SAT + baselines +
+fairness + coverage. Addresses part of BRIEFING §4.1 — not a full
+NSPLib/Curtois adapter, but a legible "this tool handles
+industry-sized problems" demo.
+
+**New scenarios:**
+- `nsplib_shaped_n30_7` — 30 doctors × 7 days, NSPLib's Vanhoucke &
+  Maenhout (2007) n30/d7/s3 parameter envelope. Three skill classes
+  (our tiers), ~5% leave density, one preferred-shift request.
+  Solves to FEASIBLE in <30s.
+- `curtois_shaped_bcv` — 30 doctors × 28 days, Curtois NRP
+  collection's BCV (Belgian Children's Valentine) family envelope.
+  Mixed leave + call blocks + soft preferences + one 0.5-FTE
+  part-timer + one `max_oncalls=3` cap. The stress-test scenario
+  for fairness and coverage (first bundled scenario that exercises
+  FTE-normalisation non-trivially). Solves to FEASIBLE in <30s with
+  num_workers=4.
+
+**Honest framing:** Both scenarios are shaped to match the published
+family's parameter envelope — NOT bit-for-bit imports of any
+specific instance. The Dashboard card carries a "⚠ Shaped, not
+imported" expander with the full caveat so nobody mistakes this
+for a native benchmark adapter. The true adapter with penalty-score
+translation remains BRIEFING §4.1 follow-up.
+
+**Manifest schema extended** with three optional fields:
+`benchmark_family`, `benchmark_reference`, `benchmark_caveat`.
+Unchanged for the three original scenarios.
+
+**Dashboard UI:**
+- Benchmark-shaped scenarios now render in a dedicated
+  "Industry-benchmark-shaped scenarios" section below the original
+  three, with a violet family-name chip, reference line, and an
+  always-visible amber "honest framing" banner at the section top.
+- Per-card "⚠ Shaped, not imported" details expander.
+
+**Tests:** `test_self_check.py` parametrize list grows to 5 — all
+scenarios, benchmark-shaped and original, must land OPTIMAL/FEASIBLE
+with a green self-check. Heavy scenarios run with feasibility_only +
+40s time-limit so the regression suite stays under ~2min on CI.
+Total: 54/54 pytest pass; `pnpm build` clean.
+
 ## 2026-04-23 — Validation Phase 5: research docs + briefing
 
 **What:** Closing docs pass for the validation work.

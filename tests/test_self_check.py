@@ -17,17 +17,34 @@ from __future__ import annotations
 import pytest
 
 
-SCENARIOS = ("radiology_small", "busy_month_with_leave", "nursing_ward")
+SCENARIOS = (
+    "radiology_small",
+    "busy_month_with_leave",
+    "nursing_ward",
+    # Benchmark-shaped scenarios (shipped Phase 5.5). These mirror
+    # NSPLib + Curtois BCV parameter envelopes — if they stop
+    # solving cleanly, the tool can't claim NRP-literature scale.
+    "nsplib_shaped_n30_7",
+    "curtois_shaped_bcv",
+)
 
 
 @pytest.mark.parametrize("scenario_id", SCENARIOS)
 def test_solver_self_check_is_green(client, scenario_id: str) -> None:
     r = client.post(f"/api/state/scenarios/{scenario_id}")
     assert r.status_code == 200, r.text
-    # Cap the time budget so the full three-scenario sweep stays under a
-    # minute even on CI. Every scenario in `configs/scenarios/` is tuned
-    # to hit FEASIBLE in well under this budget.
-    client.patch("/api/state", json={"solver": {"time_limit": 20, "num_workers": 4}})
+    # The 4-week Curtois-shaped scenario is substantially bigger (30×28)
+    # than the others; give it a longer time budget + feasibility-only
+    # so the test isn't at the mercy of CP-SAT's optimisation pace. The
+    # self-check only needs SOME feasible solution to validate.
+    is_heavy = scenario_id == "curtois_shaped_bcv"
+    client.patch("/api/state", json={
+        "solver": {
+            "time_limit": 40 if is_heavy else 20,
+            "num_workers": 4,
+            "feasibility_only": is_heavy,
+        },
+    })
     r = client.post("/api/solve/run", json={"snapshot_assignments": False})
     assert r.status_code == 200, r.text
     result = r.json()

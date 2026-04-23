@@ -257,7 +257,7 @@ export function Dashboard() {
           <p className="text-xs text-slate-500 dark:text-slate-400">Loading…</p>
         ) : (
           <div className="grid gap-3 md:grid-cols-3">
-            {(scenarios.data ?? []).map((s, idx) => (
+            {(scenarios.data ?? []).filter((s) => !s.benchmark_family).map((s, idx) => (
               <ScenarioCard
                 key={s.id}
                 s={s}
@@ -269,6 +269,12 @@ export function Dashboard() {
           </div>
         )}
       </section>
+
+      <BenchmarkScenariosSection
+        scenarios={(scenarios.data ?? []).filter((s) => s.benchmark_family)}
+        pendingId={loadScenario.isPending ? loadScenario.variables : undefined}
+        onLoad={(id) => loadScenario.mutate(id)}
+      />
 
       <Card>
         <CardHeader>
@@ -343,22 +349,34 @@ function ScenarioCard({
   pending: boolean;
   onLoad: () => void;
 }) {
+  const isBenchmark = !!s.benchmark_family;
   return (
     <Card
       className={cn(
         "flex flex-col",
         featured &&
           "border-indigo-300 bg-indigo-50/40 dark:border-indigo-900 dark:bg-indigo-950/20",
+        isBenchmark &&
+          "border-violet-300 bg-violet-50/40 dark:border-violet-900 dark:bg-violet-950/20",
       )}
     >
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <CardTitle className="text-sm leading-snug">{s.title}</CardTitle>
-          {featured && (
+          {isBenchmark ? (
+            <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+              {s.benchmark_family}
+            </span>
+          ) : featured ? (
             <Sparkles className="h-3.5 w-3.5 flex-shrink-0 text-indigo-500 dark:text-indigo-300" />
-          )}
+          ) : null}
         </div>
         <CardDescription className="text-xs">{s.description}</CardDescription>
+        {isBenchmark && s.benchmark_reference && (
+          <p className="mt-1 text-[10px] font-mono text-violet-700 dark:text-violet-300">
+            Ref: {s.benchmark_reference}
+          </p>
+        )}
       </CardHeader>
       <CardContent className="mt-auto space-y-3">
         <ul className="flex flex-wrap gap-1">
@@ -371,6 +389,14 @@ function ScenarioCard({
             </li>
           ))}
         </ul>
+        {isBenchmark && s.benchmark_caveat && (
+          <details className="rounded-md border border-violet-200 bg-violet-50 p-2 text-[10px] text-violet-900 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-200">
+            <summary className="cursor-pointer font-semibold uppercase tracking-wide">
+              ⚠ Shaped, not imported
+            </summary>
+            <p className="mt-1 leading-relaxed">{s.benchmark_caveat}</p>
+          </details>
+        )}
         <Button
           onClick={onLoad}
           disabled={pending}
@@ -382,6 +408,55 @@ function ScenarioCard({
         </Button>
       </CardContent>
     </Card>
+  );
+}
+
+function BenchmarkScenariosSection({
+  scenarios,
+  pendingId,
+  onLoad,
+}: {
+  scenarios: ScenarioSummary[];
+  pendingId?: string;
+  onLoad: (id: string) => void;
+}) {
+  if (scenarios.length === 0) return null;
+  return (
+    <section>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+          NRP benchmark
+        </span>
+        <h2 className="text-sm font-semibold tracking-tight">
+          Industry-benchmark-shaped scenarios
+        </h2>
+      </div>
+      <p className="mb-3 text-xs text-slate-600 dark:text-slate-400">
+        These mirror the parameter envelopes of published NRP benchmark
+        families so a researcher can instantly gauge whether this tool
+        handles their problem size. Load one, press{" "}
+        <strong>Solve</strong> or open <strong>/lab/benchmark</strong>,
+        and watch CP-SAT crush a 30-doctor × 28-day workforce plan.
+      </p>
+      <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+        <strong>Honest framing:</strong> these are <em>shaped</em> like
+        the published families (same rough doctor / day / skill counts,
+        similar leave density, comparable constraint complexity) — they
+        are not bit-for-bit imports. A true adapter with the benchmark's
+        native penalty score is flagged as follow-up in{" "}
+        <code>docs/BRIEFING_2026-04-23.md §4.1</code>.
+      </p>
+      <div className="grid gap-3 md:grid-cols-2">
+        {scenarios.map((s) => (
+          <ScenarioCard
+            key={s.id}
+            s={s}
+            pending={pendingId === s.id}
+            onLoad={() => onLoad(s.id)}
+          />
+        ))}
+      </div>
+    </section>
   );
 }
 

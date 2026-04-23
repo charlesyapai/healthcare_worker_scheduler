@@ -71,6 +71,11 @@ export interface ScenarioSummary {
   n_stations: number;
   n_days: number;
   highlights: string[];
+  // Present when the scenario is shaped to match a published NRP
+  // benchmark family. Absent on scenarios that are original examples.
+  benchmark_family?: string;
+  benchmark_reference?: string;
+  benchmark_caveat?: string;
 }
 
 export function useScenarios() {
