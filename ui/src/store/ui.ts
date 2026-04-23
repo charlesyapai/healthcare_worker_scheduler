@@ -13,8 +13,6 @@ interface UIState {
   theme: Theme;
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
-  navExpanded: boolean;
-  toggleNav: () => void;
   gettingStartedOpen: boolean;
   toggleGettingStarted: () => void;
 }
@@ -25,9 +23,7 @@ export const useUIStore = create<UIState>()(
       theme: "light",
       setTheme: (theme) => set({ theme }),
       toggleTheme: () => set((s) => ({ theme: s.theme === "dark" ? "light" : "dark" })),
-      navExpanded: false,
-      toggleNav: () => set((s) => ({ navExpanded: !s.navExpanded })),
-      gettingStartedOpen: true,
+      gettingStartedOpen: false,
       toggleGettingStarted: () =>
         set((s) => ({ gettingStartedOpen: !s.gettingStartedOpen })),
     }),

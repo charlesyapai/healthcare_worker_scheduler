@@ -2,6 +2,87 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-24 — First-user UX pass: nav, dashboard, calendar gestures, export preview
+
+**What:** The app's front-end landed after a long product/engineering
+push and it showed — a first-time user's path into the tool was
+littered with accordions to expand, tiny date-input boxes to type
+into, and button walls with no context. This pass removes the
+tone-deaf welcome flow, turns the side nav into a flat always-on
+pill, and replaces the most tedious data-entry screens with
+calendar-gesture UIs.
+
+**Side nav:**
+- Always expanded (no collapse button, no hover-to-reveal). Fits
+  comfortably at `w-36` on the right rail.
+- Labels only, no subtext. The old "Setup · per-period" / "Rules ·
+  department" / "Lab · benchmark" hints read like footnotes and
+  added noise.
+- `useUIStore.navExpanded` / `toggleNav` deleted as dead state.
+- Main content now gets a `md:pr-44` to avoid overlapping the fixed
+  pill.
+
+**Dashboard:**
+- Scenarios are now the first thing on the page, below a short
+  status-aware headline. A first-timer sees "Pick a template" and
+  three loadable cards before anything else.
+- Two side-by-side cards under the grid: "Load a YAML" (smaller
+  drop-zone + Load/Save buttons) and "Next step" (a single big
+  context-aware CTA: Setup / Solve / Roster depending on current
+  state).
+- The old 4-step "Getting started" accordion is now collapsed by
+  default and accessible from a dotted link on the Next-step card.
+  Default `gettingStartedOpen` flipped from `true` to `false` in
+  the persisted UI store.
+
+**Setup → When:**
+- Keep the date + number-of-days + end-date inputs (fastest for
+  exact input), but add a two-month calendar below:
+  - **Drag** across days to set the horizon (start = earliest day,
+    n_days = range length, clamped to 90).
+  - **Single click outside the current horizon** sets a new start
+    date while preserving length — one gesture to "roll the roster
+    forward a week".
+  - **Single click inside the horizon** toggles the day as a public
+    holiday (visible as amber, falls under weekend rules).
+  - Month ←/→ nav, "Today" button, colour-coded legend.
+  - Works on touch (`onTouchStart` / `onTouchMove` + `elementFromPoint`).
+
+**Setup → Blocks:**
+- Replaced the form-heavy table-first layout with a **doctor × day
+  grid** as the primary surface. Rows = doctors (filterable),
+  columns = days across the current horizon.
+- Pick a block type from the chip row (Leave / No on-call / No AM /
+  No PM / Prefer AM / Prefer PM), then **drag across a row** to
+  apply that type to a range. Single-click a cell of the same type
+  to remove it (with auto split/trim when the cell is in the middle
+  of a multi-day block).
+- The old table + CSV-paste controls moved into a collapsed
+  "Advanced" drawer at the bottom. Manual rows still work for the
+  5% of cases the grid can't express (e.g., mid-range-type changes).
+- Colour-coded per block type so overlaps are legible; weekend
+  columns are shaded; month-start columns get a subtle left rule.
+
+**Export:**
+- Added a **visible preview card** at the top: roster grid view
+  (doctors × days, scrollable, first-of-month ticks, weekend
+  shading) with a Grid/List toggle. You can audit the output
+  before exporting instead of having to open Roster in a
+  second tab.
+- The button wall was reorganised into three purpose-labelled
+  cards — **Files** (JSON / CSV / Calendar .ics), **Print &
+  share** (Print preview / Copy YAML / Copy share link),
+  **Distribute** (per-doctor mailto list now lives inline in a
+  compact scrollable list rather than its own giant card).
+- Empty-state unchanged (still points to Solve).
+
+**Rules:** deliberately unchanged in this pass. The user's "too
+tedious" complaint is real but the right fix is a separate
+redesign — not part of this increment.
+
+**Test headline:** 80/80 pytest still pass (backend untouched).
+`pnpm build` clean. No new dependencies.
+
 ## 2026-04-24 — /lab/scaling + UK NHS WTD compliance module
 
 **What:** Two closed gaps from

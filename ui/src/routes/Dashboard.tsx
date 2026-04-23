@@ -7,7 +7,6 @@ import {
   Download,
   FileDown,
   FileUp,
-  FlaskConical,
   LayoutDashboard,
   PlayCircle,
   Sliders,
@@ -91,42 +90,187 @@ export function Dashboard() {
   const hasResult = !!solve.result;
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Start with a template
+        </h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Build a roster in four steps. Pick a scenario below to see the flow
-          end-to-end in minutes.
+          {hasConfig ? (
+            <>
+              Current config: <strong>{doctors.length}</strong> people,{" "}
+              <strong>{stations.length}</strong> stations,{" "}
+              <strong>{nDays}</strong>-day horizon
+              {startDate
+                ? ` starting ${format(new Date(startDate), "d MMM yyyy")}`
+                : ""}
+              .{" "}
+              <Link
+                to="/setup"
+                className="text-indigo-600 underline decoration-dotted underline-offset-2 dark:text-indigo-300"
+              >
+                Review in Setup →
+              </Link>
+            </>
+          ) : (
+            <>Pick a ready-made scenario, drop a YAML, or skip to Setup.</>
+          )}
         </p>
       </header>
 
-      <Card>
-        <button
-          type="button"
-          onClick={toggleGs}
-          className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-slate-50 dark:hover:bg-slate-900/50"
-          aria-expanded={gsOpen}
-        >
-          <div>
-            <CardTitle>Getting started</CardTitle>
-            <CardDescription>
-              {gsOpen
-                ? "Follow the steps in order. This panel updates as you go."
-                : hasConfig
-                  ? hasResult
-                    ? "All four steps complete — expand to jump back in."
-                    : "Step 3 next: run the solver."
-                  : "Step 1 next: load a scenario or your YAML."}
-            </CardDescription>
+      <section>
+        <div className="mb-3 flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
+          <h2 className="text-sm font-semibold tracking-tight">
+            Pre-built scenarios
+          </h2>
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            Known-feasible starting points — click a card to load.
+          </span>
+        </div>
+        {scenarios.isLoading ? (
+          <p className="text-xs text-slate-500 dark:text-slate-400">Loading…</p>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-3">
+            {(scenarios.data ?? []).map((s, idx) => (
+              <ScenarioCard
+                key={s.id}
+                s={s}
+                featured={idx === 0}
+                pending={
+                  loadScenario.isPending && loadScenario.variables === s.id
+                }
+                onLoad={() => loadScenario.mutate(s.id)}
+              />
+            ))}
           </div>
-          <ChevronDown
-            className={cn(
-              "h-4 w-4 text-slate-400 transition-transform",
-              gsOpen && "rotate-180",
+        )}
+      </section>
+
+      <section className="grid gap-3 md:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Load a YAML</CardTitle>
+            <CardDescription className="text-xs">
+              Drop a config you exported earlier to resume editing.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div
+              className="flex flex-col items-center gap-2 rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-4 text-center text-xs transition-colors hover:border-indigo-400 hover:bg-indigo-50/60 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/40"
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.currentTarget.classList.add("border-indigo-500");
+              }}
+              onDragLeave={(e) =>
+                e.currentTarget.classList.remove("border-indigo-500")
+              }
+              onDrop={(e) => {
+                e.preventDefault();
+                e.currentTarget.classList.remove("border-indigo-500");
+                const f = e.dataTransfer.files?.[0];
+                if (f) loadYamlFromFile(f);
+              }}
+            >
+              <FileUp className="h-6 w-6 text-slate-400" />
+              <div>
+                <p className="font-medium">Drop YAML here</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  or use the button below
+                </p>
+              </div>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".yaml,.yml,text/yaml,application/x-yaml"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) loadYamlFromFile(f);
+                  e.target.value = "";
+                }}
+              />
+            </div>
+            <div className="mt-2 flex gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => fileRef.current?.click()}
+              >
+                <FileUp className="h-4 w-4" />
+                Load YAML
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={saveYaml}
+                disabled={!hasConfig}
+              >
+                <FileDown className="h-4 w-4" />
+                Save current
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Next step</CardTitle>
+            <CardDescription className="text-xs">
+              Where you are in the flow.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 text-xs">
+            {hasConfig ? (
+              hasResult ? (
+                <NextAction
+                  to="/roster"
+                  icon={Download}
+                  primary="Open the roster"
+                  secondary={`Solver finished: ${solve.result?.status}. Review + export.`}
+                />
+              ) : (
+                <NextAction
+                  to="/solve"
+                  icon={PlayCircle}
+                  primary="Run the solver"
+                  secondary="Config is loaded. Press Solve to generate a roster."
+                />
+              )
+            ) : (
+              <NextAction
+                to="/setup"
+                icon={LayoutDashboard}
+                primary="Go to Setup"
+                secondary="Or load a scenario above — that's the fast path."
+              />
             )}
-          />
-        </button>
-        {gsOpen && (
+            <button
+              type="button"
+              onClick={toggleGs}
+              className="inline-flex items-center gap-1 text-[11px] text-slate-500 underline decoration-dotted underline-offset-2 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+              aria-expanded={gsOpen}
+            >
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform",
+                  gsOpen && "rotate-180",
+                )}
+              />
+              {gsOpen ? "Hide" : "Show"} the full 4-step guide
+            </button>
+          </CardContent>
+        </Card>
+      </section>
+
+      {gsOpen && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Full guide</CardTitle>
+            <CardDescription className="text-xs">
+              Reference for each step. Skip at will — nothing here blocks.
+            </CardDescription>
+          </CardHeader>
           <CardContent className="divide-y divide-slate-200 dark:divide-slate-800">
             <Step
               n={1}
@@ -136,13 +280,23 @@ export function Dashboard() {
               body={
                 hasConfig ? (
                   <span>
-                    {doctors.length} people, {stations.length} stations, {nDays}-day horizon
-                    {startDate ? ` starting ${format(new Date(startDate), "d MMM yyyy")}` : ""}.
+                    {doctors.length} people, {stations.length} stations,{" "}
+                    {nDays}-day horizon
+                    {startDate
+                      ? ` starting ${format(new Date(startDate), "d MMM yyyy")}`
+                      : ""}
+                    .
                   </span>
                 ) : (
                   <span>
-                    Pick a scenario below, drop a YAML, or start from scratch in{" "}
-                    <Link to="/setup" className="text-indigo-600 underline dark:text-indigo-300">Setup</Link>.
+                    Pick a scenario above, drop a YAML, or build from scratch in{" "}
+                    <Link
+                      to="/setup"
+                      className="text-indigo-600 underline dark:text-indigo-300"
+                    >
+                      Setup
+                    </Link>
+                    .
                   </span>
                 )
               }
@@ -166,9 +320,14 @@ export function Dashboard() {
               title="Review rules (optional)"
               body={
                 <span>
-                  Tweak constraint toggles, fairness weights, or shift hours in{" "}
-                  <Link to="/rules" className="text-indigo-600 underline dark:text-indigo-300">Rules</Link>.
-                  Safe to skip.
+                  Tweak constraints, fairness weights, or shift hours in{" "}
+                  <Link
+                    to="/rules"
+                    className="text-indigo-600 underline dark:text-indigo-300"
+                  >
+                    Rules
+                  </Link>
+                  . Safe to skip.
                 </span>
               }
               action={
@@ -191,10 +350,20 @@ export function Dashboard() {
               title="Run the solver"
               body={
                 hasResult ? (
-                  <span>{solve.result?.status} — snapshots available on the roster page.</span>
+                  <span>
+                    {solve.result?.status} — snapshots available on the roster
+                    page.
+                  </span>
                 ) : hasConfig ? (
                   <span>
-                    Head to <Link to="/solve" className="text-indigo-600 underline dark:text-indigo-300">Solve</Link> and press Solve.
+                    Head to{" "}
+                    <Link
+                      to="/solve"
+                      className="text-indigo-600 underline dark:text-indigo-300"
+                    >
+                      Solve
+                    </Link>{" "}
+                    and press Solve.
                   </span>
                 ) : (
                   <span>Available once step 1 is done.</span>
@@ -222,8 +391,21 @@ export function Dashboard() {
               body={
                 hasResult ? (
                   <span>
-                    Open <Link to="/roster" className="text-indigo-600 underline dark:text-indigo-300">Roster</Link> to
-                    review, then <Link to="/export" className="text-indigo-600 underline dark:text-indigo-300">Export</Link>.
+                    Open{" "}
+                    <Link
+                      to="/roster"
+                      className="text-indigo-600 underline dark:text-indigo-300"
+                    >
+                      Roster
+                    </Link>{" "}
+                    to review, then{" "}
+                    <Link
+                      to="/export"
+                      className="text-indigo-600 underline dark:text-indigo-300"
+                    >
+                      Export
+                    </Link>
+                    .
                   </span>
                 ) : (
                   <span>Available once a solve finishes.</span>
@@ -242,93 +424,44 @@ export function Dashboard() {
               }
             />
           </CardContent>
-        )}
-      </Card>
-
-      <section>
-        <div className="mb-2 flex items-center gap-2">
-          <FlaskConical className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
-          <h2 className="text-sm font-semibold tracking-tight">Pre-built scenarios</h2>
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            Known-feasible starting points — click to load.
-          </span>
-        </div>
-        {scenarios.isLoading ? (
-          <p className="text-xs text-slate-500 dark:text-slate-400">Loading…</p>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-3">
-            {(scenarios.data ?? []).map((s, idx) => (
-              <ScenarioCard
-                key={s.id}
-                s={s}
-                featured={idx === 0}
-                pending={loadScenario.isPending && loadScenario.variables === s.id}
-                onLoad={() => loadScenario.mutate(s.id)}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Save or reload your configuration</CardTitle>
-          <CardDescription>
-            YAML captures doctors, stations, rules, hours, weights — everything
-            editable in the app. Good for recurring rosters with small tweaks.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div
-            className="flex flex-col items-center gap-3 rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-6 text-center transition-colors hover:border-indigo-400 hover:bg-indigo-50/60 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/40"
-            onDragOver={(e) => {
-              e.preventDefault();
-              e.currentTarget.classList.add("border-indigo-500");
-            }}
-            onDragLeave={(e) => e.currentTarget.classList.remove("border-indigo-500")}
-            onDrop={(e) => {
-              e.preventDefault();
-              e.currentTarget.classList.remove("border-indigo-500");
-              const f = e.dataTransfer.files?.[0];
-              if (f) loadYamlFromFile(f);
-            }}
-          >
-            <FileUp className="h-8 w-8 text-slate-400" />
-            <div className="text-sm">
-              <p className="font-medium">Drop a YAML config here</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                or use the buttons below
-              </p>
-            </div>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".yaml,.yml,text/yaml,application/x-yaml"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) loadYamlFromFile(f);
-                e.target.value = "";
-              }}
-            />
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button onClick={() => fileRef.current?.click()} variant="secondary">
-              <FileUp className="h-4 w-4" />
-              Load YAML
-            </Button>
-            <Button onClick={saveYaml} variant="secondary" disabled={!hasConfig}>
-              <FileDown className="h-4 w-4" />
-              Save current config
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+        </Card>
+      )}
 
       <p className="text-center text-xs text-slate-400 dark:text-slate-600">
-        Backend {health.data ? `ok · ${health.data.scheduler_version}` : "checking…"}
+        Backend{" "}
+        {health.data ? `ok · ${health.data.scheduler_version}` : "checking…"}
       </p>
     </div>
+  );
+}
+
+function NextAction({
+  to,
+  icon: Icon,
+  primary,
+  secondary,
+}: {
+  to: string;
+  icon: React.ComponentType<{ className?: string }>;
+  primary: string;
+  secondary: string;
+}) {
+  return (
+    <Link
+      to={to}
+      className="flex items-start gap-2 rounded-md border border-indigo-200 bg-indigo-50 p-2.5 hover:border-indigo-400 hover:bg-indigo-100 dark:border-indigo-900 dark:bg-indigo-950/40 dark:hover:border-indigo-700 dark:hover:bg-indigo-950"
+    >
+      <Icon className="mt-0.5 h-4 w-4 flex-shrink-0 text-indigo-600 dark:text-indigo-300" />
+      <span className="flex-1">
+        <span className="block text-xs font-semibold text-indigo-700 dark:text-indigo-200">
+          {primary}
+        </span>
+        <span className="block text-[11px] text-indigo-600/80 dark:text-indigo-300/70">
+          {secondary}
+        </span>
+      </span>
+      <ArrowRight className="mt-1 h-3.5 w-3.5 flex-shrink-0 text-indigo-500 dark:text-indigo-300" />
+    </Link>
   );
 }
 
