@@ -127,3 +127,69 @@ class SingleRunDetail(StrictModel):
     result: SolveResultPayload
     coverage: dict[str, object] = Field(default_factory=dict)
     fairness: dict[str, object] = Field(default_factory=dict)
+
+
+# --------------------------------------------------------------- scaling
+
+
+class ScalingSize(StrictModel):
+    """One (n_doctors, n_days) point in the scaling sweep."""
+
+    n_doctors: int = Field(ge=4, le=200)
+    n_days: int = Field(ge=1, le=120)
+
+
+class ScalingRequest(StrictModel):
+    """Run CP-SAT against a grid of synthetic instance sizes, measure
+    wall-time and objective per cell. See `docs/LAB_TAB_SPEC.md §5`.
+
+    Uses `scheduler.instance.make_synthetic` under the hood so the
+    instance shape matches our default stations/tier mix. Per-size
+    `leave_rate` is fixed so the only varying inputs are size + seed.
+    """
+
+    sizes: list[ScalingSize] = Field(min_length=1, max_length=20)
+    seeds: list[int] = Field(default_factory=lambda: [0], min_length=1, max_length=10)
+    time_limit_s: float = Field(default=15.0, ge=1.0, le=120.0)
+    num_workers: int = Field(default=1, ge=1, le=8)
+    leave_rate: float = Field(default=0.03, ge=0.0, le=0.25)
+    feasibility_only: bool = False
+
+
+class ScalingCell(StrictModel):
+    """One solve in the scaling grid."""
+
+    n_doctors: int
+    n_days: int
+    seed: int
+    status: str
+    wall_time_s: float
+    first_feasible_s: float | None
+    objective: float | None
+    n_assignments: int
+    # Problem-size proxy used in the log-log fit: n_doctors × n_days.
+    size: int
+
+
+class ScalingFit(StrictModel):
+    """Power-law fit T = a · N^b across all cells where `status` is in
+    {OPTIMAL, FEASIBLE}. `r_squared` is the linear-regression R² in
+    log-log space; `n_points` is the number of points used in the fit.
+    """
+
+    exponent: float | None = None      # b  (slope in log-log space)
+    coefficient: float | None = None   # a  (exp(intercept))
+    r_squared: float | None = None
+    n_points: int = 0
+
+
+class ScalingResponse(StrictModel):
+    """Result of a scaling sweep."""
+
+    batch_id: str
+    created_at: datetime
+    time_limit_s: float
+    num_workers: int
+    leave_rate: float
+    cells: list[ScalingCell]
+    fit: ScalingFit

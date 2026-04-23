@@ -7,6 +7,7 @@ import { ApiError, apiFetch } from "@/api/client";
 import { useSessionState, useValidateRoster } from "@/api/hooks";
 import { CellEditor } from "@/components/CellEditor";
 import { FairnessPanel } from "@/components/FairnessPanel";
+import { WtdPanel } from "@/components/WtdPanel";
 import { ObjectiveBreakdown } from "@/components/ObjectiveBreakdown";
 import { RosterHeatmap } from "@/components/RosterHeatmap";
 import { ValidationPanel } from "@/components/ValidationPanel";
@@ -355,6 +356,7 @@ export function Roster() {
                 }
               }
             />
+            <WtdPanel assignments={selectedAssignments} />
           </div>
         </>
       )}

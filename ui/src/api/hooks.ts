@@ -211,6 +211,47 @@ export function useComputeFairness() {
   });
 }
 
+// --------------------------------------------------------------- compliance
+
+export interface WtdViolation {
+  rule: string;
+  severity: "error" | "warning";
+  doctor: string;
+  message: string;
+  detail: Record<string, unknown>;
+}
+
+export interface WtdConfig {
+  max_avg_weekly_hours: number;
+  max_hours_per_7_days: number;
+  max_shift_hours: number;
+  min_rest_between_hours: number;
+  max_consecutive_long_days: number;
+  max_consecutive_nights: number;
+  long_day_threshold_hours: number;
+  reference_period_weeks: number;
+}
+
+export interface WtdReport {
+  ok: boolean;
+  violation_count: number;
+  error_count: number;
+  warning_count: number;
+  by_rule: Record<string, number>;
+  config: WtdConfig;
+  violations: WtdViolation[];
+}
+
+export function useComputeWtd() {
+  return useMutation({
+    mutationFn: (assignments: AssignmentRow[]) =>
+      apiFetch<WtdReport>("/api/compliance/uk_wtd", {
+        method: "POST",
+        body: { assignments },
+      }),
+  });
+}
+
 // --------------------------------------------------------------- lab batch
 
 export type SolverKey = "cpsat" | "greedy" | "random_repair";

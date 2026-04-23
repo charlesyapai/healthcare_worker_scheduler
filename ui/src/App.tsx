@@ -8,6 +8,7 @@ import { Export } from "@/routes/Export";
 import { LabLayout } from "@/routes/Lab";
 import { LabBenchmark } from "@/routes/Lab/Benchmark";
 import { LabFairness } from "@/routes/Lab/Fairness";
+import { LabScaling } from "@/routes/Lab/Scaling";
 import { LabSweep } from "@/routes/Lab/Sweep";
 import { Roster } from "@/routes/Roster";
 import { RulesLayout } from "@/routes/Rules";
@@ -69,6 +70,7 @@ export function App() {
               <Route path="benchmark" element={<LabBenchmark />} />
               <Route path="sweep" element={<LabSweep />} />
               <Route path="fairness" element={<LabFairness />} />
+              <Route path="scaling" element={<LabScaling />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

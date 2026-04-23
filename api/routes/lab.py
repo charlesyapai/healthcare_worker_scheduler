@@ -18,10 +18,13 @@ from fastapi.responses import Response
 
 from api.lab.batch import get_batch, list_batches, run_batch
 from api.lab.bundle import build_bundle
+from api.lab.scaling import run_scaling
 from api.models.lab import (
     BatchRunRequest,
     BatchSummary,
     RunHistoryEntry,
+    ScalingRequest,
+    ScalingResponse,
     SingleRunDetail,
 )
 from api.sessions import ServerSession, get_session
@@ -74,6 +77,15 @@ def get_run_detail(batch_id: str, run_id: str) -> SingleRunDetail:
             status_code=404, detail=f"Unknown run in this batch: {run_id}"
         )
     return d
+
+
+@router.post("/scaling/run", response_model=ScalingResponse)
+def scaling_run(req: ScalingRequest) -> ScalingResponse:
+    """Run CP-SAT across a grid of synthetic instance sizes and fit a
+    power law T = a · N^b where N = n_doctors × n_days. See
+    `docs/LAB_TAB_SPEC.md §5`. Synchronous; bound your grid × seeds ×
+    time_limit to keep this under ~2 minutes."""
+    return run_scaling(req)
 
 
 @router.get("/runs/{batch_id}/bundle.zip")

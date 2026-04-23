@@ -6,6 +6,7 @@ const TABS = [
   { to: "benchmark", label: "Benchmark" },
   { to: "sweep", label: "Sweep" },
   { to: "fairness", label: "Fairness" },
+  { to: "scaling", label: "Scaling" },
 ];
 
 export function LabLayout() {

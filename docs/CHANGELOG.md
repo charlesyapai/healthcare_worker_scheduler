@@ -2,6 +2,68 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-24 — /lab/scaling + UK NHS WTD compliance module
+
+**What:** Two closed gaps from
+[`docs/BRIEFING_2026-04-23.md §4`](BRIEFING_2026-04-23.md) — §4.4
+(scaling sub-tab) and §4.3 (regulatory-conformance module).
+
+**`/lab/scaling` — solve time vs problem size:**
+
+- New sub-tab in the Lab. User picks doctor counts × day counts × seeds;
+  backend runs CP-SAT against each synthetic instance from
+  `make_synthetic`, returns (wall_time, objective, first_feasible_s)
+  per cell + a log-log power-law fit T = a·N^b (N = doctors × days) with
+  R² reported.
+- Prediction tool: plug a hypothetical (doctors × days) into the fit
+  and read the projected solve time. Flags cells that hit the time
+  cap because those bias the exponent downward.
+- Fit is ordinary-least-squares in log-log space via stdlib `math`.
+  No numpy/scipy dep. Handles the degenerate cases (<2 points, all
+  x-values identical, all runs errored).
+- New endpoint `POST /api/lab/scaling/run` — deliberately separate
+  from `/api/lab/run` because scaling doesn't need the
+  fairness/coverage drill-downs. Lightweight response; 40-cell cap so
+  nobody accidentally burns a 30-minute wall clock.
+- 7 new tests in `tests/test_lab_scaling.py` (fit recovery, degenerate
+  inputs, endpoint smoke, empty-grid 422).
+
+**UK junior-doctor + EU WTD compliance module:**
+
+- New package `api/compliance/` with `uk_wtd.py` encoding the six
+  statutory rules from [`docs/INDUSTRY_CONTEXT.md §5`](INDUSTRY_CONTEXT.md):
+  W1 avg 48 h/week, W2 72 h in any 7 days, W3 13 h per shift, W4 11 h
+  rest between shifts, W5 ≤ 4 consecutive long days, W6 ≤ 7
+  consecutive nights.
+- Shift clock times approximated from `HoursConfig` + conventional
+  start times (AM 08:00, PM 13:00, on-call 20:00). AM+PM on same date
+  collapse to one shift so W4 doesn't flag the 1 h "lunch" gap.
+- New endpoint `POST /api/compliance/uk_wtd` — accepts `{assignments,
+  config?}` where `config` is a partial `WtdConfig` override (lets a
+  researcher ablate one rule at a time). Returns grouped violations +
+  echoed config for the bundle.
+- `WtdPanel` component now renders on `/roster` next to the fairness
+  card. Green/amber/red based on severity; expandable detail table.
+  Reporting-only — the solver does NOT enforce these rules, which is
+  documented prominently.
+- 17 new tests in `tests/test_uk_wtd.py` (hand-computed fixtures for
+  each rule + multi-doctor scoping + endpoint smoke + config patch).
+
+**Gaps this explicitly does not close:**
+
+- **MILP baseline (PuLP+CBC).** Deferred because it needs a CBC
+  system-package on HF Space that we can't test locally. Still next
+  on the briefing's ranked list.
+- **NSPLib / Curtois benchmark adapter.** Requires sourcing instances
+  and writing `lib/objective_translator.py`. Separate scope.
+- **WTD enforcement inside CP-SAT.** The module is post-solve audit
+  only. Making it a hard constraint needs more careful model work —
+  e.g. W4 currently surfaces H7's "junior oncall PM" as a genuine
+  statutory breach, which is a finding the paper should discuss
+  before we start ignoring it.
+
+**Test headline:** 80/80 pytest pass (was 56). `pnpm build` clean.
+
 ## 2026-04-23 — Lab: live per-cell progress + persistent batch state
 
 **What:** Two bugs in `/lab/benchmark`:
