@@ -475,6 +475,8 @@ function synthesizeSummary(store: LabBatchState): BatchSummary | null {
     mean_violations: store.aggregates.mean_violations,
     runs_by_solver: store.aggregates.runs_by_solver,
     passing_by_solver: store.aggregates.passing_by_solver,
+    mean_wall_time: store.aggregates.mean_wall_time,
+    mean_assignments: store.aggregates.mean_assignments,
   };
 }
 
@@ -975,6 +977,8 @@ function SolverReliabilityCard({
   const meanObj = summary.mean_objective[solver];
   const meanShort = summary.mean_shortfall[solver] ?? 0;
   const meanViolations = summary.mean_violations?.[solver] ?? 0;
+  const meanTime = summary.mean_wall_time?.[solver] ?? 0;
+  const meanAssignments = summary.mean_assignments?.[solver] ?? 0;
 
   // Card colour encoding: CP-SAT green if it passed every run with zero
   // shortfall. Baselines amber if they produced rosters but broke hard
@@ -1002,11 +1006,33 @@ function SolverReliabilityCard({
         )}
       </p>
 
+      {/* Effort — "rosters produced" + avg wall time. The most important
+          new row for heuristic baselines: makes visible that the method
+          DID execute (sub-second is by design, not "didn't try"). */}
+      <MetricRow
+        label="Rosters produced"
+        value={
+          nRuns === 0
+            ? "0"
+            : `${nRuns}/${nRuns} in ${formatWallTime(meanTime)}s${nRuns > 1 ? "/run" : ""}`
+        }
+        muted={nRuns === 0}
+      />
+
+      {/* Assignments — visible evidence of work. A baseline that produced
+          150 assignments in 0.003s clearly did something. */}
+      {meanAssignments > 0 && (
+        <MetricRow
+          label="Assignments made"
+          value={`${meanAssignments.toFixed(0)} cells filled`}
+        />
+      )}
+
       {/* Pass rate — always shown, with absolute counts so single-seed
           batches don't look 0% or 100% alarmingly. */}
       <MetricRow
         label="Hard-constraint pass"
-        value={`${nPassing}/${nRuns} runs${nRuns > 1 ? ` (${(feas * 100).toFixed(0)}%)` : ""}`}
+        value={`${nPassing}/${nRuns}${nRuns > 1 ? ` (${(feas * 100).toFixed(0)}%)` : ""}`}
         muted={nRuns === 0}
       />
 
@@ -1043,13 +1069,14 @@ function SolverReliabilityCard({
       )}
 
       {/* Context footer — explain what the numbers mean for this solver
-          type. Removes the "card looks empty" confusion. */}
+          type. Removes the "card looks empty / didn't try" confusion. */}
       {isHeuristic && (
         <p className="mt-2 text-[10px] text-amber-900 dark:text-amber-200">
-          Heuristic baselines skip H4 (on-call cap), H5 (post-call off),
-          H8 (weekend coverage) by design. A healthy result here is "a
-          roster was produced with measurable shortfall/violations" —
-          not zero.
+          <strong>Baselines are sub-second by design</strong> — they don't
+          search, they just deterministically (greedy) or randomly assign
+          doctors to slots and stop. That's what makes them a baseline
+          for CP-SAT to beat. Healthy result = a roster was produced
+          with measurable shortfall/violations (not zero).
         </p>
       )}
       {!isHeuristic && !green && (

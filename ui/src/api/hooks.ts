@@ -271,6 +271,8 @@ export interface BatchSummary {
   mean_violations?: Record<string, number>;
   runs_by_solver?: Record<string, number>;
   passing_by_solver?: Record<string, number>;
+  mean_wall_time?: Record<string, number>;
+  mean_assignments?: Record<string, number>;
 }
 
 export interface BatchHistoryEntry {

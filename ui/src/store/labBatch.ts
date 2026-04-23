@@ -48,6 +48,13 @@ export interface Aggregates {
   runs_by_solver: Record<string, number>;
   /** Number of runs where self_check_ok === true, per solver. */
   passing_by_solver: Record<string, number>;
+  /** Average wall time per solver (seconds). Surfaces that heuristic
+   *  baselines finish sub-second and CP-SAT typically uses its full
+   *  time budget — otherwise "0.003s" reads as "it didn't try". */
+  mean_wall_time: Record<string, number>;
+  /** Average assignment-row count per solver — visible evidence that
+   *  baselines actually produced a roster, not just pressed the button. */
+  mean_assignments: Record<string, number>;
 }
 
 export interface LabBatchState {
@@ -101,6 +108,8 @@ function emptyAggregates(): Aggregates {
     mean_violations: {},
     runs_by_solver: {},
     passing_by_solver: {},
+    mean_wall_time: {},
+    mean_assignments: {},
   };
 }
 
@@ -135,6 +144,14 @@ function recomputeAggregates(runs: SingleRun[]): Aggregates {
       .filter((v): v is number => v != null);
     out.mean_violations[solver] = violCounts.length
       ? round(violCounts.reduce((s, v) => s + v, 0) / violCounts.length, 2)
+      : 0;
+    const times = group.map((g) => g.wall_time_s);
+    out.mean_wall_time[solver] = times.length
+      ? round(times.reduce((s, v) => s + v, 0) / times.length, 3)
+      : 0;
+    const assignments = group.map((g) => g.n_assignments);
+    out.mean_assignments[solver] = assignments.length
+      ? round(assignments.reduce((s, v) => s + v, 0) / assignments.length, 0)
       : 0;
   }
   const ours = out.mean_objective["cpsat"];
