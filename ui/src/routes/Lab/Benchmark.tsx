@@ -68,6 +68,25 @@ const SOLVER_COLORS: Record<SolverKey, string> = {
   random_repair: "#f59e0b", // amber-500 — weaker baseline
 };
 
+/** Short labels for charts — full "(baseline)" suffix is too wide for
+ *  the comparison chart's three side-by-side panels. */
+const SOLVER_SHORT_LABELS: Record<SolverKey, string> = {
+  cpsat: "CP-SAT",
+  greedy: "Greedy",
+  random_repair: "Random+repair",
+};
+
+/** Adaptive wall-time formatter. `toFixed(1)` made sub-second baselines
+ *  look like "0.0s" — giving the impression they didn't run at all.
+ *  Use 3 decimals under 0.1s, 2 decimals under 1s, 1 decimal otherwise. */
+function formatWallTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "—";
+  if (seconds < 0.1) return seconds.toFixed(3);
+  if (seconds < 1) return seconds.toFixed(2);
+  if (seconds < 10) return seconds.toFixed(1);
+  return seconds.toFixed(0);
+}
+
 const SOLVER_LABELS: Record<SolverKey, string> = {
   cpsat: "CP-SAT (ours)",
   greedy: "Greedy (baseline)",
@@ -682,19 +701,20 @@ function SolverComparisonChart({ summary }: { summary: BatchSummary }) {
 
   // One row per solver. Objectives + shortfalls are on different scales,
   // so render three small charts side-by-side rather than a single chart
-  // with dual Y-axes (easier to read, no misleading axis tricks).
+  // with dual Y-axes (easier to read, no misleading axis tricks). Short
+  // labels only — full "(baseline)" suffix overflows the narrow panels.
   const feasData = solvers.map((s) => ({
-    solver: SOLVER_LABELS[s as SolverKey] ?? s,
+    solver: SOLVER_SHORT_LABELS[s as SolverKey] ?? s,
     value: (summary.feasibility_rate[s] ?? 0) * 100,
     raw: s as SolverKey,
   }));
   const objData = solvers.map((s) => ({
-    solver: SOLVER_LABELS[s as SolverKey] ?? s,
+    solver: SOLVER_SHORT_LABELS[s as SolverKey] ?? s,
     value: summary.mean_objective[s] ?? null,
     raw: s as SolverKey,
   }));
   const shortData = solvers.map((s) => ({
-    solver: SOLVER_LABELS[s as SolverKey] ?? s,
+    solver: SOLVER_SHORT_LABELS[s as SolverKey] ?? s,
     value: summary.mean_shortfall[s] ?? 0,
     raw: s as SolverKey,
   }));
@@ -756,7 +776,7 @@ function MiniBarChart({
       <p className="mb-2 text-[10px] text-slate-500 dark:text-slate-400">
         {subtitle}
       </p>
-      <div className="h-44 rounded-md border border-slate-200 dark:border-slate-800">
+      <div className="h-52 rounded-md border border-slate-200 dark:border-slate-800">
         {nonNull ? (
           <div className="flex h-full items-center justify-center text-[11px] text-slate-400">
             no data
@@ -765,10 +785,17 @@ function MiniBarChart({
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={data.map((d) => ({ ...d, value: d.value ?? 0 }))}
-              margin={{ top: 8, right: 8, bottom: 4, left: 0 }}
+              margin={{ top: 8, right: 8, bottom: 40, left: 0 }}
             >
               <CartesianGrid stroke="#e2e8f0" strokeDasharray="2 4" />
-              <XAxis dataKey="solver" tick={{ fontSize: 10 }} interval={0} />
+              <XAxis
+                dataKey="solver"
+                tick={{ fontSize: 10 }}
+                interval={0}
+                angle={-25}
+                textAnchor="end"
+                height={55}
+              />
               <YAxis tick={{ fontSize: 10 }} domain={yDomain} />
               <Tooltip
                 contentStyle={{ fontSize: 11 }}
@@ -860,7 +887,7 @@ function RunScatter({ summary }: { summary: BatchSummary }) {
                 contentStyle={{ fontSize: 11 }}
                 cursor={{ strokeDasharray: "3 3" }}
                 formatter={(v, key) => {
-                  if (key === "x") return [`${Number(v).toFixed(2)}s`, "wall time"];
+                  if (key === "x") return [`${formatWallTime(Number(v))}s`, "wall time"];
                   if (key === "y") return [Number(v).toFixed(0), "objective"];
                   return [v, key];
                 }}
@@ -983,9 +1010,12 @@ function ResultsTable({ summary }: { summary: BatchSummary }) {
       <CardHeader>
         <CardTitle>Per-run results</CardTitle>
         <CardDescription>
-          One row per (solver × seed). <code>self-check ✓</code> = every
-          hard constraint satisfied (validator re-checked post-solve).
-          <code> shortfall</code> = unfilled station-slots.
+          One row per (solver × seed). <code>Objective / Headroom = "—"</code>
+          {" "}for heuristic baselines is intentional — they don't optimise
+          our weighted objective, only try to produce a valid roster.
+          Their <em>output</em> is the roster itself, and their quality
+          shows in <code>Self-check</code> and <code>Shortfall</code>.
+          Tiny wall times (&lt; 0.1s) are still real runs; just very fast.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -1036,7 +1066,7 @@ function RunRow({ row }: { row: SingleRun }) {
       <td className="px-2 py-1 text-right font-mono">
         {row.headroom == null ? "—" : row.headroom.toFixed(0)}
       </td>
-      <td className="px-2 py-1 text-right font-mono">{row.wall_time_s.toFixed(1)}</td>
+      <td className="px-2 py-1 text-right font-mono">{formatWallTime(row.wall_time_s)}</td>
       <td className="px-2 py-1 text-center">
         {row.self_check_ok == null ? (
           "—"

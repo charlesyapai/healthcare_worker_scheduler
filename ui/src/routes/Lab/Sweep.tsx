@@ -482,11 +482,18 @@ function SweepResults({ cells, param }: { cells: SweepCell[]; param: SweepParam 
               than the others. Highlighted green bar = current winner.
             </CardDescription>
           </CardHeader>
-          <CardContent className="h-64">
+          <CardContent className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={objBarData} margin={{ top: 8, right: 12, bottom: 16, left: 8 }}>
+              <BarChart data={objBarData} margin={{ top: 8, right: 12, bottom: 60, left: 8 }}>
                 <CartesianGrid stroke="#e2e8f0" strokeDasharray="2 4" />
-                <XAxis dataKey="value" tick={{ fontSize: 11 }} interval={0} />
+                <XAxis
+                  dataKey="value"
+                  tick={{ fontSize: 10 }}
+                  interval={0}
+                  angle={-25}
+                  textAnchor="end"
+                  height={70}
+                />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip
                   contentStyle={{ fontSize: 11 }}
@@ -533,11 +540,18 @@ function SweepResults({ cells, param }: { cells: SweepCell[]; param: SweepParam 
             cuts wall time without raising the objective is a free win.
           </CardDescription>
         </CardHeader>
-        <CardContent className="h-56">
+        <CardContent className="h-64">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={timeBarData} margin={{ top: 8, right: 12, bottom: 16, left: 8 }}>
+            <BarChart data={timeBarData} margin={{ top: 8, right: 12, bottom: 60, left: 8 }}>
               <CartesianGrid stroke="#e2e8f0" strokeDasharray="2 4" />
-              <XAxis dataKey="value" tick={{ fontSize: 11 }} interval={0} />
+              <XAxis
+                dataKey="value"
+                tick={{ fontSize: 10 }}
+                interval={0}
+                angle={-25}
+                textAnchor="end"
+                height={70}
+              />
               <YAxis tick={{ fontSize: 11 }} />
               <Tooltip
                 contentStyle={{ fontSize: 11 }}
@@ -573,15 +587,18 @@ function SweepResults({ cells, param }: { cells: SweepCell[]; param: SweepParam 
               sensitivity; a tight column = robust.
             </CardDescription>
           </CardHeader>
-          <CardContent className="h-64">
+          <CardContent className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart margin={{ top: 8, right: 12, bottom: 16, left: 8 }}>
+              <ScatterChart margin={{ top: 8, right: 12, bottom: 60, left: 8 }}>
                 <CartesianGrid stroke="#e2e8f0" strokeDasharray="2 4" />
                 <XAxis
                   dataKey="value"
                   type="category"
                   allowDuplicatedCategory={false}
-                  tick={{ fontSize: 11 }}
+                  tick={{ fontSize: 10 }}
+                  angle={-25}
+                  textAnchor="end"
+                  height={70}
                 />
                 <YAxis
                   dataKey="objective"
