@@ -2,6 +2,148 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-23 — Validation & research-tooling planning
+
+**What:** Five new design docs scoping the validation work needed
+before this can be published as a research instrument:
+
+- `docs/AGENT_HANDOFF.md` — entry-point brief for the next agent
+  (mirrors `AGENT_PROMPT.md` style).
+- `docs/INDUSTRY_CONTEXT.md` — literature-grounded background. NRP
+  terminology, public benchmarks (Curtois NRP collection + INRC-II +
+  NSPLib), standard fairness metrics (CV alongside Gini),
+  De Causmaecker / Vanden Berghe constraint taxonomy mapped onto our
+  H1–H15, regulatory frameworks (UK WTD, ACGME, California AB394),
+  baseline solution methods, recent (2020–2025) trends. Synthesised
+  from a research-agent literature review; URLs flagged for
+  pre-publication verification.
+- `docs/VALIDATION_PLAN.md` — strategic plan: three pillars
+  (feasibility, quality, reproducibility), what we have today, gaps
+  and risks, phased roadmap (~11 days for one agent). Updated to
+  adopt INRC-II / Curtois / NSPLib as the benchmark suite and
+  PuLP+CBC MILP as the headline baseline.
+- `docs/RESEARCH_METRICS.md` — formal definitions of every metric to
+  be computed: solution-quality, performance, scalability, fairness
+  (FTE-normalised Gini AND CV — both reported), coverage (with
+  shortfall + over-coverage as separate metrics), multi-seed
+  robustness, parameter-sensitivity, baseline-comparison metrics, and
+  benchmark-native scoring (INRC-II + Curtois translators).
+- `docs/LAB_TAB_SPEC.md` — concrete UI + API spec for a new `/lab`
+  route with sub-tabs Benchmark / Sweep / Fairness / Scaling and a
+  reproducibility-bundle export.
+
+**Why:** v2 is feature-complete from an end-user perspective. Before
+academic publication or hospital pilot, three things need to be
+defensible:
+1. Solutions are feasible (post-solve validator-in-the-loop).
+2. Solutions are competitive (vs greedy / random baselines on a
+   public benchmark like NSPLib).
+3. Solutions are reproducible (RunConfig with CP-SAT parameter
+   exposure, bundle export with git SHA + deps).
+
+The next agent picks up from `AGENT_HANDOFF.md`.
+
+## 2026-04-23 — Continue solving uses real warm-start
+
+**What:** `scheduler.model.solve()` gains a `warm_start` kwarg
+(additive). When provided, hints CP-SAT via `model.AddHint(var,
+value)` for each matched bool variable. The WS `/api/solve` start
+message and the REST `/api/solve/run` body both gained a
+`mode: "new" | "continue"` field; on continue, the server rebuilds
+the warm-start dict from `session.last_solve.assignments` and feeds
+it through.
+
+**Why:** Previous Continue behaviour was 'search again from scratch'.
+With warm-start, the first improving event in the new stream matches
+the previous best, and subsequent events push lower. Combined with
+the no-regress guard from earlier (store rolls back if the new search
+ends higher), Continue truly continues.
+
+**Tests:** 21/21 pytest pass. `warm_start` defaults to `None` so
+legacy callers (existing tests, benchmark script) are untouched.
+
+## 2026-04-23 — Manual edit mode + hard-constraint validator
+
+**What:** Users can now edit a solved roster manually and see
+violations live.
+
+- `api/validator.py` — pure-Python validator over hard constraints
+  (H1, H2, H3, H4, H5, H8, H10, H12, H13 + weekday on-call rule).
+  Walks an arbitrary AssignmentRow list, returns structured
+  `{rule, severity, location, message}` violations.
+- `POST /api/roster/validate` — thin REST wrapper.
+- `ui/src/store/draft.ts` — Zustand store for draft assignments and
+  validation state.
+- `components/CellEditor.tsx` — modal popover for swapping per-cell
+  assignments. Filters role options by tier × eligible_stations.
+- `components/ValidationPanel.tsx` — green chips for rules satisfied,
+  red list for violations.
+- `Roster.tsx` — "Edit a new version" button forks the current
+  snapshot into a draft; debounced 400ms revalidation on every edit;
+  Reset / Exit buttons return to solver result.
+
+**Why:** Researchers and roster coordinators wanted to test
+"what if we swap A and B?" without a full re-solve, and immediately
+see whether the change breaks any hard constraint.
+
+## 2026-04-23 — Optimality gap → "Improvement headroom"
+
+**What:** Replaced the relative optimality-gap percentage with an
+absolute "Improvement headroom" (objective − bound, in score units).
+Verdict banner and ObjectiveBreakdown card both updated.
+
+**Why:** Relative gap routinely showed ~59% even when objective and
+bound looked close, because CP-SAT's bound is structurally loose for
+roster problems (each component's individual minimum is usually 0).
+Absolute headroom is honest and avoids the misleading percentage.
+
+## 2026-04-23 — Closed scheduler gap #4: weekday on-call coverage
+
+**What:** Added `weekday_oncall_coverage_enabled` to ConstraintConfig
+in `scheduler/model.py`. Default OFF for legacy callers (preserves
+existing tests). v2 API's Pydantic ConstraintsConfig defaults the
+mirror field to True so SPA users always get on-call coverage every
+weekday night, matching CONSTRAINTS.md §5 gap #4.
+
+**Why:** Pre-fix, with H11 off (Minimal staffing mode), weekday
+on-call could be left empty because no hard constraint required it.
+H8 covered weekends only.
+
+## 2026-04-23 — Solve UX hardening
+
+**What:** Several small fixes on the Solve flow:
+
+- Server-side WS heartbeat every 8s + initial heartbeat on connect
+  to survive HF Spaces proxy idle-timeout drops.
+- Catch-all exception handler in the WS handler so errors become
+  proper `{type:error}` messages instead of 1006 close codes.
+- Silent REST fallback when WS drops mid-solve.
+- After 2 consecutive WS failures in a session, skip WS and go
+  straight to REST (auto-disable, sessionStorage-backed).
+- Continue button no longer regresses: store retains previous best
+  if new run is worse.
+- Banner during REST fallback shows honest progress instead of
+  "0 solutions found".
+
+## 2026-04-23 — UX polish round
+
+**What:**
+- Three pre-built scenarios (radiology, busy hospital, nursing ward)
+  exposed via `GET /api/state/scenarios` and `POST /api/state/scenarios/{id}`.
+  Dashboard shows them as featured cards.
+- Right-side collapsable nav (vertically-centered floating pill).
+- Collapsable "Getting started" stepper.
+- Score breakdown with main-drivers panel and human-readable raw units.
+- Roster heatmap distinguishes public holidays (amber header), block
+  types (rose cells), preferences (★ marker).
+- Workload + score breakdown moved below the roster grid in a 2-col
+  layout.
+- Dark mode finally works in light mode (Tailwind v4 class-based
+  variant fix).
+- Empty-state CTAs on Setup / Doctors and Rules / Stations.
+- Save indicator pill in the top bar.
+- "People" replaces "Doctors" as the page title (nursing-friendly).
+
 ## 2026-04-22 — v2.0 React SPA + FastAPI rewrite (branch `react-ui`)
 
 **What:** A parallel v2 branch replaces the Streamlit app with a React

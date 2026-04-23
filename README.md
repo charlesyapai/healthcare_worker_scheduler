@@ -144,6 +144,30 @@ HF Spaces Docker SDK on port 7860. The `react-ui` branch is pushed to
 GitHub `origin` **and** to the `hf_v2` remote (v2 Space). See
 [`docs/CHANGELOG.md`](docs/CHANGELOG.md) for the full v2 release notes.
 
+## Documentation
+
+For end users:
+- [`docs/NEW_UI_PLAN.md`](docs/NEW_UI_PLAN.md) — the v2 plan.
+- [`docs/CONSTRAINTS.md`](docs/CONSTRAINTS.md) — formal constraint spec
+  (single source of truth).
+- [`docs/FEATURES.md`](docs/FEATURES.md) — v0.7.1 feature reference.
+- [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — full change history with
+  v2 entries at the top.
+
+For the next agent (validation & research tooling work):
+- [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) — start here.
+- [`docs/INDUSTRY_CONTEXT.md`](docs/INDUSTRY_CONTEXT.md) — literature-
+  grounded background: NRP terminology, public benchmarks (Curtois +
+  INRC-II + NSPLib), standard fairness metrics, regulatory frameworks
+  (UK WTD, ACGME), constraint taxonomy.
+- [`docs/VALIDATION_PLAN.md`](docs/VALIDATION_PLAN.md) — strategic plan
+  for feasibility / quality / reproducibility.
+- [`docs/RESEARCH_METRICS.md`](docs/RESEARCH_METRICS.md) — formal
+  metric definitions (Gini, CV, range, std, INRC-II / Curtois
+  translators, etc.).
+- [`docs/LAB_TAB_SPEC.md`](docs/LAB_TAB_SPEC.md) — UI + API spec for the
+  new `/lab` route.
+
 ## License
 
 MIT.
