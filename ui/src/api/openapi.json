@@ -581,6 +581,16 @@
             "title": "Cp Model Presolve",
             "type": "boolean"
           },
+          "decision_strategy": {
+            "default": "default",
+            "enum": [
+              "default",
+              "oncall_first",
+              "station_first"
+            ],
+            "title": "Decision Strategy",
+            "type": "string"
+          },
           "feasibility_only": {
             "default": false,
             "title": "Feasibility Only",
@@ -606,6 +616,11 @@
             "title": "Random Seed",
             "type": "integer"
           },
+          "redundant_aggregates": {
+            "default": false,
+            "title": "Redundant Aggregates",
+            "type": "boolean"
+          },
           "search_branching": {
             "default": "AUTOMATIC",
             "enum": [
@@ -618,6 +633,11 @@
             ],
             "title": "Search Branching",
             "type": "string"
+          },
+          "symmetry_break": {
+            "default": false,
+            "title": "Symmetry Break",
+            "type": "boolean"
           },
           "time_limit_s": {
             "default": 30.0,

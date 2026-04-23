@@ -188,6 +188,10 @@ def solve(
     cp_model_presolve: bool = True,
     optimize_with_core: bool = False,
     use_lns_only: bool = False,
+    # --- Model-level tuning toggles (A/B-able via /lab/benchmark) ---
+    symmetry_break: bool = False,
+    decision_strategy: str = "default",
+    redundant_aggregates: bool = False,
 ) -> SolveResult:
     """Build and solve the CP-SAT model for `inst`.
 
@@ -211,6 +215,20 @@ def solve(
         `search_branching` values follow CP-SAT's enum
         (AUTOMATIC, FIXED_SEARCH, PORTFOLIO_SEARCH,
         LP_SEARCH, PSEUDO_COST_SEARCH, PORTFOLIO_WITH_QUICK_RESTART_SEARCH).
+    symmetry_break : when True, add lex-order constraints on groups of
+        interchangeable doctors (same tier/subspec/eligibility/FTE/leave
+        pattern). Interchangeable doctors would otherwise let CP-SAT
+        explore swapped-but-identical solutions; forcing an ordering by
+        on-call count collapses those to one representative.
+    decision_strategy : "default" keeps CP-SAT's automatic var
+        selection. "oncall_first" adds a high-priority decision strategy
+        that branches on on-call variables before station assignments.
+        On-call choices cascade via H5 (post-call off) and H4 (1-in-N
+        gap), so committing to them first usually prunes faster.
+    redundant_aggregates : when True, add per-tier total-oncall equality
+        constraints. They're logically implied by H8 + weekday on-call
+        coverage, but materialising them as explicit sums can help
+        CP-SAT's LP relaxation find a tighter dual bound.
     """
     weights = weights or Weights()
     workload_weights = workload_weights or WorkloadWeights()
@@ -790,6 +808,25 @@ def solve(
         if penalties:
             model.Minimize(sum(penalties))
 
+    # ------------------------------------------------- Tuning toggles
+    # Applied after the model structure is fully built but before warm-
+    # start / solve. All three are additive — they don't change which
+    # solutions are feasible, only how CP-SAT searches for them.
+
+    if symmetry_break:
+        _apply_symmetry_break(
+            model, inst, by_doc_oncall, by_doc_assign,
+            by_doc_ext, by_doc_wconsult,
+        )
+
+    if redundant_aggregates:
+        _apply_redundant_aggregates(model, inst, cfg, by_doc_oncall)
+
+    if decision_strategy and decision_strategy != "default":
+        _apply_decision_strategy(
+            model, decision_strategy, oncall, assign,
+        )
+
     # --------------------------------------------------------------- Warm start
     if warm_start:
         for kind, vmap in (("stations", assign), ("oncall", oncall),
@@ -947,3 +984,200 @@ def _exact_one(model: cp_model.CpModel, vars_: list[cp_model.IntVar]) -> None:
         model.Add(1 == 0)
     else:
         model.Add(sum(vars_) == 1)
+
+
+# =========================================================================
+# Model-level tuning helpers — toggled via `solve(symmetry_break=..., etc.)`.
+# Each one is additive: it does not change the set of feasible solutions,
+# only how CP-SAT searches for them.
+# =========================================================================
+
+def _doctor_signature(
+    doctor,
+    inst: Instance,
+) -> tuple:
+    """Produce a hashable 'interchangeability signature' for a doctor.
+
+    Two doctors with the same signature are literally identical from the
+    solver's point of view: same tier, subspec, eligibility, FTE,
+    on-call cap, prior-workload carry-in, leave pattern, per-day blocks,
+    and preferences. We can safely require a lex-order between them
+    without excluding any optimal solution — any "swapped" solution has
+    a valid representative in which the ordered pair is satisfied.
+    """
+    return (
+        doctor.tier,
+        doctor.subspec or "",
+        tuple(sorted(doctor.eligible_stations)),
+        float(doctor.fte),
+        -1 if doctor.max_oncalls is None else int(doctor.max_oncalls),
+        int(inst.prev_workload.get(doctor.id, 0)),
+        tuple(sorted(inst.leave.get(doctor.id, set()))),
+        tuple(sorted(inst.no_oncall.get(doctor.id, set()))),
+        tuple(sorted(
+            (day, tuple(sorted(sess)))
+            for day, sess in inst.no_session.get(doctor.id, {}).items()
+        )),
+        tuple(sorted(
+            (day, tuple(sorted(sess)))
+            for day, sess in inst.prefer_session.get(doctor.id, {}).items()
+        )),
+    )
+
+
+def _apply_symmetry_break(
+    model: cp_model.CpModel,
+    inst: Instance,
+    by_doc_oncall: dict[int, list[cp_model.IntVar]],
+    by_doc_assign: dict[int, list[cp_model.IntVar]],
+    by_doc_ext: dict[int, list[cp_model.IntVar]],
+    by_doc_wconsult: dict[int, list[cp_model.IntVar]],
+) -> None:
+    """Kill doctor-level symmetry by ordering interchangeable peers.
+
+    Two doctors with the same input signature are literally
+    interchangeable: any solution with assignments (a=A, b=B) has an
+    equally-good twin with (a=B, b=A). CP-SAT would otherwise explore
+    both orderings and waste search budget.
+
+    Correctness trap avoided: using independent `oc_a >= oc_b AND
+    st_a >= st_b AND ...` constraints excludes feasible solutions
+    where doctor a has more on-calls but fewer sessions than b (and
+    vice-versa in the swapped version). We therefore collapse the
+    four counters into a single lex-order key using a weighting
+    scheme where each term dominates the next: total =
+    W0·oncall + W1·station + W2·ext + W3·wconsult, with Wi chosen so
+    Wi > max_possible(next_term_slack). This enforces lexicographic
+    dominance without excluding any feasible-up-to-swap solution.
+    """
+    from collections import defaultdict as _defaultdict
+
+    groups: dict[tuple, list] = _defaultdict(list)
+    for doctor in inst.doctors:
+        # Overrides pin specific doctors to specific assignments, so a
+        # doctor named in an override is no longer interchangeable.
+        is_overridden = any(o[0] == doctor.id for o in inst.overrides)
+        if is_overridden:
+            continue
+        groups[_doctor_signature(doctor, inst)].append(doctor)
+
+    # Weights for the lex-order key. Each Wi must strictly exceed the
+    # max possible value of the lower-priority weighted sum so ties
+    # propagate correctly.
+    #
+    # Upper bounds:
+    #   oncall per doctor    ≤ n_days
+    #   station per doctor   ≤ 2 * n_days (AM + PM every day)
+    #   ext per doctor       ≤ 2 (Sat + Sun)
+    #   wconsult per doctor  ≤ 2 (Sat + Sun)
+    # Worst-case horizon is 31 so ext/wconsult bounds are tiny.
+    max_wc_plus_one = 3
+    max_ext_weighted = 2 + 1
+    w_ext = max_wc_plus_one
+    w_st = w_ext * (max_ext_weighted)
+    # station upper bound per doctor.
+    max_st_plus_one = 2 * inst.n_days + 1
+    w_oc = w_st * max_st_plus_one
+
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        members_sorted = sorted(members, key=lambda d: d.id)
+        for a, b in zip(members_sorted[:-1], members_sorted[1:]):
+            key_a = (
+                w_oc * sum(by_doc_oncall.get(a.id, []) or [0])
+                + w_st * sum(by_doc_assign.get(a.id, []) or [0])
+                + w_ext * sum(by_doc_ext.get(a.id, []) or [0])
+                + sum(by_doc_wconsult.get(a.id, []) or [0])
+            )
+            key_b = (
+                w_oc * sum(by_doc_oncall.get(b.id, []) or [0])
+                + w_st * sum(by_doc_assign.get(b.id, []) or [0])
+                + w_ext * sum(by_doc_ext.get(b.id, []) or [0])
+                + sum(by_doc_wconsult.get(b.id, []) or [0])
+            )
+            # If both sides are integer zero (no vars at all), the
+            # expression collapses to a trivial 0 >= 0 which CP-SAT
+            # rejects. Guard against that.
+            has_any = (
+                by_doc_oncall.get(a.id) or by_doc_oncall.get(b.id)
+                or by_doc_assign.get(a.id) or by_doc_assign.get(b.id)
+                or by_doc_ext.get(a.id) or by_doc_ext.get(b.id)
+                or by_doc_wconsult.get(a.id) or by_doc_wconsult.get(b.id)
+            )
+            if has_any:
+                model.Add(key_a >= key_b)
+
+
+def _apply_redundant_aggregates(
+    model: cp_model.CpModel,
+    inst: Instance,
+    cfg: "ConstraintConfig",
+    by_doc_oncall: dict[int, list[cp_model.IntVar]],
+) -> None:
+    """Add redundant tier-level aggregate lower bounds.
+
+    H8 (weekend coverage) and `weekday_oncall_coverage` together pin a
+    lower bound on the number of on-calls per tier over the horizon.
+    H11 can motivate extras — a weekday doctor with nothing else to do
+    can be put on-call rather than pay the idle-weekday penalty — so
+    the aggregate is a `≥` floor, not an equality.
+
+    The LP relaxation already implies this, but materialising it as a
+    single per-tier sum gives CP-SAT a tighter dual bound in practice.
+    """
+    weekend_days = sum(1 for day in range(inst.n_days) if inst.is_weekend(day))
+    weekday_days = inst.n_days - weekend_days
+
+    weekend_floor = weekend_days if cfg.h8_weekend_coverage_enabled else 0
+    weekday_floor = (
+        weekday_days if cfg.weekday_oncall_coverage_enabled else 0
+    )
+    floor_demand = weekend_floor + weekday_floor
+    if floor_demand <= 0:
+        return
+
+    for tier in ("junior", "senior"):
+        tier_vars: list[cp_model.IntVar] = []
+        for d in inst.doctors:
+            if d.tier != tier:
+                continue
+            tier_vars.extend(by_doc_oncall.get(d.id, []))
+        if not tier_vars:
+            continue
+        model.Add(sum(tier_vars) >= floor_demand)
+
+
+def _apply_decision_strategy(
+    model: cp_model.CpModel,
+    strategy: str,
+    oncall: dict[tuple[int, int], cp_model.IntVar],
+    assign: dict[tuple[int, int, str, str], cp_model.IntVar],
+) -> None:
+    """Tell CP-SAT which variables to branch on first.
+
+    CP-SAT's default decision strategy is automatic (pseudo-cost based).
+    For rostering problems the on-call variables are usually the best
+    first-branch targets: committing to an on-call forces the same-day
+    post-call off via H5 and bans on-calls on the ±N surrounding days
+    via H4, propagating rapidly to the rest of the schedule.
+    """
+    strategy = strategy.lower()
+    if strategy == "oncall_first":
+        oncall_vars = list(oncall.values())
+        if oncall_vars:
+            model.AddDecisionStrategy(
+                oncall_vars,
+                cp_model.CHOOSE_FIRST,
+                cp_model.SELECT_MIN_VALUE,
+            )
+    elif strategy == "station_first":
+        station_vars = list(assign.values())
+        if station_vars:
+            model.AddDecisionStrategy(
+                station_vars,
+                cp_model.CHOOSE_FIRST,
+                cp_model.SELECT_MAX_VALUE,
+            )
+    # "default" / unknown strategies fall through — CP-SAT's automatic
+    # var selection stays in effect.

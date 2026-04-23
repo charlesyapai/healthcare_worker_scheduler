@@ -759,6 +759,12 @@ export interface components {
              */
             cp_model_presolve: boolean;
             /**
+             * Decision Strategy
+             * @default default
+             * @enum {string}
+             */
+            decision_strategy: "default" | "oncall_first" | "station_first";
+            /**
              * Feasibility Only
              * @default false
              */
@@ -784,11 +790,21 @@ export interface components {
              */
             random_seed: number;
             /**
+             * Redundant Aggregates
+             * @default false
+             */
+            redundant_aggregates: boolean;
+            /**
              * Search Branching
              * @default AUTOMATIC
              * @enum {string}
              */
             search_branching: "AUTOMATIC" | "FIXED_SEARCH" | "PORTFOLIO_SEARCH" | "LP_SEARCH" | "PSEUDO_COST_SEARCH" | "PORTFOLIO_WITH_QUICK_RESTART_SEARCH";
+            /**
+             * Symmetry Break
+             * @default false
+             */
+            symmetry_break: boolean;
             /**
              * Time Limit S
              * @default 30

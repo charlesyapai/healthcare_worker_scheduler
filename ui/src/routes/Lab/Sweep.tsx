@@ -112,6 +112,9 @@ const DEFAULT_BASE: RunConfig = {
   cp_model_presolve: true,
   optimize_with_core: false,
   use_lns_only: false,
+  symmetry_break: false,
+  decision_strategy: "default",
+  redundant_aggregates: false,
 };
 
 export function LabSweep() {

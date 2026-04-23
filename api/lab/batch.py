@@ -125,6 +125,9 @@ def _run_one(
             cp_model_presolve=bool(run_config.cp_model_presolve),
             optimize_with_core=bool(run_config.optimize_with_core),
             use_lns_only=bool(run_config.use_lns_only),
+            symmetry_break=bool(run_config.symmetry_break),
+            decision_strategy=str(run_config.decision_strategy),
+            redundant_aggregates=bool(run_config.redundant_aggregates),
         )
     elif solver == "greedy":
         result = greedy_baseline(inst)

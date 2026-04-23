@@ -48,6 +48,14 @@ class RunConfig(StrictModel):
     cp_model_presolve: bool = True
     optimize_with_core: bool = False
     use_lns_only: bool = False
+    # ---- Model-level tuning toggles (A/B-able via /lab/benchmark) ----
+    # Each is additive to the CP-SAT parameters above. Defaults off
+    # because our empirical sweep shows mixed results — they help on
+    # some scenarios and hurt on others. Keep them surfaced so a
+    # researcher can measure on their own instance.
+    symmetry_break: bool = False
+    decision_strategy: Literal["default", "oncall_first", "station_first"] = "default"
+    redundant_aggregates: bool = False
 
 
 class BatchRunRequest(StrictModel):

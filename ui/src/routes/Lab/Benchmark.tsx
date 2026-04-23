@@ -118,6 +118,15 @@ export function LabBenchmark() {
   const [presolve, setPresolve] = useState(true);
   const [optCore, setOptCore] = useState(false);
   const [lnsOnly, setLnsOnly] = useState(false);
+  // Model-level tuning toggles. Defaults mirror scheduler.solve(): all
+  // off. See docs/TUNING_RESULTS.md for empirical guidance — the short
+  // version is "they help on some scenarios and hurt on others; measure
+  // on your own instance before turning them on by default".
+  const [symmetryBreak, setSymmetryBreak] = useState(false);
+  const [decisionStrategy, setDecisionStrategy] = useState<
+    "default" | "oncall_first" | "station_first"
+  >("default");
+  const [redundantAggregates, setRedundantAggregates] = useState(false);
 
   const chosen: SolverKey[] = useMemo(
     () => (Object.keys(solvers) as SolverKey[]).filter((k) => solvers[k]),
@@ -145,8 +154,15 @@ export function LabBenchmark() {
       cp_model_presolve: presolve,
       optimize_with_core: optCore,
       use_lns_only: lnsOnly,
+      symmetry_break: symmetryBreak,
+      decision_strategy: decisionStrategy,
+      redundant_aggregates: redundantAggregates,
     }),
-    [timeLimit, workers, seeds, feasibilityOnly, branching, linearization, presolve, optCore, lnsOnly],
+    [
+      timeLimit, workers, seeds, feasibilityOnly, branching, linearization,
+      presolve, optCore, lnsOnly,
+      symmetryBreak, decisionStrategy, redundantAggregates,
+    ],
   );
 
   const kickoff = async () => {
@@ -373,6 +389,65 @@ export function LabBenchmark() {
                 These map straight to CP-SAT's SatParameters fields. See{" "}
                 <code>docs/RESEARCH_METRICS.md §6</code>.
               </p>
+
+              <div className="mt-3 space-y-2 border-t border-slate-200 pt-2 dark:border-slate-800">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Model-level tuning (experimental)
+                </p>
+                <label className="flex items-start gap-2 text-[11px]">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={symmetryBreak}
+                    onChange={(e) => setSymmetryBreak(e.target.checked)}
+                  />
+                  <span>
+                    <strong>symmetry_break</strong>
+                    <span className="block text-[10px] text-slate-500 dark:text-slate-400">
+                      Lex-order interchangeable doctors. Helps small tight
+                      scenarios, can hurt on teams with strong max-min
+                      balance penalties. See <code>docs/TUNING_RESULTS.md</code>.
+                    </span>
+                  </span>
+                </label>
+                <label className="block">
+                  <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    decision_strategy
+                  </span>
+                  <select
+                    className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-900"
+                    value={decisionStrategy}
+                    onChange={(e) =>
+                      setDecisionStrategy(
+                        e.target.value as "default" | "oncall_first" | "station_first",
+                      )
+                    }
+                  >
+                    <option value="default">default (CP-SAT automatic)</option>
+                    <option value="oncall_first">
+                      oncall_first (branch on on-call vars first)
+                    </option>
+                    <option value="station_first">
+                      station_first (branch on station vars first)
+                    </option>
+                  </select>
+                </label>
+                <label className="flex items-start gap-2 text-[11px]">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={redundantAggregates}
+                    onChange={(e) => setRedundantAggregates(e.target.checked)}
+                  />
+                  <span>
+                    <strong>redundant_aggregates</strong>
+                    <span className="block text-[10px] text-slate-500 dark:text-slate-400">
+                      Per-tier on-call floor constraints. Safe; tightens the
+                      LP relaxation in some configurations.
+                    </span>
+                  </span>
+                </label>
+              </div>
             </div>
           </details>
 

@@ -223,6 +223,8 @@ export type SearchBranching =
   | "PSEUDO_COST_SEARCH"
   | "PORTFOLIO_WITH_QUICK_RESTART_SEARCH";
 
+export type DecisionStrategy = "default" | "oncall_first" | "station_first";
+
 export interface RunConfig {
   time_limit_s: number;
   num_workers: number;
@@ -233,6 +235,9 @@ export interface RunConfig {
   cp_model_presolve: boolean;
   optimize_with_core: boolean;
   use_lns_only: boolean;
+  symmetry_break: boolean;
+  decision_strategy: DecisionStrategy;
+  redundant_aggregates: boolean;
 }
 
 export interface SingleRun {

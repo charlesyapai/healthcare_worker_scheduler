@@ -102,6 +102,42 @@ the NRP reliability metrics by heart.
   Frontend build 884 KB JS / 259 KB gzip (~35 KB larger for the
   extra chart code, acceptable).
 
+## 2026-04-23 — Tuning sweep: symmetry / decision-strategy / redundant aggregates
+
+**What:** Added three model-level tuning toggles to `scheduler.solve()`:
+`symmetry_break`, `decision_strategy`, `redundant_aggregates`. Plumbed
+them through `RunConfig` → `api/lab/batch.py` and exposed checkboxes
+in `/lab/benchmark`'s Advanced panel. Wrote a systematic sweep runner
+at `scripts/benchmark_tuning.py` and ran it across all 7 scenarios × 5
+variants × 2 seeds × 30s budget (70 cells, ~35 min).
+
+**Honest null result.** Full report at
+[`docs/TUNING_RESULTS.md`](TUNING_RESULTS.md). TL;DR:
+
+- **`symmetry_break`** actively *hurts* on every scenario with tier-level
+  fairness weights (nursing_ward +22.6%, busy_month +32%,
+  teaching_hospital +192%). Only helps on `clinic_week` (−13.5%) where
+  H8 + weekday-on-call are disabled and the fairness max−min terms
+  have no grip. Root cause: count-based lex-order directly conflicts
+  with the objective's preference for equal workload. Assignment-
+  matrix-level lex-order would be the proper fix but that's a
+  multi-day rewrite.
+- **`oncall_first`** and **`redundant_aggregates`** produced zero lift
+  on these scenarios at `num_workers=1` + 30s. No regression either.
+- **`regional_hospital_month`** (30×28) and **`hospital_long_month`**
+  (35×28) returned `UNKNOWN` on every variant at `num_workers=1`.
+  Deterministic single-worker runs aren't viable for month-scale
+  problems — the Lab UI's default `num_workers=8` stays the right
+  production setting.
+
+**Recommendation:** all three toggles default OFF. Kept exposed for
+researchers measuring on differently-shaped instances, with clear
+experimental labelling and a pointer to `TUNING_RESULTS.md`.
+
+**Deliverable value:** the sweep itself is the win — we now have
+honest baseline data against which any future tuning work can be
+measured, not guessed at.
+
 ## 2026-04-23 — Split GitHub ↔ HF deploy (docs stripped from Space)
 
 **What:** HF Space deploys now go through `scripts/deploy_hf.sh`,
