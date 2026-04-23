@@ -2,6 +2,50 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-23 — Scenario refresh: 7 scenarios, rescaled stations
+
+**What:** Reorganised the scenario picker so every pre-built scenario
+renders with the same styling (no NRP-benchmark chip, no caveat
+banner), fixed station-demand mismatches on the 30-doctor scenarios,
+and added two more shapes so the picker covers tiny team → very-large
+team.
+
+**Final scenario list (7):**
+1. `clinic_week` · 10 doctors × 7 days · outpatient clinic (NEW)
+2. `radiology_small` · 15 × 7 · unchanged
+3. `nursing_ward` · 17 × 14 · unchanged
+4. `busy_month_with_leave` · 22 × 14 · unchanged
+5. `teaching_hospital_week` · 30 × 7 · renamed from `nsplib_shaped_n30_7`
+6. `regional_hospital_month` · 30 × 28 · renamed from `curtois_shaped_bcv`
+7. `hospital_long_month` · 35 × 28 · biggest bundled scenario (NEW)
+
+**Bugs fixed:**
+- The 30-doctor scenarios inherited the 8-station setup from the
+  15-doctor `radiology_small`, producing ~18 weekday station slots
+  vs ~30 doctors needing duty under H11. Half the team was forced
+  idle, dominating the objective (teaching_hospital was 5475 pre-fix).
+  Station demand rescaled via `_big_radiology_stations` to ~28
+  weekday slots, matching the team size. New objective ~1580 — a
+  3.4× improvement. Same fix applied to `regional_hospital_month`:
+  objective went from 16005 → 4550.
+- `clinic_week` turns off H8 (weekend coverage) and the weekday
+  on-call rule, because a 10-person outpatient clinic can't
+  realistically staff overnight + weekend cover. Previously
+  INFEASIBLE; now solves to OPTIMAL in 0.4s.
+
+**Removed:**
+- The "NRP benchmark" / "Industry-benchmark-shaped" dedicated UI
+  section with violet chips, reference lines, and caveat expanders.
+  `BenchmarkScenariosSection`, `benchmark_family` / `_reference` /
+  `_caveat` fields on `ScenarioSummary`, and the amber "honest
+  framing" banner are all gone. Every scenario renders in the same
+  3-column card grid now.
+
+**Tests:** `test_self_check.py` parametrize list updated to the 7
+new IDs. Heavy scenarios (`regional_hospital_month`,
+`hospital_long_month`) run with `feasibility_only + 40s`. Total
+56/56 pytest pass. `pnpm build` clean.
+
 ## 2026-04-23 — Benchmark-shaped scenarios (NSPLib + Curtois envelopes)
 
 **What:** Two new scenarios in the Dashboard's scenario picker so a

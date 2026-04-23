@@ -1,5 +1,18 @@
 [
   {
+    "id": "clinic_week",
+    "title": "Outpatient clinic \u2014 1 week",
+    "description": "Small 10-person team: 4 juniors, 3 seniors, 3 consultants. Trimmed station list (US / XR_REPORT / GEN_AM / GEN_PM only). Good for seeing the tool's behaviour on a tight workforce.",
+    "n_doctors": 10,
+    "n_stations": 4,
+    "n_days": 7,
+    "highlights": [
+      "10 doctors (4/3/3)",
+      "4 stations",
+      "7-day horizon"
+    ]
+  },
+  {
     "id": "radiology_small",
     "title": "Radiology department \u2014 1 week",
     "description": "15 doctors across junior / senior / consultant. Clean slate. Solves to OPTIMAL in seconds \u2014 great smoke test.",
@@ -10,6 +23,20 @@
       "15 doctors (5/4/6)",
       "8 stations",
       "7-day horizon"
+    ]
+  },
+  {
+    "id": "nursing_ward",
+    "title": "Nursing ward \u2014 2 weeks",
+    "description": "17 nurses across ward / senior / manager tiers with Medical and Surgical sub-wards. Same engine, different vocabulary.",
+    "n_doctors": 17,
+    "n_stations": 5,
+    "n_days": 14,
+    "highlights": [
+      "17 people (8/5/4)",
+      "5 stations",
+      "14-day horizon",
+      "Tiers: Staff Nurse / Senior Nurse / Ward Manager"
     ]
   },
   {
@@ -28,23 +55,9 @@
     ]
   },
   {
-    "id": "nursing_ward",
-    "title": "Nursing ward \u2014 2 weeks",
-    "description": "17 nurses across ward / senior / manager tiers with Medical and Surgical sub-wards. Same engine, different vocabulary.",
-    "n_doctors": 17,
-    "n_stations": 5,
-    "n_days": 14,
-    "highlights": [
-      "17 people (8/5/4)",
-      "5 stations",
-      "14-day horizon",
-      "Tiers: Staff Nurse / Senior Nurse / Ward Manager"
-    ]
-  },
-  {
-    "id": "nsplib_shaped_n30_7",
-    "title": "NSPLib-shaped \u00b7 n30 \u00d7 d7",
-    "description": "30-doctor / 7-day roster in the parameter envelope of NSPLib's classic Vanhoucke & Maenhout (2007) benchmark family. Three 'skill classes' (our tiers), realistic leave, preferred-shift requests. Run this through /lab/benchmark to see CP-SAT vs baselines on an NRP-literature-sized problem.",
+    "id": "teaching_hospital_week",
+    "title": "Teaching hospital \u2014 1 week",
+    "description": "Larger 30-doctor department (8 juniors, 6 seniors, 16 consultants across 3 subspecs). Station demand scaled to match the team size so weekday utilisation stays high. Small amount of leave + one preferred-shift request.",
     "n_doctors": 30,
     "n_stations": 8,
     "n_days": 7,
@@ -53,15 +66,12 @@
       "8 stations",
       "7-day horizon",
       "5 leave / block entries"
-    ],
-    "benchmark_family": "NSPLib",
-    "benchmark_reference": "Vanhoucke & Maenhout (2007) \u2014 nsplib.ugent.be",
-    "benchmark_caveat": "Shaped to match the n30/d7/s3 parameter envelope. Not a 1:1 import of a specific NSPLib instance \u2014 see docs/BRIEFING_2026-04-23.md \u00a74.1 for the adapter follow-up."
+    ]
   },
   {
-    "id": "curtois_shaped_bcv",
-    "title": "Curtois-shaped \u00b7 BCV 4-week",
-    "description": "30-doctor / 4-week roster in the parameter envelope of Curtois's BCV (Belgian Children's Valentine) family from U. Nottingham's NRP collection. Mixed leave + call blocks + soft preferences + one part-timer (0.5 FTE) + one max-oncall cap. The stress-test scenario for fairness and coverage.",
+    "id": "regional_hospital_month",
+    "title": "Regional hospital \u2014 4 weeks",
+    "description": "Full month horizon over a 30-doctor team. One part-timer (0.5 FTE), one max-oncall cap, one public holiday, mixed leave + call blocks + soft preferences. Best scenario for stress-testing /lab/fairness's per-individual \u0394 view.",
     "n_doctors": 30,
     "n_stations": 8,
     "n_days": 28,
@@ -71,9 +81,21 @@
       "28-day horizon",
       "1 public holiday(s)",
       "12 leave / block entries"
-    ],
-    "benchmark_family": "Curtois NRP collection",
-    "benchmark_reference": "Curtois, U. Nottingham \u2014 cs.nott.ac.uk/~psztc/NRP/",
-    "benchmark_caveat": "Shaped to match the BCV family's parameter envelope. Not a 1:1 import of a specific Curtois instance \u2014 see docs/BRIEFING_2026-04-23.md \u00a74.1 for the adapter follow-up."
+    ]
+  },
+  {
+    "id": "hospital_long_month",
+    "title": "Large hospital \u2014 4 weeks",
+    "description": "Biggest bundled scenario: 35 doctors (10/7/18), 8 stations scaled up, two public holidays, leave in every week, two part-time doctors (0.5 + 0.75 FTE). Solves more slowly \u2014 treat as 'how far can you push this'.",
+    "n_doctors": 35,
+    "n_stations": 8,
+    "n_days": 28,
+    "highlights": [
+      "35 doctors (10/7/18)",
+      "8 stations",
+      "28-day horizon",
+      "2 public holiday(s)",
+      "8 leave / block entries"
+    ]
   }
 ]

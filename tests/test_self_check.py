@@ -18,14 +18,13 @@ import pytest
 
 
 SCENARIOS = (
+    "clinic_week",
     "radiology_small",
-    "busy_month_with_leave",
     "nursing_ward",
-    # Benchmark-shaped scenarios (shipped Phase 5.5). These mirror
-    # NSPLib + Curtois BCV parameter envelopes — if they stop
-    # solving cleanly, the tool can't claim NRP-literature scale.
-    "nsplib_shaped_n30_7",
-    "curtois_shaped_bcv",
+    "busy_month_with_leave",
+    "teaching_hospital_week",
+    "regional_hospital_month",
+    "hospital_long_month",
 )
 
 
@@ -33,11 +32,11 @@ SCENARIOS = (
 def test_solver_self_check_is_green(client, scenario_id: str) -> None:
     r = client.post(f"/api/state/scenarios/{scenario_id}")
     assert r.status_code == 200, r.text
-    # The 4-week Curtois-shaped scenario is substantially bigger (30×28)
-    # than the others; give it a longer time budget + feasibility-only
-    # so the test isn't at the mercy of CP-SAT's optimisation pace. The
+    # The 4-week and 35-doctor scenarios are substantially bigger than
+    # the others; give them a longer time budget + feasibility-only so
+    # the test isn't at the mercy of CP-SAT's optimisation pace. The
     # self-check only needs SOME feasible solution to validate.
-    is_heavy = scenario_id == "curtois_shaped_bcv"
+    is_heavy = scenario_id in {"regional_hospital_month", "hospital_long_month"}
     client.patch("/api/state", json={
         "solver": {
             "time_limit": 40 if is_heavy else 20,

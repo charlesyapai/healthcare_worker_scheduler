@@ -1,15 +1,16 @@
 schema_version: 1
 horizon:
   start_date: '2026-04-27'
-  n_days: 7
-  public_holidays: []
+  n_days: 28
+  public_holidays:
+  - '2026-05-07'
 doctors:
 - name: J01
   tier: junior
   subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
-  fte: 1.0
+  fte: 0.5
 - name: J02
   tier: junior
   subspec: ''
@@ -58,6 +59,7 @@ doctors:
   eligible_stations: CT,MR,US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
+  max_oncalls: 3.0
 - name: S02
   tier: senior
   subspec: ''
@@ -96,13 +98,13 @@ doctors:
   fte: 1.0
 - name: C02
   tier: consultant
-  subspec: Neuro
+  subspec: Body
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C03
   tier: consultant
-  subspec: Neuro
+  subspec: MSK
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
@@ -114,19 +116,19 @@ doctors:
   fte: 1.0
 - name: C05
   tier: consultant
-  subspec: Neuro
+  subspec: Body
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C06
   tier: consultant
-  subspec: Body
+  subspec: MSK
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C07
   tier: consultant
-  subspec: Body
+  subspec: Neuro
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
@@ -138,19 +140,19 @@ doctors:
   fte: 1.0
 - name: C09
   tier: consultant
-  subspec: Body
+  subspec: MSK
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C10
   tier: consultant
-  subspec: Body
+  subspec: Neuro
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C11
   tier: consultant
-  subspec: MSK
+  subspec: Body
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
@@ -162,13 +164,13 @@ doctors:
   fte: 1.0
 - name: C13
   tier: consultant
-  subspec: MSK
+  subspec: Neuro
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C14
   tier: consultant
-  subspec: MSK
+  subspec: Body
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
@@ -187,22 +189,22 @@ doctors:
 stations:
 - name: CT
   sessions: AM,PM
-  required_per_session: 1
+  required_per_session: 2
   eligible_tiers: senior,consultant
   is_reporting: false
 - name: MR
   sessions: AM,PM
-  required_per_session: 1
+  required_per_session: 2
   eligible_tiers: senior,consultant
   is_reporting: false
 - name: US
   sessions: AM,PM
-  required_per_session: 2
+  required_per_session: 3
   eligible_tiers: junior,senior,consultant
   is_reporting: false
 - name: XR_REPORT
   sessions: AM,PM
-  required_per_session: 2
+  required_per_session: 3
   eligible_tiers: junior,senior,consultant
   is_reporting: true
 - name: IR
@@ -217,30 +219,54 @@ stations:
   is_reporting: false
 - name: GEN_AM
   sessions: AM
-  required_per_session: 1
+  required_per_session: 2
   eligible_tiers: junior,senior,consultant
   is_reporting: false
 - name: GEN_PM
   sessions: PM
-  required_per_session: 1
+  required_per_session: 2
   eligible_tiers: junior,senior,consultant
   is_reporting: false
 blocks:
-- doctor: J01
-  date: '2026-04-29'
-  type: Leave
-- doctor: S02
-  date: '2026-05-01'
-  end_date: '2026-05-02'
-  type: Leave
-- doctor: C03
-  date: '2026-04-28'
-  type: Leave
-- doctor: J05
+- doctor: J02
   date: '2026-04-30'
+  end_date: '2026-05-03'
+  type: Leave
+- doctor: S03
+  date: '2026-05-09'
+  end_date: '2026-05-11'
+  type: Leave
+- doctor: C05
+  date: '2026-05-15'
+  end_date: '2026-05-19'
+  type: Leave
+- doctor: J04
+  date: '2026-05-05'
+  end_date: '2026-05-06'
+  type: Leave
+- doctor: C10
+  date: '2026-05-21'
+  type: Leave
+- doctor: J06
+  date: '2026-05-04'
   type: No on-call
-- doctor: S04
+- doctor: S05
+  date: '2026-05-12'
+  type: No AM
+- doctor: C12
+  date: '2026-05-17'
+  type: No PM
+- doctor: J03
   date: '2026-04-29'
+  type: Prefer AM
+- doctor: J07
+  date: '2026-05-08'
+  type: Prefer PM
+- doctor: S02
+  date: '2026-05-02'
+  type: Prefer AM
+- doctor: C01
+  date: '2026-05-11'
   type: Prefer AM
 overrides: []
 tier_labels:

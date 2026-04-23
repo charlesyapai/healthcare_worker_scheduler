@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from api.models.session import (  # noqa: E402
     BlockEntry,
+    ConstraintsConfig,
     DoctorEntry,
     Horizon,
     SessionState,
@@ -225,32 +226,48 @@ def nursing_ward() -> SessionState:
     )
 
 
-# ------------------------------------------------------- benchmark-shaped
+# ---------------------------------------------------- larger radiology
 
-def nsplib_shaped_n30_7() -> SessionState:
-    """NSPLib-envelope scenario — 30 doctors × 7 days × 3 skill classes.
+def _big_radiology_stations() -> list[StationEntry]:
+    """Station set sized for a 30-doctor radiology department.
 
-    Shaped to match the parameter envelope of NSPLib's n30/d7/s3
-    instance family (Vanhoucke & Maenhout 2007). Our three semantic
-    tiers (junior / senior / consultant) stand in for NSPLib's skill
-    classes; five stations (CT / MR / US / XR_REPORT / IR / FLUORO +
-    GEN_AM / GEN_PM) stand in for NSPLib's shift types. Leave blocks
-    emulate NSPLib's days-off requests at ~5% density.
-
-    ⚠ IMPORTANT: This is NOT a bit-for-bit import of any specific
-    NSPLib instance. It's shaped to match the family's parameter
-    envelope so a reviewer can gauge the tool's viability at
-    NSPLib-scale inputs. A native NSPLib adapter with penalty-score
-    translation is flagged as follow-up in docs/BRIEFING…"""
-    juniors = [f"J{i+1:02d}" for i in range(8)]
-    seniors = [f"S{i+1:02d}" for i in range(6)]
-    consultants_ns = [
-        ("C01", "Neuro"), ("C02", "Neuro"), ("C03", "Neuro"), ("C04", "Neuro"), ("C05", "Neuro"),
-        ("C06", "Body"),  ("C07", "Body"),  ("C08", "Body"),  ("C09", "Body"),  ("C10", "Body"),
-        ("C11", "MSK"),   ("C12", "MSK"),   ("C13", "MSK"),   ("C14", "MSK"),   ("C15", "MSK"),
-        ("C16", "Neuro"),
+    Tuned so weekday AM demand ≈ 14 and PM demand ≈ 14 (28
+    station-sessions/weekday). With 2 on-call nights per weekday and
+    ~30 doctors available (minus post-call rest), utilisation lands
+    near 90% and the solver can satisfy H11 (every doctor on duty
+    every weekday) on most days. The 15-doctor `radiology_small`
+    setup had ~half this demand, which left too many idle doctors."""
+    return [
+        StationEntry(name="CT", sessions=["AM", "PM"], required_per_session=2,
+                     eligible_tiers=["senior", "consultant"], is_reporting=False),
+        StationEntry(name="MR", sessions=["AM", "PM"], required_per_session=2,
+                     eligible_tiers=["senior", "consultant"], is_reporting=False),
+        StationEntry(name="US", sessions=["AM", "PM"], required_per_session=3,
+                     eligible_tiers=["junior", "senior", "consultant"], is_reporting=False),
+        StationEntry(name="XR_REPORT", sessions=["AM", "PM"], required_per_session=3,
+                     eligible_tiers=["junior", "senior", "consultant"], is_reporting=True),
+        StationEntry(name="IR", sessions=["AM", "PM"], required_per_session=1,
+                     eligible_tiers=["consultant"], is_reporting=False),
+        StationEntry(name="FLUORO", sessions=["AM", "PM"], required_per_session=1,
+                     eligible_tiers=["consultant"], is_reporting=False),
+        StationEntry(name="GEN_AM", sessions=["AM"], required_per_session=2,
+                     eligible_tiers=["junior", "senior", "consultant"], is_reporting=False),
+        StationEntry(name="GEN_PM", sessions=["PM"], required_per_session=2,
+                     eligible_tiers=["junior", "senior", "consultant"], is_reporting=False),
     ]
 
+
+def _std_radiology_doctors(size: int) -> list[DoctorEntry]:
+    """30-ish radiology department: 8 juniors, 6 seniors, rest consultants
+    split across 3 subspecs. `size` must be ≥ 17 to cover weekend H8.
+    """
+    juniors = [f"J{i+1:02d}" for i in range(8)]
+    seniors = [f"S{i+1:02d}" for i in range(6)]
+    n_consultants = max(size - 14, 6)
+    subspecs = ["Neuro", "Body", "MSK"]
+    consultants = [
+        (f"C{i+1:02d}", subspecs[i % 3]) for i in range(n_consultants)
+    ]
     doctors: list[DoctorEntry] = []
     for n in juniors:
         doctors.append(DoctorEntry(
@@ -264,19 +281,26 @@ def nsplib_shaped_n30_7() -> SessionState:
             eligible_stations=["CT", "MR", "US", "XR_REPORT", "GEN_AM", "GEN_PM"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
-    for n, ss in consultants_ns:
+    for n, ss in consultants:
         doctors.append(DoctorEntry(
             name=n, tier="consultant", subspec=ss,
             eligible_stations=["CT", "MR", "US", "XR_REPORT", "IR", "FLUORO"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
+    return doctors
 
-    stations = radiology_small().stations  # same shape
+
+def teaching_hospital_week() -> SessionState:
+    """Teaching hospital radiology department — 30 doctors × 1 week.
+
+    Bigger team than `radiology_small`: 8 juniors + 6 seniors + 16
+    consultants across three subspecs. Station demand scaled to match
+    the team size so weekday utilisation stays high. A small amount
+    of leave and one preferred-shift request keeps things realistic."""
+    doctors = _std_radiology_doctors(size=30)
+    stations = _big_radiology_stations()
 
     start = _monday()
-    # Sparse leave at ~5% doctor-day density (close to NSPLib's typical
-    # days-off-request rate). Spread across tiers so no single tier
-    # becomes the bottleneck.
     blocks = [
         BlockEntry(doctor="J01", date=start + timedelta(days=2), type="Leave"),
         BlockEntry(doctor="S02", date=start + timedelta(days=4),
@@ -293,60 +317,23 @@ def nsplib_shaped_n30_7() -> SessionState:
     )
 
 
-def curtois_shaped_bcv() -> SessionState:
-    """Curtois-envelope scenario — 30 doctors × 28 days.
+def regional_hospital_month() -> SessionState:
+    """Regional hospital — 30 doctors × 4 weeks.
 
-    Shaped to match the Curtois NRP collection's BCV (Belgian
-    Children's Valentine) family envelope: small hospital, 4-week
-    horizon, moderate-complexity soft constraints (patterns,
-    preferences), mixed leave. See docs/INDUSTRY_CONTEXT.md §2 for
-    the collection's background.
-
-    ⚠ IMPORTANT: This is NOT a bit-for-bit import of any specific
-    Curtois instance. It's shaped to match the family's parameter
-    envelope so a reviewer can see how the tool performs on a
-    4-week horizon with realistic leave + preference density. A
-    native Curtois adapter with penalty-score translation is flagged
-    as follow-up in docs/BRIEFING…"""
-    juniors = [f"J{i+1:02d}" for i in range(8)]
-    seniors = [f"S{i+1:02d}" for i in range(6)]
-    consultants_ns = [
-        ("C01", "Neuro"), ("C02", "Neuro"), ("C03", "Neuro"), ("C04", "Neuro"), ("C05", "Neuro"),
-        ("C06", "Body"),  ("C07", "Body"),  ("C08", "Body"),  ("C09", "Body"),  ("C10", "Body"),
-        ("C11", "MSK"),   ("C12", "MSK"),   ("C13", "MSK"),   ("C14", "MSK"),   ("C15", "MSK"),
-        ("C16", "Body"),
-    ]
-
-    doctors: list[DoctorEntry] = []
-    for n in juniors:
-        doctors.append(DoctorEntry(
-            name=n, tier="junior", subspec=None,
-            eligible_stations=["US", "XR_REPORT", "GEN_AM", "GEN_PM"],
-            prev_workload=0, fte=1.0, max_oncalls=None,
-        ))
-    for n in seniors:
-        doctors.append(DoctorEntry(
-            name=n, tier="senior", subspec=None,
-            eligible_stations=["CT", "MR", "US", "XR_REPORT", "GEN_AM", "GEN_PM"],
-            prev_workload=0, fte=1.0, max_oncalls=None,
-        ))
-    for n, ss in consultants_ns:
-        doctors.append(DoctorEntry(
-            name=n, tier="consultant", subspec=ss,
-            eligible_stations=["CT", "MR", "US", "XR_REPORT", "IR", "FLUORO"],
-            prev_workload=0, fte=1.0, max_oncalls=None,
-        ))
+    Full month horizon over the same 30-doctor team. Mixed leave,
+    call blocks, preferences, one public holiday, one part-time
+    doctor (0.5 FTE) and one max-oncall cap. The broadest scenario
+    for fairness / coverage stress-testing, especially on
+    `/lab/fairness`'s per-individual Δ view."""
+    doctors = _std_radiology_doctors(size=30)
+    stations = _big_radiology_stations()
 
     # Inject one part-time doctor + one max-oncall cap so the fairness
     # panel has something interesting to show over the 4-week horizon.
     doctors[0] = doctors[0].model_copy(update={"fte": 0.5})
     doctors[8] = doctors[8].model_copy(update={"max_oncalls": 3})
 
-    stations = radiology_small().stations
-
     start = _monday()
-    # Leave + preference density approximating Curtois's typical 10%
-    # request rate over 4 weeks. One public holiday mid-horizon.
     public_holiday = start + timedelta(days=10)
     blocks = [
         BlockEntry(doctor="J02", date=start + timedelta(days=3),
@@ -358,13 +345,9 @@ def curtois_shaped_bcv() -> SessionState:
         BlockEntry(doctor="J04", date=start + timedelta(days=8),
                    end_date=start + timedelta(days=9), type="Leave"),
         BlockEntry(doctor="C10", date=start + timedelta(days=24), type="Leave"),
-        # Call / session blocks — Curtois has "unwanted shift" requests
-        # we map onto No on-call / No AM / No PM.
         BlockEntry(doctor="J06", date=start + timedelta(days=7), type="No on-call"),
         BlockEntry(doctor="S05", date=start + timedelta(days=15), type="No AM"),
         BlockEntry(doctor="C12", date=start + timedelta(days=20), type="No PM"),
-        # Soft preferences — Curtois has "preferred shift" requests
-        # we map onto Prefer AM / Prefer PM.
         BlockEntry(doctor="J03", date=start + timedelta(days=2), type="Prefer AM"),
         BlockEntry(doctor="J07", date=start + timedelta(days=11), type="Prefer PM"),
         BlockEntry(doctor="S02", date=start + timedelta(days=5), type="Prefer AM"),
@@ -379,61 +362,209 @@ def curtois_shaped_bcv() -> SessionState:
     )
 
 
+# ---------------------------------------------------- clinic (small team)
+
+def clinic_week() -> SessionState:
+    """Small outpatient clinic — 10 doctors × 1 week.
+
+    Minimal headcount: 4 juniors, 3 seniors, 3 consultants (1 per
+    subspec). Trimmed station list: US / XR_REPORT / GEN_AM / GEN_PM
+    only. A real outpatient clinic doesn't run overnight or weekend
+    cover, so H8 (weekend coverage) and the weekday on-call rule
+    are both disabled — the clinic is a Mon–Fri daytime operation.
+    Demonstrates how toggling constraints narrows the problem shape.
+    """
+    doctors: list[DoctorEntry] = []
+    for name in ["J1", "J2", "J3", "J4"]:
+        doctors.append(DoctorEntry(
+            name=name, tier="junior", subspec=None,
+            eligible_stations=["US", "XR_REPORT", "GEN_AM", "GEN_PM"],
+            prev_workload=0, fte=1.0, max_oncalls=None,
+        ))
+    for name in ["S1", "S2", "S3"]:
+        doctors.append(DoctorEntry(
+            name=name, tier="senior", subspec=None,
+            eligible_stations=["US", "XR_REPORT", "GEN_AM", "GEN_PM"],
+            prev_workload=0, fte=1.0, max_oncalls=None,
+        ))
+    for name, ss in [("C1", "Neuro"), ("C2", "Body"), ("C3", "MSK")]:
+        doctors.append(DoctorEntry(
+            name=name, tier="consultant", subspec=ss,
+            eligible_stations=["US", "XR_REPORT", "GEN_AM", "GEN_PM"],
+            prev_workload=0, fte=1.0, max_oncalls=None,
+        ))
+
+    # Weekday AM demand = 1+1+1 = 3, PM = 1+1+1 = 3. No weekend or
+    # oncall. 10 doctors × 5 weekdays = 50 slots, demand 30 = 20
+    # idle-weekday slots, which H11 penalises at 100 per slot → the
+    # objective score reflects that consultants often don't work every
+    # weekday at a clinic.
+    stations = [
+        StationEntry(name="US", sessions=["AM", "PM"], required_per_session=1,
+                     eligible_tiers=["junior", "senior", "consultant"], is_reporting=False),
+        StationEntry(name="XR_REPORT", sessions=["AM", "PM"], required_per_session=1,
+                     eligible_tiers=["junior", "senior", "consultant"], is_reporting=True),
+        StationEntry(name="GEN_AM", sessions=["AM"], required_per_session=1,
+                     eligible_tiers=["junior", "senior", "consultant"], is_reporting=False),
+        StationEntry(name="GEN_PM", sessions=["PM"], required_per_session=1,
+                     eligible_tiers=["junior", "senior", "consultant"], is_reporting=False),
+    ]
+
+    # Weekday-only clinic: disable weekend H8 and the weekday-on-call
+    # rule. H4–H7 / H9 are still on by default but become no-ops once
+    # no on-call exists.
+    constraints = ConstraintsConfig(
+        h8_enabled=False,
+        weekday_oncall_coverage=False,
+    )
+
+    return SessionState(
+        horizon=Horizon(start_date=_monday(), n_days=7, public_holidays=[]),
+        doctors=doctors, stations=stations,
+        subspecs=["Neuro", "Body", "MSK"],
+        constraints=constraints,
+    )
+
+
+# ------------------------------------------------- very-large hospital
+
+def hospital_long_month() -> SessionState:
+    """Large radiology + reporting department — 35 doctors × 4 weeks.
+
+    The biggest bundled scenario: 10 juniors, 7 seniors, 18
+    consultants across three subspecs. Stations scaled up from the
+    30-doctor set so utilisation stays realistic. Two public
+    holidays, leave blocks in every week, and two part-time doctors
+    to stress FTE-normalisation on the fairness panel.
+
+    Solves more slowly than the others; treat it as the
+    'how far can you push this' scenario rather than a smoke test."""
+    juniors = [f"J{i+1:02d}" for i in range(10)]
+    seniors = [f"S{i+1:02d}" for i in range(7)]
+    subspecs = ["Neuro", "Body", "MSK"]
+    consultants = [(f"C{i+1:02d}", subspecs[i % 3]) for i in range(18)]
+
+    doctors: list[DoctorEntry] = []
+    for n in juniors:
+        doctors.append(DoctorEntry(
+            name=n, tier="junior", subspec=None,
+            eligible_stations=["US", "XR_REPORT", "GEN_AM", "GEN_PM"],
+            prev_workload=0, fte=1.0, max_oncalls=None,
+        ))
+    for n in seniors:
+        doctors.append(DoctorEntry(
+            name=n, tier="senior", subspec=None,
+            eligible_stations=["CT", "MR", "US", "XR_REPORT", "GEN_AM", "GEN_PM"],
+            prev_workload=0, fte=1.0, max_oncalls=None,
+        ))
+    for n, ss in consultants:
+        doctors.append(DoctorEntry(
+            name=n, tier="consultant", subspec=ss,
+            eligible_stations=["CT", "MR", "US", "XR_REPORT", "IR", "FLUORO"],
+            prev_workload=0, fte=1.0, max_oncalls=None,
+        ))
+
+    # Two part-timers.
+    doctors[0] = doctors[0].model_copy(update={"fte": 0.5})
+    doctors[5] = doctors[5].model_copy(update={"fte": 0.75})
+
+    # Bigger station set — weekday demand ≈ 17 AM + 17 PM = 34 slots
+    # against 35 × 5 = 175 weekday doctor-slots minus oncall/post-call.
+    stations = [
+        StationEntry(name="CT", sessions=["AM", "PM"], required_per_session=3,
+                     eligible_tiers=["senior", "consultant"], is_reporting=False),
+        StationEntry(name="MR", sessions=["AM", "PM"], required_per_session=2,
+                     eligible_tiers=["senior", "consultant"], is_reporting=False),
+        StationEntry(name="US", sessions=["AM", "PM"], required_per_session=4,
+                     eligible_tiers=["junior", "senior", "consultant"], is_reporting=False),
+        StationEntry(name="XR_REPORT", sessions=["AM", "PM"], required_per_session=3,
+                     eligible_tiers=["junior", "senior", "consultant"], is_reporting=True),
+        StationEntry(name="IR", sessions=["AM", "PM"], required_per_session=2,
+                     eligible_tiers=["consultant"], is_reporting=False),
+        StationEntry(name="FLUORO", sessions=["AM", "PM"], required_per_session=1,
+                     eligible_tiers=["consultant"], is_reporting=False),
+        StationEntry(name="GEN_AM", sessions=["AM"], required_per_session=2,
+                     eligible_tiers=["junior", "senior", "consultant"], is_reporting=False),
+        StationEntry(name="GEN_PM", sessions=["PM"], required_per_session=2,
+                     eligible_tiers=["junior", "senior", "consultant"], is_reporting=False),
+    ]
+
+    start = _monday()
+    public_holidays = [start + timedelta(days=5), start + timedelta(days=19)]
+    blocks = [
+        BlockEntry(doctor="J02", date=start + timedelta(days=2),
+                   end_date=start + timedelta(days=3), type="Leave"),
+        BlockEntry(doctor="S04", date=start + timedelta(days=9),
+                   end_date=start + timedelta(days=11), type="Leave"),
+        BlockEntry(doctor="C08", date=start + timedelta(days=15),
+                   end_date=start + timedelta(days=18), type="Leave"),
+        BlockEntry(doctor="J07", date=start + timedelta(days=22),
+                   end_date=start + timedelta(days=24), type="Leave"),
+        BlockEntry(doctor="S02", date=start + timedelta(days=7), type="No on-call"),
+        BlockEntry(doctor="C03", date=start + timedelta(days=12), type="No AM"),
+        BlockEntry(doctor="J05", date=start + timedelta(days=17), type="Prefer PM"),
+        BlockEntry(doctor="C12", date=start + timedelta(days=20), type="Prefer AM"),
+    ]
+
+    return SessionState(
+        horizon=Horizon(start_date=start, n_days=28,
+                        public_holidays=public_holidays),
+        doctors=doctors, stations=stations, blocks=blocks,
+        subspecs=subspecs,
+    )
+
+
 # -------------------------------------------------------------- Generator
 
-# Each scenario entry:
-#   id → (title, description, builder, benchmark_family, reference, caveat)
-# Where benchmark_family / reference / caveat are None for original
-# scenarios and set for benchmark-shaped ones.
-SCENARIOS: dict[str, tuple[str, str, Callable[[], SessionState], str | None, str | None, str | None]] = {
+SCENARIOS: dict[str, tuple[str, str, Callable[[], SessionState]]] = {
+    "clinic_week": (
+        "Outpatient clinic — 1 week",
+        "Small 10-person team: 4 juniors, 3 seniors, 3 consultants. "
+        "Trimmed station list (US / XR_REPORT / GEN_AM / GEN_PM only). "
+        "Good for seeing the tool's behaviour on a tight workforce.",
+        clinic_week,
+    ),
     "radiology_small": (
         "Radiology department — 1 week",
         "15 doctors across junior / senior / consultant. Clean slate. "
         "Solves to OPTIMAL in seconds — great smoke test.",
         radiology_small,
-        None, None, None,
-    ),
-    "busy_month_with_leave": (
-        "Busy hospital — 2 weeks with leave",
-        "22 doctors, a public holiday, and a handful of leave blocks. "
-        "Realistic mid-sized problem; shows how leave affects coverage.",
-        busy_month_with_leave,
-        None, None, None,
     ),
     "nursing_ward": (
         "Nursing ward — 2 weeks",
         "17 nurses across ward / senior / manager tiers with Medical and "
         "Surgical sub-wards. Same engine, different vocabulary.",
         nursing_ward,
-        None, None, None,
     ),
-    "nsplib_shaped_n30_7": (
-        "NSPLib-shaped · n30 × d7",
-        "30-doctor / 7-day roster in the parameter envelope of NSPLib's "
-        "classic Vanhoucke & Maenhout (2007) benchmark family. Three "
-        "'skill classes' (our tiers), realistic leave, preferred-shift "
-        "requests. Run this through /lab/benchmark to see CP-SAT vs "
-        "baselines on an NRP-literature-sized problem.",
-        nsplib_shaped_n30_7,
-        "NSPLib",
-        "Vanhoucke & Maenhout (2007) — nsplib.ugent.be",
-        "Shaped to match the n30/d7/s3 parameter envelope. Not a 1:1 "
-        "import of a specific NSPLib instance — see docs/BRIEFING_2026-04-23.md "
-        "§4.1 for the adapter follow-up.",
+    "busy_month_with_leave": (
+        "Busy hospital — 2 weeks with leave",
+        "22 doctors, a public holiday, and a handful of leave blocks. "
+        "Realistic mid-sized problem; shows how leave affects coverage.",
+        busy_month_with_leave,
     ),
-    "curtois_shaped_bcv": (
-        "Curtois-shaped · BCV 4-week",
-        "30-doctor / 4-week roster in the parameter envelope of "
-        "Curtois's BCV (Belgian Children's Valentine) family from "
-        "U. Nottingham's NRP collection. Mixed leave + call blocks + "
-        "soft preferences + one part-timer (0.5 FTE) + one max-oncall "
-        "cap. The stress-test scenario for fairness and coverage.",
-        curtois_shaped_bcv,
-        "Curtois NRP collection",
-        "Curtois, U. Nottingham — cs.nott.ac.uk/~psztc/NRP/",
-        "Shaped to match the BCV family's parameter envelope. Not a "
-        "1:1 import of a specific Curtois instance — see "
-        "docs/BRIEFING_2026-04-23.md §4.1 for the adapter follow-up.",
+    "teaching_hospital_week": (
+        "Teaching hospital — 1 week",
+        "Larger 30-doctor department (8 juniors, 6 seniors, 16 "
+        "consultants across 3 subspecs). Station demand scaled to match "
+        "the team size so weekday utilisation stays high. Small amount "
+        "of leave + one preferred-shift request.",
+        teaching_hospital_week,
+    ),
+    "regional_hospital_month": (
+        "Regional hospital — 4 weeks",
+        "Full month horizon over a 30-doctor team. One part-timer "
+        "(0.5 FTE), one max-oncall cap, one public holiday, mixed "
+        "leave + call blocks + soft preferences. Best scenario for "
+        "stress-testing /lab/fairness's per-individual Δ view.",
+        regional_hospital_month,
+    ),
+    "hospital_long_month": (
+        "Large hospital — 4 weeks",
+        "Biggest bundled scenario: 35 doctors (10/7/18), 8 stations "
+        "scaled up, two public holidays, leave in every week, two "
+        "part-time doctors (0.5 + 0.75 FTE). Solves more slowly — "
+        "treat as 'how far can you push this'.",
+        hospital_long_month,
     ),
 }
 
@@ -444,7 +575,7 @@ def main() -> None:
 
     manifest: list[dict] = []
 
-    for scenario_id, (title, description, builder, family, ref, caveat) in SCENARIOS.items():
+    for scenario_id, (title, description, builder) in SCENARIOS.items():
         state = builder()
         # Bias scenarios toward a shorter solver budget so they always
         # produce a result inside typical cloud-proxy WebSocket timeouts.
@@ -473,7 +604,7 @@ def main() -> None:
 
         yaml_text = dump_state(session_to_v1_dict(state))
         (out_dir / f"{scenario_id}.yaml").write_text(yaml_text)
-        entry: dict = {
+        manifest.append({
             "id": scenario_id,
             "title": title,
             "description": description,
@@ -481,12 +612,7 @@ def main() -> None:
             "n_stations": n_stations,
             "n_days": n_days,
             "highlights": _highlights(state),
-        }
-        if family:
-            entry["benchmark_family"] = family
-            entry["benchmark_reference"] = ref
-            entry["benchmark_caveat"] = caveat
-        manifest.append(entry)
+        })
 
     (out_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=False) + "\n"
