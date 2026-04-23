@@ -13,12 +13,8 @@ import { LabSweep } from "@/routes/Lab/Sweep";
 import { Roster } from "@/routes/Roster";
 import { RulesLayout } from "@/routes/Rules";
 import { Constraints } from "@/routes/Rules/Constraints";
-import { Fairness } from "@/routes/Rules/Fairness";
-import { HoursEditor } from "@/routes/Rules/Hours";
-import { Priorities } from "@/routes/Rules/Priorities";
-import { StationsEditor } from "@/routes/Rules/Stations";
-import { Subspecs } from "@/routes/Rules/Subspecs";
-import { Tiers } from "@/routes/Rules/Tiers";
+import { Teams } from "@/routes/Rules/Teams";
+import { Weights } from "@/routes/Rules/Weights";
 import { Blocks } from "@/routes/Setup/Blocks";
 import { Doctors } from "@/routes/Setup/Doctors";
 import { Overrides } from "@/routes/Setup/Overrides";
@@ -53,14 +49,17 @@ export function App() {
               <Route path="overrides" element={<Overrides />} />
             </Route>
             <Route path="rules" element={<RulesLayout />}>
-              <Route index element={<Navigate to="tiers" replace />} />
-              <Route path="tiers" element={<Tiers />} />
-              <Route path="subspecs" element={<Subspecs />} />
-              <Route path="stations" element={<StationsEditor />} />
+              <Route index element={<Navigate to="teams" replace />} />
+              <Route path="teams" element={<Teams />} />
               <Route path="constraints" element={<Constraints />} />
-              <Route path="hours" element={<HoursEditor />} />
-              <Route path="fairness" element={<Fairness />} />
-              <Route path="priorities" element={<Priorities />} />
+              <Route path="weights" element={<Weights />} />
+              {/* Back-compat redirects for old per-concept URLs. */}
+              <Route path="tiers" element={<Navigate to="../teams" replace />} />
+              <Route path="subspecs" element={<Navigate to="../teams" replace />} />
+              <Route path="stations" element={<Navigate to="../teams" replace />} />
+              <Route path="hours" element={<Navigate to="../weights" replace />} />
+              <Route path="fairness" element={<Navigate to="../weights" replace />} />
+              <Route path="priorities" element={<Navigate to="../weights" replace />} />
             </Route>
             <Route path="solve" element={<Solve />} />
             <Route path="roster" element={<Roster />} />

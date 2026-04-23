@@ -2,6 +2,43 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-24 — Rules UX pass: 3 subtabs, preset row, fixed toggle, compact stations
+
+**What:** Rules had seven sub-tabs (Tiers, Sub-specs, Stations, Rules,
+Hours, Fairness, Priorities) — each a single card. Clicking through
+all seven to set up a department was tedious. Consolidated into
+three thematic pages:
+
+- **Teams & stations** (`/rules/teams`) — combines Tiers, Sub-specs,
+  and Stations as stacked cards on one page. Stations got a compact
+  one-row-per-station layout (name + session chips + tier chips +
+  required + reporting + delete, all inline, wraps on narrow
+  screens). Old station cards were two-column with a lot of padding;
+  the new row density doubles what fits on screen.
+- **Rules** (`/rules/constraints`) — now grouped into three themes
+  (Succession · Coverage · Utilisation) with header hints, so the
+  user sees the shape of the ruleset rather than nine undifferentiated
+  toggles. Added a **Strict / Balanced / Relaxed preset row** at the
+  top right that bulk-sets the toggles to a known-good combo —
+  surfaces active preset when the config matches one.
+- **Hours & weights** (`/rules/weights`) — combines Hours, Fairness
+  (workload weights), and Priorities (soft-weight coefficients).
+
+Old URLs (`/rules/tiers`, `/subspecs`, `/stations`, `/hours`,
+`/fairness`, `/priorities`) redirect to the new pages so bookmarks
+and external links still work.
+
+**Fixed toggle rendering:** The inline toggle switch used
+`translate-x-[22px]` on an absolutely-positioned thumb. In some
+layouts the thumb rendered visibly outside the purple track. New
+`<Toggle>` primitive in `ui/components/ui/toggle.tsx` uses flex
+layout with padding — thumb is clamped to the inner padded box via
+`justify-start` / `justify-end`, no translate math, impossible to
+overflow. Used on the Rules page; the old toggle is gone.
+
+**Test headline:** 80/80 pytest still pass (backend untouched).
+`pnpm build` clean.
+
 ## 2026-04-24 — First-user UX pass: nav, dashboard, calendar gestures, export preview
 
 **What:** The app's front-end landed after a long product/engineering

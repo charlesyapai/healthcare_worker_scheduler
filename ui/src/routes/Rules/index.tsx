@@ -3,13 +3,9 @@ import { NavLink, Outlet } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
 const TABS = [
-  { to: "tiers", label: "Tiers" },
-  { to: "subspecs", label: "Sub-specs" },
-  { to: "stations", label: "Stations" },
+  { to: "teams", label: "Teams & stations" },
   { to: "constraints", label: "Rules" },
-  { to: "hours", label: "Hours" },
-  { to: "fairness", label: "Fairness" },
-  { to: "priorities", label: "Priorities" },
+  { to: "weights", label: "Hours & weights" },
 ];
 
 export function RulesLayout() {
