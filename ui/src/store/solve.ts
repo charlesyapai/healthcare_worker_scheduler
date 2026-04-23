@@ -23,6 +23,21 @@ export interface SolveEvent {
   assignments: AssignmentRow[] | null;
 }
 
+export interface SelfCheckViolation {
+  rule: string;
+  severity: string;
+  location: string;
+  message: string;
+}
+
+export interface SolverSelfCheck {
+  ok: boolean;
+  violation_count: number;
+  rules_passed: string[];
+  rules_failed: string[];
+  violations: SelfCheckViolation[];
+}
+
 export interface SolveResultPayload {
   status: string;
   wall_time_s: number;
@@ -34,6 +49,7 @@ export interface SolveResultPayload {
   penalty_components: Record<string, number>;
   assignments: AssignmentRow[];
   intermediate: SolveEvent[];
+  self_check?: SolverSelfCheck | null;
 }
 
 export type SolveStatus = "idle" | "running" | "done" | "error";

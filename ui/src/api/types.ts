@@ -61,6 +61,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/metrics/fairness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fairness
+         * @description FTE-aware per-tier fairness metrics for a caller-provided roster.
+         *
+         *     Formulae documented in `docs/RESEARCH_METRICS.md §4`. Reports Gini
+         *     (our convention) + CV (NRP-literature standard) alongside range,
+         *     std, mean, and per-individual delta-from-median.
+         */
+        post: operations["fairness_api_metrics_fairness_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/overrides/fill-from-snapshot": {
         parameters: {
             query?: never;
@@ -417,6 +441,11 @@ export interface components {
             /** Message */
             message: string;
         };
+        /** FairnessRequest */
+        FairnessRequest: {
+            /** Assignments */
+            assignments: components["schemas"]["AssignmentRow"][];
+        };
         /** FeasibilityIssueOut */
         FeasibilityIssueOut: {
             /** Code */
@@ -529,10 +558,26 @@ export interface components {
         /** RestSolveRequest */
         RestSolveRequest: {
             /**
+             * Mode
+             * @default new
+             */
+            mode: string;
+            /**
              * Snapshot Assignments
              * @default false
              */
             snapshot_assignments: boolean;
+        };
+        /** SelfCheckViolation */
+        SelfCheckViolation: {
+            /** Location */
+            location: string;
+            /** Message */
+            message: string;
+            /** Rule */
+            rule: string;
+            /** Severity */
+            severity: string;
         };
         /** SessionState */
         SessionState: {
@@ -641,10 +686,30 @@ export interface components {
             penalty_components?: {
                 [key: string]: number;
             };
+            self_check?: components["schemas"]["SolverSelfCheck"] | null;
             /** Status */
             status: string;
             /** Wall Time S */
             wall_time_s: number;
+        };
+        /**
+         * SolverSelfCheck
+         * @description Automated post-solve hard-constraint audit. Every solve emits one;
+         *     a green result is the feasibility receipt researchers and coordinators
+         *     can trust. A non-green result means the model and the validator
+         *     disagree — always a bug worth investigating.
+         */
+        SolverSelfCheck: {
+            /** Ok */
+            ok: boolean;
+            /** Rules Failed */
+            rules_failed?: string[];
+            /** Rules Passed */
+            rules_passed?: string[];
+            /** Violation Count */
+            violation_count: number;
+            /** Violations */
+            violations?: components["schemas"]["SelfCheckViolation"][];
         };
         /** SolverSettings */
         SolverSettings: {
@@ -853,6 +918,41 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    fairness_api_metrics_fairness_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FairnessRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

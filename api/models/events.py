@@ -49,6 +49,25 @@ class SolveEvent(StrictModel):
     assignments: list[AssignmentRow] | None = None
 
 
+class SelfCheckViolation(StrictModel):
+    rule: str
+    severity: str
+    location: str
+    message: str
+
+
+class SolverSelfCheck(StrictModel):
+    """Automated post-solve hard-constraint audit. Every solve emits one;
+    a green result is the feasibility receipt researchers and coordinators
+    can trust. A non-green result means the model and the validator
+    disagree — always a bug worth investigating."""
+    ok: bool
+    violation_count: int
+    rules_passed: list[str] = Field(default_factory=list)
+    rules_failed: list[str] = Field(default_factory=list)
+    violations: list[SelfCheckViolation] = Field(default_factory=list)
+
+
 class SolveResultPayload(StrictModel):
     status: str
     wall_time_s: float
@@ -60,6 +79,7 @@ class SolveResultPayload(StrictModel):
     penalty_components: dict[str, int] = Field(default_factory=dict)
     assignments: list[AssignmentRow] = Field(default_factory=list)
     intermediate: list[SolveEvent] = Field(default_factory=list)
+    self_check: SolverSelfCheck | None = None
 
 
 class SolveDone(StrictModel):

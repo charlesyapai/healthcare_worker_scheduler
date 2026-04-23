@@ -160,3 +160,53 @@ export function useValidateRoster() {
       }),
   });
 }
+
+// --------------------------------------------------------------- fairness
+
+export interface TierSummary {
+  n: number;
+  mean: number;
+  range: number;
+  cv: number;
+  gini: number;
+  std: number;
+}
+
+export interface PerDoctorFairness {
+  doctor: string;
+  tier: string;
+  subspec: string | null;
+  fte: number;
+  weighted_workload: number;
+  oncall_workload: number;
+  oncall_count: number;
+  weekend_count: number;
+  station_count: number;
+  fte_normalised: number;
+  delta_from_median: number;
+}
+
+export interface SubspecParity {
+  subspecs: Record<string, { n: number; mean: number; min: number; max: number }>;
+  range: number;
+}
+
+export interface FairnessPayload {
+  tier_order: string[];
+  per_tier: Record<string, TierSummary>;
+  per_tier_oncall: Record<string, TierSummary>;
+  per_individual: PerDoctorFairness[];
+  dow_load: Record<string, Record<string, number>>;
+  subspec_parity: SubspecParity;
+  horizon_days: number;
+}
+
+export function useComputeFairness() {
+  return useMutation({
+    mutationFn: (assignments: AssignmentRow[]) =>
+      apiFetch<FairnessPayload>("/api/metrics/fairness", {
+        method: "POST",
+        body: { assignments },
+      }),
+  });
+}

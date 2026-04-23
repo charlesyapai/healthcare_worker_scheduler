@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { ApiError, apiFetch } from "@/api/client";
 import { useSessionState, useValidateRoster } from "@/api/hooks";
 import { CellEditor } from "@/components/CellEditor";
+import { FairnessPanel } from "@/components/FairnessPanel";
 import { ObjectiveBreakdown } from "@/components/ObjectiveBreakdown";
 import { RosterHeatmap } from "@/components/RosterHeatmap";
 import { ValidationPanel } from "@/components/ValidationPanel";
@@ -344,6 +345,16 @@ export function Roster() {
                 />
               )}
             </div>
+            <FairnessPanel
+              assignments={selectedAssignments}
+              tierLabels={
+                data?.tier_labels ?? {
+                  junior: "Junior",
+                  senior: "Senior",
+                  consultant: "Consultant",
+                }
+              }
+            />
           </div>
         </>
       )}

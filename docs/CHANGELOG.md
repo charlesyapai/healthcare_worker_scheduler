@@ -2,6 +2,56 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-23 — Validation Phase 1: self-check + fairness audit
+
+**What:** Every solve now carries an automated hard-constraint audit,
+and `/roster` grows an FTE-aware fairness/bias panel. This is Phase 1
+of [`docs/VALIDATION_PLAN.md`](VALIDATION_PLAN.md).
+
+**Feasibility receipt (validator-in-the-loop):**
+- `api.sessions.build_self_check(...)` runs `api.validator.validate`
+  over the solver's output and returns a structured
+  `SolverSelfCheck { ok, violation_count, rules_passed, rules_failed,
+  violations[] }`.
+- `SolveResultPayload` gains `self_check` (non-null whenever the
+  solver returned assignments).
+- A failed self-check is logged at WARNING — it means the CP-SAT model
+  and the validator disagree, which is always a bug to investigate.
+- Front-end: `SelfCheckBadge` on `/solve` shows green-with-rule-chips
+  on pass and a loud red violations list with the failed-rule names
+  on fail.
+- Test: `tests/test_self_check.py` runs all three scenarios end-to-end
+  and asserts the self-check is green; a second test deliberately
+  tampers with the output and asserts the validator catches it.
+
+**Fairness metrics:**
+- New `api/metrics/fairness.py` computes per-tier Gini + CV + range +
+  std + mean over FTE-normalised weighted workload. Formulae follow
+  [`docs/RESEARCH_METRICS.md §4`](RESEARCH_METRICS.md). CV added
+  alongside Gini so reports are cross-comparable with both
+  econ-flavoured and OR-flavoured NRP papers
+  (see [`docs/INDUSTRY_CONTEXT.md §3`](INDUSTRY_CONTEXT.md)).
+- Per-individual: delta from tier median, flagged as outliers if
+  outside the top/bottom quartile. FTE normalisation flattens
+  part-timers correctly (hand-computed test fixture).
+- Day-of-week load distribution per tier (surfaces structural
+  "Mondays are heavy" bias). Consultant subspec-parity table.
+- `POST /api/metrics/fairness` endpoint (pure function over
+  assignments, uses current session's doctor/weight metadata).
+- Front-end: `FairnessPanel` on `/roster` below the Workload +
+  Objective cards. Re-fires on any snapshot or draft-edit change.
+- Test: `tests/test_fairness.py` covers Gini (hand-computed 10/60),
+  CV, FTE normalisation, DoW bucketing, subspec parity.
+
+**Non-changes (on purpose):**
+- Scheduler internals untouched.
+- Existing 6 SPA routes unchanged — validator output is additive.
+- No backwards-incompatible API changes; `self_check` is optional
+  on the payload.
+
+**Tests:** 32/32 pytest pass (21 legacy + 7 fairness + 4 self-check).
+`pnpm build` clean.
+
 ## 2026-04-23 — Validation & research-tooling planning
 
 **What:** Five new design docs scoping the validation work needed

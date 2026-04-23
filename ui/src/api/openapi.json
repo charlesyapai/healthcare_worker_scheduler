@@ -252,6 +252,22 @@
         "title": "ExplainViolation",
         "type": "object"
       },
+      "FairnessRequest": {
+        "properties": {
+          "assignments": {
+            "items": {
+              "$ref": "#/components/schemas/AssignmentRow"
+            },
+            "title": "Assignments",
+            "type": "array"
+          }
+        },
+        "required": [
+          "assignments"
+        ],
+        "title": "FairnessRequest",
+        "type": "object"
+      },
       "FeasibilityIssueOut": {
         "properties": {
           "code": {
@@ -427,6 +443,11 @@
       },
       "RestSolveRequest": {
         "properties": {
+          "mode": {
+            "default": "new",
+            "title": "Mode",
+            "type": "string"
+          },
           "snapshot_assignments": {
             "default": false,
             "title": "Snapshot Assignments",
@@ -434,6 +455,34 @@
           }
         },
         "title": "RestSolveRequest",
+        "type": "object"
+      },
+      "SelfCheckViolation": {
+        "properties": {
+          "location": {
+            "title": "Location",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule",
+          "severity",
+          "location",
+          "message"
+        ],
+        "title": "SelfCheckViolation",
         "type": "object"
       },
       "SessionState": {
@@ -671,6 +720,16 @@
             "title": "Penalty Components",
             "type": "object"
           },
+          "self_check": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SolverSelfCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -687,6 +746,46 @@
           "n_constraints"
         ],
         "title": "SolveResultPayload",
+        "type": "object"
+      },
+      "SolverSelfCheck": {
+        "description": "Automated post-solve hard-constraint audit. Every solve emits one;\na green result is the feasibility receipt researchers and coordinators\ncan trust. A non-green result means the model and the validator\ndisagree \u2014 always a bug worth investigating.",
+        "properties": {
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "rules_failed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rules Failed",
+            "type": "array"
+          },
+          "rules_passed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rules Passed",
+            "type": "array"
+          },
+          "violation_count": {
+            "title": "Violation Count",
+            "type": "integer"
+          },
+          "violations": {
+            "items": {
+              "$ref": "#/components/schemas/SelfCheckViolation"
+            },
+            "title": "Violations",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ok",
+          "violation_count"
+        ],
+        "title": "SolverSelfCheck",
         "type": "object"
       },
       "SolverSettings": {
@@ -1041,6 +1140,50 @@
         "summary": "Health"
       }
     },
+    "/api/metrics/fairness": {
+      "post": {
+        "description": "FTE-aware per-tier fairness metrics for a caller-provided roster.\n\nFormulae documented in `docs/RESEARCH_METRICS.md \u00a74`. Reports Gini\n(our convention) + CV (NRP-literature standard) alongside range,\nstd, mean, and per-individual delta-from-median.",
+        "operationId": "fairness_api_metrics_fairness_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FairnessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Fairness Api Metrics Fairness Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Fairness",
+        "tags": [
+          "metrics"
+        ]
+      }
+    },
     "/api/overrides/fill-from-snapshot": {
       "post": {
         "description": "Copy assignments from a completed solve into the overrides list.\n\n`snapshot_id` is \"final\" for the last result, or the 0-based index\n(as a string) of an intermediate event from the same solve.",
@@ -1139,6 +1282,7 @@
               "schema": {
                 "$ref": "#/components/schemas/RestSolveRequest",
                 "default": {
+                  "mode": "new",
                   "snapshot_assignments": false
                 }
               }

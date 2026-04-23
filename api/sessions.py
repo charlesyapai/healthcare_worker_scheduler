@@ -28,7 +28,12 @@ from typing import Any
 import pandas as pd
 from fastapi import Request, Response
 
-from api.models.events import AssignmentRow, SolveResultPayload
+from api.models.events import (
+    AssignmentRow,
+    SelfCheckViolation,
+    SolverSelfCheck,
+    SolveResultPayload,
+)
 from api.models.session import (
     BlockEntry,
     DoctorEntry,
@@ -458,10 +463,62 @@ def rows_to_assignments_dict(
     return out
 
 
+# Hard-constraint rules the validator checks. Kept in sync with
+# `api.validator.validate` — any rule the validator can report must appear
+# here so the self-check shows it as passed when the solver respects it.
+_VALIDATOR_RULES = (
+    "H1", "H2", "H3", "H4", "H5", "H8", "H10", "H12", "H13", "weekday_oc",
+)
+
+
+def build_self_check(
+    state: SessionState,
+    assignments: list[AssignmentRow],
+) -> SolverSelfCheck:
+    """Run the hard-constraint validator over a solver's output and wrap
+    the result in the payload model. A non-empty `violations` list is a
+    bug: the model and the validator disagree. Do not silence."""
+    from api.validator import validate as run_validate
+
+    raw = run_validate(state, assignments)
+    failed = sorted({v["rule"] for v in raw})
+    passed = sorted(r for r in _VALIDATOR_RULES if r not in failed)
+    return SolverSelfCheck(
+        ok=len(raw) == 0,
+        violation_count=len(raw),
+        rules_passed=passed,
+        rules_failed=failed,
+        violations=[SelfCheckViolation(**v) for v in raw],
+    )
+
+
 def solve_result_to_payload(
     state: SessionState,
     result: SolveResult,
 ) -> SolveResultPayload:
+    rows = assignments_to_rows(state, result.assignments or {})
+    # Only validate when the solver actually returned a roster. INFEASIBLE /
+    # UNKNOWN results carry no assignments; running the validator would just
+    # report "zero assignments" as H1 violations and drown the useful signal.
+    self_check: SolverSelfCheck | None = None
+    if result.status in ("OPTIMAL", "FEASIBLE") and rows:
+        try:
+            self_check = build_self_check(state, rows)
+            if not self_check.ok:
+                # Loud on purpose: this means the CP-SAT model produced a
+                # roster the post-solve validator disagrees with. One of
+                # the two has drifted from `docs/CONSTRAINTS.md`.
+                import logging
+                logging.getLogger("api.sessions").warning(
+                    "Solver self-check failed: %d violation(s), rules=%s",
+                    self_check.violation_count,
+                    ",".join(self_check.rules_failed),
+                )
+        except Exception as e:  # pragma: no cover — defensive
+            import logging
+            logging.getLogger("api.sessions").exception(
+                "Self-check failed to run", extra={"err": str(e)}
+            )
     return SolveResultPayload(
         status=result.status,
         wall_time_s=result.wall_time_s,
@@ -471,7 +528,8 @@ def solve_result_to_payload(
         n_constraints=result.n_constraints,
         first_feasible_s=result.first_feasible_s,
         penalty_components=dict(result.penalty_components),
-        assignments=assignments_to_rows(state, result.assignments or {}),
+        assignments=rows,
+        self_check=self_check,
     )
 
 

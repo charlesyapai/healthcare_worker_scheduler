@@ -7,6 +7,7 @@ import { useAutoSavePatch } from "@/api/autosave";
 import { useSessionState } from "@/api/hooks";
 import { startSolve, stopSolve } from "@/api/solveWs";
 import { ObjectiveBreakdown } from "@/components/ObjectiveBreakdown";
+import { SelfCheckBadge } from "@/components/SelfCheckBadge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -181,6 +182,9 @@ export function Solve() {
 
         <div className="grid gap-4">
           <VerdictBanner elapsed={elapsed} />
+          {solve.status === "done" && solve.result && (
+            <SelfCheckBadge selfCheck={solve.result.self_check} />
+          )}
           <ConvergenceCard />
           {solve.status === "done" && solve.result && (
             <ObjectiveBreakdown
