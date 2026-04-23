@@ -70,9 +70,58 @@ uvicorn api.main:app --host 0.0.0.0 --port 7860
 ## Run tests
 
 ```bash
-python -m pytest tests/ -x -q    # 21 tests, ~105s
+python -m pytest tests/ -x -q    # 52 tests, ~4 min (includes self-check across 3 scenarios)
 cd ui && pnpm typecheck          # strict TypeScript over the whole SPA
 ```
+
+## Research usage
+
+The SPA's `/lab` tab is a standalone validation surface for researchers
+and procurement officers who need to verify the solver's claims without
+reading the source. It is intentionally separate from the six
+end-user routes (Dashboard / Setup / Rules / Solve / Roster / Export).
+
+### What the Lab gives you
+
+- **`/lab/benchmark`** — cross-product of (solver × seed) on the
+  current scenario. Reports the industry-standard reliability metrics
+  inline: **feasibility rate per method** ([RESEARCH_METRICS §7.3](docs/RESEARCH_METRICS.md)),
+  **mean coverage shortfall / over-coverage** (§5.1b), **quality
+  ratio Q** (§7.1). Download-bundle button at the end of every run.
+- **`/lab/sweep`** — sweep one CP-SAT parameter across a list of
+  values and see ΔZ_θ, ΔT_θ (§6.2). Useful for picking
+  `search_branching` + `linearization_level` per hospital.
+- **`/lab/fairness`** — drill into any recorded run: per-tier
+  FTE-normalised Gini / CV / range, per-individual delta-from-median,
+  day-of-week load, consultant subspec parity, plus a coverage-gap
+  audit.
+
+### Post-solve self-check
+
+Every solve (on `/solve` *and* inside `/lab`) runs the hard-constraint
+validator over its own output and attaches a `SolverSelfCheck` to the
+response. A red self-check means the CP-SAT model and `api/validator.py`
+disagree — always a bug. The validator's rule list is locked to
+[`docs/CONSTRAINTS.md §2`](docs/CONSTRAINTS.md).
+
+### Reproducibility bundles
+
+A Lab bundle is a ZIP with `state.yaml` + `run_config.json` +
+`results.json` + `git_sha.txt` + `requirements.txt` + `README.md`.
+Replay workflow in [`docs/HOW_TO_REPRODUCE.md`](docs/HOW_TO_REPRODUCE.md).
+
+```bash
+python scripts/replay_bundle.py path/to/bundle.zip
+# → OK — all N runs reproduce.
+```
+
+Determinism is guaranteed with `num_workers=1` + a fixed `random_seed`.
+Multi-worker runs are allowed but flagged as non-deterministic.
+
+### Citing
+
+Per [`docs/CITING.md`](docs/CITING.md) — include the git SHA
+(`/api/health` → `git_sha`) as the `version` field.
 
 ## Architecture
 
@@ -154,8 +203,11 @@ For end users:
 - [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — full change history with
   v2 entries at the top.
 
-For the next agent (validation & research tooling work):
-- [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) — start here.
+For researchers and reviewers:
+- [`docs/HOW_TO_REPRODUCE.md`](docs/HOW_TO_REPRODUCE.md) — replay a
+  downloaded Lab bundle on a clean checkout.
+- [`docs/CITING.md`](docs/CITING.md) — BibTeX + methodological
+  citations.
 - [`docs/INDUSTRY_CONTEXT.md`](docs/INDUSTRY_CONTEXT.md) — literature-
   grounded background: NRP terminology, public benchmarks (Curtois +
   INRC-II + NSPLib), standard fairness metrics, regulatory frameworks
@@ -166,7 +218,9 @@ For the next agent (validation & research tooling work):
   metric definitions (Gini, CV, range, std, INRC-II / Curtois
   translators, etc.).
 - [`docs/LAB_TAB_SPEC.md`](docs/LAB_TAB_SPEC.md) — UI + API spec for the
-  new `/lab` route.
+  `/lab` route.
+- [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) — the original
+  multi-phase brief.
 
 ## License
 

@@ -2,6 +2,25 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-23 — Validation Phase 5: research docs + briefing
+
+**What:** Closing docs pass for the validation work.
+- `docs/HOW_TO_REPRODUCE.md` — step-by-step replay of a Lab bundle
+  on a fresh checkout, with determinism guarantees and a list of
+  what replay does NOT verify.
+- `docs/CITING.md` — BibTeX stubs (solver + OR-Tools) plus
+  methodological citation pointers and the regulatory caveat.
+- `README.md` gains a **Research usage** section pointing at
+  `/lab/*` and summarising the self-check / bundle workflow.
+- `docs/BRIEFING_2026-04-23.md` — single-doc progress summary for
+  the user after the multi-phase push: what shipped, commit list,
+  goal-vs-actual against `VALIDATION_PLAN §4`, metric-by-metric
+  reliability scorecard (17 of 20 first-class NRP metrics green),
+  and three recommended follow-ups (NSPLib adapter, PuLP+CBC MILP
+  baseline, regulatory-conformance module).
+
+**Tests:** unchanged (52/52 pass). No code changes.
+
 ## 2026-04-23 — Validation Phase 4: /lab/sweep + /lab/fairness subtabs
 
 **What:** Two new Lab sub-tabs flesh out the research surface per
