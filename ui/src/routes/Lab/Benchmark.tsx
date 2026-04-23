@@ -11,8 +11,29 @@
  * deep-dive subtabs land in Phase 3 / 4.
  */
 
-import { AlertTriangle, CheckCircle2, Download, Play, Settings } from "lucide-react";
+import {
+  AlertTriangle,
+  BookOpen,
+  CheckCircle2,
+  Download,
+  Play,
+  Settings,
+} from "lucide-react";
 import { useMemo, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  ResponsiveContainer,
+  Scatter,
+  ScatterChart,
+  Tooltip,
+  XAxis,
+  YAxis,
+  ZAxis,
+} from "recharts";
 import { toast } from "sonner";
 
 import {
@@ -34,6 +55,12 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+
+const SOLVER_COLORS: Record<SolverKey, string> = {
+  cpsat: "#4f46e5",         // indigo-600 — main CP-SAT colour
+  greedy: "#14b8a6",        // teal-500 — baseline
+  random_repair: "#f59e0b", // amber-500 — weaker baseline
+};
 
 const SOLVER_LABELS: Record<SolverKey, string> = {
   cpsat: "CP-SAT (ours)",
@@ -304,9 +331,12 @@ export function LabBenchmark() {
       </Card>
 
       <div className="space-y-4">
+        <BenchmarkIntro />
         {run.data ? (
           <>
             <ReliabilityBanner summary={run.data} />
+            <SolverComparisonChart summary={run.data} />
+            <RunScatter summary={run.data} />
             <BundleDownload batchId={run.data.batch_id} />
             <ResultsTable summary={run.data} />
           </>
@@ -321,6 +351,263 @@ export function LabBenchmark() {
         <HistoryCard history={history.data ?? []} />
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------- intro / reading guide
+
+function BenchmarkIntro() {
+  return (
+    <Card className="border-indigo-200 bg-indigo-50/50 dark:border-indigo-900 dark:bg-indigo-950/30">
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <BookOpen className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
+          <CardTitle className="text-sm">What this tab does</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
+        <p>
+          Runs the selected solvers over a cross-product of seeds on the
+          <strong> currently loaded scenario</strong>, then compares them on
+          the NRP-literature reliability metrics. A batch of 3 solvers × 3
+          seeds = 9 runs in ~a minute.
+        </p>
+        <p className="mt-1">
+          <strong>What to watch:</strong>
+        </p>
+        <ul className="ml-4 list-disc space-y-0.5">
+          <li>
+            <strong>Feasibility rate</strong> — % of runs with zero hard-
+            constraint violations. Our CP-SAT should sit at 100%. Greedy
+            usually green on clean scenarios, red on tight ones.
+            Random-repair ≈ always red (it skips H4/H5/H8 by design).
+          </li>
+          <li>
+            <strong>Coverage shortfall</strong> — unfilled station-slots.
+            Zero = every required slot staffed.
+          </li>
+          <li>
+            <strong>Objective</strong> — weighted soft-penalty sum. Lower
+            is better; different orders of magnitude across solvers are
+            normal (baselines don't optimise).
+          </li>
+          <li>
+            <strong>Quality ratio Q</strong> — Z<sub>baseline</sub> /
+            Z<sub>ours</sub>. Only appears when both methods report an
+            objective; currently only CP-SAT does, so Q lights up once a
+            MILP baseline ships.
+          </li>
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------- comparison chart
+
+function SolverComparisonChart({ summary }: { summary: BatchSummary }) {
+  const solvers = Array.from(new Set(summary.runs.map((r) => r.solver)));
+  if (solvers.length === 0) return null;
+
+  // One row per solver. Objectives + shortfalls are on different scales,
+  // so render three small charts side-by-side rather than a single chart
+  // with dual Y-axes (easier to read, no misleading axis tricks).
+  const feasData = solvers.map((s) => ({
+    solver: SOLVER_LABELS[s as SolverKey] ?? s,
+    value: (summary.feasibility_rate[s] ?? 0) * 100,
+    raw: s as SolverKey,
+  }));
+  const objData = solvers.map((s) => ({
+    solver: SOLVER_LABELS[s as SolverKey] ?? s,
+    value: summary.mean_objective[s] ?? null,
+    raw: s as SolverKey,
+  }));
+  const shortData = solvers.map((s) => ({
+    solver: SOLVER_LABELS[s as SolverKey] ?? s,
+    value: summary.mean_shortfall[s] ?? 0,
+    raw: s as SolverKey,
+  }));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Solver comparison</CardTitle>
+        <CardDescription>
+          Side-by-side on three independent metrics. Bars are coloured by
+          solver so you can follow one across charts. A method that's
+          green on all three panels is "production-ready" on this instance.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4 md:grid-cols-3">
+          <MiniBarChart
+            title="Feasibility rate"
+            subtitle="higher better · 100% = every run satisfied H1–H15"
+            data={feasData}
+            suffix="%"
+            yDomain={[0, 100]}
+          />
+          <MiniBarChart
+            title="Mean objective"
+            subtitle="lower better · — if solver doesn't optimise"
+            data={objData}
+          />
+          <MiniBarChart
+            title="Mean shortfall"
+            subtitle="lower better · 0 = no unfilled slots"
+            data={shortData}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MiniBarChart({
+  title,
+  subtitle,
+  data,
+  suffix = "",
+  yDomain,
+}: {
+  title: string;
+  subtitle: string;
+  data: Array<{ solver: string; value: number | null; raw: SolverKey }>;
+  suffix?: string;
+  yDomain?: [number, number];
+}) {
+  const nonNull = data.every((d) => d.value == null);
+  return (
+    <div className="flex flex-col">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+        {title}
+      </p>
+      <p className="mb-2 text-[10px] text-slate-500 dark:text-slate-400">
+        {subtitle}
+      </p>
+      <div className="h-44 rounded-md border border-slate-200 dark:border-slate-800">
+        {nonNull ? (
+          <div className="flex h-full items-center justify-center text-[11px] text-slate-400">
+            no data
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={data.map((d) => ({ ...d, value: d.value ?? 0 }))}
+              margin={{ top: 8, right: 8, bottom: 4, left: 0 }}
+            >
+              <CartesianGrid stroke="#e2e8f0" strokeDasharray="2 4" />
+              <XAxis dataKey="solver" tick={{ fontSize: 10 }} interval={0} />
+              <YAxis tick={{ fontSize: 10 }} domain={yDomain} />
+              <Tooltip
+                contentStyle={{ fontSize: 11 }}
+                formatter={(v) => `${Number(v).toFixed(1)}${suffix}`}
+              />
+              <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                {data.map((d, i) => (
+                  <Cell key={i} fill={SOLVER_COLORS[d.raw] ?? "#94a3b8"} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------- per-run scatter
+
+function RunScatter({ summary }: { summary: BatchSummary }) {
+  const solvers = Array.from(new Set(summary.runs.map((r) => r.solver))) as SolverKey[];
+  if (summary.runs.length === 0) return null;
+  // Group runs by solver so recharts can render one Scatter series per
+  // solver with its own colour + legend entry. Using wall time on X and
+  // objective on Y; each dot is one (seed) run.
+  const series = solvers.map((s) => ({
+    name: SOLVER_LABELS[s] ?? s,
+    solver: s,
+    data: summary.runs
+      .filter((r) => r.solver === s)
+      .map((r) => ({
+        x: r.wall_time_s,
+        y: r.objective ?? null,
+        seed: r.seed,
+        status: r.status,
+        selfCheck: r.self_check_ok,
+        shortfall: r.coverage_shortfall,
+      })),
+  }));
+
+  const allY = series.flatMap((s) => s.data.map((d) => d.y).filter((y): y is number => y != null));
+  const hasObjective = allY.length > 0;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          {hasObjective ? "Objective vs wall time" : "Wall time per run"}
+        </CardTitle>
+        <CardDescription>
+          One dot per (solver × seed) run. Tight cluster = stable (low
+          seed sensitivity). Big spread = reconsider the seed count
+          before publishing a mean. Baselines without an objective sit
+          on the X-axis.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <ScatterChart margin={{ top: 8, right: 12, bottom: 20, left: 8 }}>
+              <CartesianGrid stroke="#e2e8f0" strokeDasharray="2 4" />
+              <XAxis
+                dataKey="x"
+                type="number"
+                name="wall time"
+                tick={{ fontSize: 11 }}
+                label={{
+                  value: "wall time (s)",
+                  position: "insideBottom",
+                  offset: -10,
+                  style: { fontSize: 11, fill: "#64748b" },
+                }}
+              />
+              <YAxis
+                dataKey="y"
+                type="number"
+                name="objective"
+                tick={{ fontSize: 11 }}
+                label={{
+                  value: "objective",
+                  angle: -90,
+                  position: "insideLeft",
+                  style: { fontSize: 11, fill: "#64748b" },
+                }}
+              />
+              <ZAxis range={[60, 60]} />
+              <Tooltip
+                contentStyle={{ fontSize: 11 }}
+                cursor={{ strokeDasharray: "3 3" }}
+                formatter={(v, key) => {
+                  if (key === "x") return [`${Number(v).toFixed(2)}s`, "wall time"];
+                  if (key === "y") return [Number(v).toFixed(0), "objective"];
+                  return [v, key];
+                }}
+              />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              {series.map((s) => (
+                <Scatter
+                  key={s.solver}
+                  name={s.name}
+                  data={s.data}
+                  fill={SOLVER_COLORS[s.solver] ?? "#94a3b8"}
+                />
+              ))}
+            </ScatterChart>
+          </ResponsiveContainer>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

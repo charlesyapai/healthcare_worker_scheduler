@@ -10,14 +10,18 @@
  * wall time) move when you perturb one CP-SAT lever.
  */
 
-import { AlertCircle, Play } from "lucide-react";
+import { AlertCircle, BookOpen, Play } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
+  Bar,
+  BarChart,
   CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
+  Cell,
+  ErrorBar,
+  ReferenceLine,
   ResponsiveContainer,
+  Scatter,
+  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
@@ -39,6 +43,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 type SweepParam =
   | "search_branching"
@@ -260,6 +265,7 @@ export function LabSweep() {
       </Card>
 
       <div className="space-y-4">
+        <SweepIntro />
         {cells ? (
           <SweepResults cells={cells} param={param} />
         ) : running ? (
@@ -284,6 +290,52 @@ export function LabSweep() {
   );
 }
 
+function SweepIntro() {
+  return (
+    <Card className="border-indigo-200 bg-indigo-50/50 dark:border-indigo-900 dark:bg-indigo-950/30">
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <BookOpen className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
+          <CardTitle className="text-sm">How to read a parameter sweep</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
+        <p>
+          A sweep holds the scenario + every other CP-SAT knob fixed and
+          varies <strong>one parameter</strong> across the value list you
+          pick. For each value we run a batch of seeds, then compare
+          objective + wall-time distributions.
+        </p>
+        <p>
+          <strong>What the charts show:</strong>
+        </p>
+        <ul className="ml-4 list-disc space-y-0.5">
+          <li>
+            <strong>Objective bar</strong> — mean objective per parameter
+            value. Whiskers span <em>min → max</em> across seeds. A value
+            with a low mean AND a short whisker is robustly better.
+          </li>
+          <li>
+            <strong>Time bar</strong> — mean wall time per value. A
+            parameter that slashes time without raising objective is a
+            free win.
+          </li>
+          <li>
+            <strong>All-runs scatter</strong> — one dot per (value × seed)
+            cell. Useful for spotting bimodal behaviour the summary
+            table hides.
+          </li>
+        </ul>
+        <p>
+          <strong>Headline metrics</strong> at the top of the next card:
+          ΔZ_θ (max − min across means) and ΔT_θ (wall-time range). See{" "}
+          <code>docs/RESEARCH_METRICS.md §6.2</code>.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function SweepResults({ cells, param }: { cells: SweepCell[]; param: SweepParam }) {
   // Group: parameter value → list of objectives + times.
   const byValue: Record<string, { objectives: number[]; times: number[] }> = {};
@@ -299,21 +351,48 @@ function SweepResults({ cells, param }: { cells: SweepCell[]; param: SweepParam 
     const mn = objs.length ? Math.min(...objs) : null;
     const mx = objs.length ? Math.max(...objs) : null;
     const meanTime = b.times.length ? b.times.reduce((s, x) => s + x, 0) / b.times.length : 0;
-    return { v, mean, mn, mx, meanTime, n: objs.length };
+    const timeMin = b.times.length ? Math.min(...b.times) : 0;
+    const timeMax = b.times.length ? Math.max(...b.times) : 0;
+    return { v, mean, mn, mx, meanTime, timeMin, timeMax, n: objs.length };
   });
 
-  const objRange = (() => {
-    const all = cells.map((c) => c.objective).filter((o): o is number => o != null);
-    if (all.length === 0) return null;
-    return Math.max(...all) - Math.min(...all);
-  })();
-  const timeRange = (() => {
-    const all = cells.map((c) => c.wall_time_s);
-    return Math.max(...all) - Math.min(...all);
-  })();
+  // ΔZ_θ and ΔT_θ from RESEARCH_METRICS §6.2 — the headline sensitivity
+  // numbers. ΔZ uses max/min of *means* (per-value) so one outlier seed
+  // doesn't inflate the signal; ΔT uses max/min of individual runs
+  // since tail-latency matters on CI.
+  const means = valueRows.map((r) => r.mean).filter((m): m is number => m != null);
+  const deltaZ = means.length >= 2 ? Math.max(...means) - Math.min(...means) : null;
+  const allTimes = cells.map((c) => c.wall_time_s);
+  const deltaT = allTimes.length >= 2 ? Math.max(...allTimes) - Math.min(...allTimes) : 0;
 
-  const chartData = cells.map((c) => ({
-    param: c.paramValue,
+  // Best value for each metric (lowest mean obj, lowest mean time).
+  const bestObjRow = means.length
+    ? valueRows.filter((r) => r.mean != null).sort((a, b) => (a.mean! - b.mean!))[0]
+    : null;
+  const bestTimeRow = valueRows.length
+    ? [...valueRows].sort((a, b) => a.meanTime - b.meanTime)[0]
+    : null;
+
+  // Bar data: mean objective per value. `errorBar` wants `[down, up]`
+  // expressed as distances from the mean.
+  const objBarData = valueRows
+    .filter((r) => r.mean != null)
+    .map((r) => ({
+      value: r.v,
+      mean: r.mean as number,
+      errorDown: (r.mean as number) - (r.mn as number),
+      errorUp: (r.mx as number) - (r.mean as number),
+    }));
+  const timeBarData = valueRows.map((r) => ({
+    value: r.v,
+    meanTime: r.meanTime,
+    errorDown: r.meanTime - r.timeMin,
+    errorUp: r.timeMax - r.meanTime,
+  }));
+
+  // Scatter: one point per run so the user sees individual seeds.
+  const scatterData = cells.map((c) => ({
+    value: c.paramValue,
     objective: c.objective,
     wall_time: c.wall_time_s,
     seed: c.seed,
@@ -323,12 +402,28 @@ function SweepResults({ cells, param }: { cells: SweepCell[]; param: SweepParam 
     <>
       <Card>
         <CardHeader>
-          <CardTitle>Sensitivity to <code>{param}</code></CardTitle>
+          <CardTitle>
+            Sensitivity to <code>{param}</code>
+          </CardTitle>
           <CardDescription>
-            ΔZ = <strong>{objRange == null ? "—" : objRange.toFixed(0)}</strong> ·
-            ΔT = <strong>{timeRange.toFixed(1)}s</strong>. Big deltas mean
-            CP-SAT is sensitive to this parameter on this instance; the
-            paper should discuss why.
+            <strong>ΔZ_θ</strong>{" "}
+            = {deltaZ == null ? "—" : deltaZ.toFixed(0)} ·{" "}
+            <strong>ΔT_θ</strong> = {deltaT.toFixed(1)}s. Big ΔZ means
+            CP-SAT reacts strongly to this parameter on this instance —
+            worth discussing in the paper. Near-zero ΔZ means the
+            parameter doesn't matter for this problem shape.
+            {bestObjRow?.mean != null && (
+              <>
+                {" "}Best objective: <strong>{bestObjRow.v}</strong>{" "}
+                (mean {bestObjRow.mean.toFixed(0)}).
+              </>
+            )}
+            {bestTimeRow && (
+              <>
+                {" "}Fastest: <strong>{bestTimeRow.v}</strong>{" "}
+                (mean {bestTimeRow.meanTime.toFixed(1)}s).
+              </>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -337,54 +432,175 @@ function SweepResults({ cells, param }: { cells: SweepCell[]; param: SweepParam 
               <tr className="text-left text-slate-500 dark:text-slate-400">
                 <th className="py-1">{param}</th>
                 <th className="py-1 text-right">n</th>
-                <th className="py-1 text-right">Mean objective</th>
+                <th className="py-1 text-right">Mean obj</th>
                 <th className="py-1 text-right">Min</th>
                 <th className="py-1 text-right">Max</th>
-                <th className="py-1 text-right">Mean time (s)</th>
+                <th className="py-1 text-right">Mean time</th>
               </tr>
             </thead>
             <tbody>
-              {valueRows.map((r) => (
-                <tr key={r.v}>
-                  <td className="py-1 font-mono">{r.v}</td>
-                  <td className="py-1 text-right">{r.n}</td>
-                  <td className="py-1 text-right font-mono">{r.mean?.toFixed(1) ?? "—"}</td>
-                  <td className="py-1 text-right font-mono">{r.mn?.toFixed(0) ?? "—"}</td>
-                  <td className="py-1 text-right font-mono">{r.mx?.toFixed(0) ?? "—"}</td>
-                  <td className="py-1 text-right font-mono">{r.meanTime.toFixed(1)}</td>
-                </tr>
-              ))}
+              {valueRows.map((r) => {
+                const isBestObj = bestObjRow?.v === r.v && r.mean != null;
+                const isBestTime = bestTimeRow?.v === r.v;
+                return (
+                  <tr key={r.v}>
+                    <td className="py-1 font-mono">{r.v}</td>
+                    <td className="py-1 text-right">{r.n}</td>
+                    <td
+                      className={cn(
+                        "py-1 text-right font-mono",
+                        isBestObj && "font-semibold text-emerald-700 dark:text-emerald-300",
+                      )}
+                    >
+                      {r.mean?.toFixed(1) ?? "—"}
+                    </td>
+                    <td className="py-1 text-right font-mono">{r.mn?.toFixed(0) ?? "—"}</td>
+                    <td className="py-1 text-right font-mono">{r.mx?.toFixed(0) ?? "—"}</td>
+                    <td
+                      className={cn(
+                        "py-1 text-right font-mono",
+                        isBestTime && "font-semibold text-emerald-700 dark:text-emerald-300",
+                      )}
+                    >
+                      {r.meanTime.toFixed(1)}s
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </CardContent>
       </Card>
+
+      {objBarData.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Mean objective per value</CardTitle>
+            <CardDescription>
+              Whiskers = min → max across the seeds per value. A value
+              with the lowest bar AND a short whisker is robustly better
+              than the others. Highlighted green bar = current winner.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={objBarData} margin={{ top: 8, right: 12, bottom: 16, left: 8 }}>
+                <CartesianGrid stroke="#e2e8f0" strokeDasharray="2 4" />
+                <XAxis dataKey="value" tick={{ fontSize: 11 }} interval={0} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip
+                  contentStyle={{ fontSize: 11 }}
+                  formatter={(v) => Number(v).toFixed(1)}
+                />
+                {bestObjRow?.mean != null && (
+                  <ReferenceLine
+                    y={bestObjRow.mean}
+                    stroke="#10b981"
+                    strokeDasharray="4 4"
+                    label={{
+                      value: "best",
+                      position: "right",
+                      style: { fontSize: 10, fill: "#10b981" },
+                    }}
+                  />
+                )}
+                <Bar dataKey="mean" radius={[4, 4, 0, 0]}>
+                  {objBarData.map((d, i) => (
+                    <Cell
+                      key={i}
+                      fill={d.value === bestObjRow?.v ? "#10b981" : "#4f46e5"}
+                    />
+                  ))}
+                  <ErrorBar
+                    dataKey="errorUp"
+                    width={4}
+                    strokeWidth={1.5}
+                    stroke="#64748b"
+                    direction="y"
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
-          <CardTitle>Objective by parameter value</CardTitle>
+          <CardTitle>Mean wall time per value</CardTitle>
           <CardDescription>
-            Each dot is one (value × seed) run.
+            Whiskers = min → max across seeds. A parameter change that
+            cuts wall time without raising the objective is a free win.
           </CardDescription>
         </CardHeader>
-        <CardContent className="h-64">
+        <CardContent className="h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData} margin={{ top: 8, right: 12, bottom: 16, left: 8 }}>
+            <BarChart data={timeBarData} margin={{ top: 8, right: 12, bottom: 16, left: 8 }}>
               <CartesianGrid stroke="#e2e8f0" strokeDasharray="2 4" />
-              <XAxis dataKey="param" tick={{ fontSize: 11 }} />
+              <XAxis dataKey="value" tick={{ fontSize: 11 }} interval={0} />
               <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip contentStyle={{ fontSize: 12 }} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line
-                type="monotone"
-                dataKey="objective"
-                stroke="#4f46e5"
-                strokeWidth={2}
-                dot={{ r: 3 }}
-                name="objective"
+              <Tooltip
+                contentStyle={{ fontSize: 11 }}
+                formatter={(v) => `${Number(v).toFixed(1)}s`}
               />
-            </LineChart>
+              <Bar dataKey="meanTime" radius={[4, 4, 0, 0]}>
+                {timeBarData.map((d, i) => (
+                  <Cell
+                    key={i}
+                    fill={d.value === bestTimeRow?.v ? "#10b981" : "#0ea5e9"}
+                  />
+                ))}
+                <ErrorBar
+                  dataKey="errorUp"
+                  width={4}
+                  strokeWidth={1.5}
+                  stroke="#64748b"
+                  direction="y"
+                />
+              </Bar>
+            </BarChart>
           </ResponsiveContainer>
         </CardContent>
       </Card>
+
+      {scatterData.some((d) => d.objective != null) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>All runs</CardTitle>
+            <CardDescription>
+              One dot per (value × seed) — shows individual seed spread
+              the summary table hides. A tall column = high seed
+              sensitivity; a tight column = robust.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <ScatterChart margin={{ top: 8, right: 12, bottom: 16, left: 8 }}>
+                <CartesianGrid stroke="#e2e8f0" strokeDasharray="2 4" />
+                <XAxis
+                  dataKey="value"
+                  type="category"
+                  allowDuplicatedCategory={false}
+                  tick={{ fontSize: 11 }}
+                />
+                <YAxis
+                  dataKey="objective"
+                  type="number"
+                  tick={{ fontSize: 11 }}
+                  label={{
+                    value: "objective",
+                    angle: -90,
+                    position: "insideLeft",
+                    style: { fontSize: 11, fill: "#64748b" },
+                  }}
+                />
+                <Tooltip contentStyle={{ fontSize: 11 }} />
+                <Scatter data={scatterData} fill="#4f46e5" />
+              </ScatterChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
     </>
   );
 }

@@ -6,9 +6,22 @@
  * Per `docs/LAB_TAB_SPEC.md §4`.
  */
 
+import { BookOpen } from "lucide-react";
 import { useMemo, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import {
+  type PerDoctorFairness,
   type SingleRunDetail,
   useBatchDetail,
   useBatchHistory,
@@ -22,6 +35,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+
+const TIER_COLORS: Record<string, string> = {
+  junior: "#6366f1",      // indigo-500
+  senior: "#14b8a6",      // teal-500
+  consultant: "#f59e0b",  // amber-500
+};
 
 export function LabFairness() {
   const history = useBatchHistory();
@@ -110,6 +129,7 @@ export function LabFairness() {
       </Card>
 
       <div className="space-y-4">
+        <FairnessIntro />
         {effectiveRun ? (
           <>
             <Card>
@@ -125,6 +145,10 @@ export function LabFairness() {
                 <FairnessView data={effectiveRun.fairness} tierLabels={tierLabels} />
               </CardContent>
             </Card>
+            <IndividualWorkloadChart
+              rows={effectiveRun.fairness.per_individual}
+              tierLabels={tierLabels}
+            />
             <CoveragePanel detail={effectiveRun} />
           </>
         ) : (
@@ -136,6 +160,172 @@ export function LabFairness() {
         )}
       </div>
     </div>
+  );
+}
+
+function FairnessIntro() {
+  return (
+    <Card className="border-indigo-200 bg-indigo-50/50 dark:border-indigo-900 dark:bg-indigo-950/30">
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <BookOpen className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
+          <CardTitle className="text-sm">How to read a fairness audit</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
+        <p>
+          All fairness metrics are computed on <strong>FTE-normalised</strong>{" "}
+          weighted workload. A 0.5-FTE doctor doing half the work shows up
+          identical to a full-timer doing 100%. See{" "}
+          <code>docs/RESEARCH_METRICS.md §4</code>.
+        </p>
+        <ul className="ml-4 list-disc space-y-0.5">
+          <li>
+            <strong>Gini</strong> — 0 = perfectly equal, 1 = one person
+            did everything. Under 0.05 is "very even"; over 0.25 is a
+            smell.
+          </li>
+          <li>
+            <strong>CV</strong> (coefficient of variation, σ / μ) —
+            standard in NRP literature. Under 0.1 = tight; over 0.3 =
+            high variance.
+          </li>
+          <li>
+            <strong>Range</strong> — max − min of normalised workload,
+            in raw workload-points. The most intuitive "how bad is the
+            tail?" number.
+          </li>
+          <li>
+            <strong>Per-individual Δ</strong> — each doctor's score
+            minus their tier median. The bar chart below sorts by Δ so
+            over-worked people float to the top and under-worked to
+            the bottom.
+          </li>
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
+function IndividualWorkloadChart({
+  rows,
+  tierLabels,
+}: {
+  rows: PerDoctorFairness[];
+  tierLabels: { junior: string; senior: string; consultant: string };
+}) {
+  // Per-tier median, for the reference lines + delta colouring.
+  const medianByTier: Record<string, number> = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const tier of ["junior", "senior", "consultant"]) {
+      const values = rows
+        .filter((r) => r.tier === tier)
+        .map((r) => r.fte_normalised)
+        .sort((a, b) => a - b);
+      if (values.length === 0) continue;
+      const mid = values.length >> 1;
+      out[tier] =
+        values.length % 2 === 0
+          ? (values[mid - 1] + values[mid]) / 2
+          : values[mid];
+    }
+    return out;
+  }, [rows]);
+
+  // Sort: tier order then Δ (descending), so outliers cluster visually.
+  const tierOrder = ["junior", "senior", "consultant"];
+  const data = useMemo(() => {
+    return [...rows]
+      .sort((a, b) => {
+        const ta = tierOrder.indexOf(a.tier);
+        const tb = tierOrder.indexOf(b.tier);
+        if (ta !== tb) return ta - tb;
+        return b.delta_from_median - a.delta_from_median;
+      })
+      .map((r) => ({
+        ...r,
+        label: r.fte !== 1 ? `${r.doctor} (${r.fte} FTE)` : r.doctor,
+      }));
+  }, [rows]);
+
+  if (data.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Per-individual FTE-normalised workload</CardTitle>
+        <CardDescription>
+          One bar per doctor, coloured by tier. Dashed lines mark the
+          per-tier median. Bars above the line are over-worked relative
+          to their tier median; bars below are under-worked. The taller
+          the gap, the bigger the Δ.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="mb-2 flex flex-wrap gap-3 text-[11px]">
+          {tierOrder.map((t) => (
+            <span key={t} className="inline-flex items-center gap-1.5">
+              <span
+                className="h-3 w-3 rounded-sm"
+                style={{ backgroundColor: TIER_COLORS[t] }}
+              />
+              {tierLabels[t as keyof typeof tierLabels] ?? t}
+              {medianByTier[t] != null && (
+                <span className="text-slate-500">
+                  (median {medianByTier[t].toFixed(0)})
+                </span>
+              )}
+            </span>
+          ))}
+        </div>
+        <div className="h-72">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={data}
+              margin={{ top: 8, right: 12, bottom: 40, left: 8 }}
+            >
+              <CartesianGrid stroke="#e2e8f0" strokeDasharray="2 4" />
+              <XAxis
+                dataKey="label"
+                tick={{ fontSize: 10 }}
+                angle={-45}
+                textAnchor="end"
+                interval={0}
+                height={50}
+              />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip
+                contentStyle={{ fontSize: 11 }}
+                formatter={(v, _n, payload) => {
+                  const r = payload?.payload as PerDoctorFairness | undefined;
+                  if (!r) return [Number(v).toFixed(1), "workload"];
+                  return [
+                    `${Number(v).toFixed(1)} (Δ ${r.delta_from_median >= 0 ? "+" : ""}${r.delta_from_median.toFixed(1)})`,
+                    "FTE-norm workload",
+                  ];
+                }}
+              />
+              {tierOrder.map((t) =>
+                medianByTier[t] != null ? (
+                  <ReferenceLine
+                    key={t}
+                    y={medianByTier[t]}
+                    stroke={TIER_COLORS[t]}
+                    strokeDasharray="4 4"
+                    strokeOpacity={0.6}
+                  />
+                ) : null,
+              )}
+              <Bar dataKey="fte_normalised" radius={[3, 3, 0, 0]}>
+                {data.map((d, i) => (
+                  <Cell key={i} fill={TIER_COLORS[d.tier] ?? "#94a3b8"} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

@@ -2,6 +2,58 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-23 — Lab UX: intros, comparison charts, richer visuals
+
+**What:** Every Lab sub-tab now has a reading-guide card and real
+charts. Fixes "there is really very little given to understand what
+is going on" — the Lab used to be table-heavy and assumed you knew
+the NRP reliability metrics by heart.
+
+**`/lab/benchmark`:**
+- **Reading-guide card** at the top — one-paragraph explanation of
+  what the batch does + a bulleted guide to Feasibility rate,
+  Coverage shortfall, Objective, and Quality ratio.
+- **Solver comparison chart** — three side-by-side bar charts (one
+  per metric), bars coloured by solver. A solver that's green on all
+  three panels is "production-ready on this instance."
+- **Run scatter** — objective vs wall time, one dot per (solver ×
+  seed). Tight cluster = stable; big spread = raise the seed count
+  before publishing a mean.
+
+**`/lab/sweep`:**
+- **Reading-guide card** — what sweeping does, what ΔZ_θ + ΔT_θ
+  mean, how to read error-bar ranges.
+- **Aggregate bar with whiskers** — mean objective per value,
+  whiskers span min → max across seeds. Current winner highlighted
+  in emerald with a reference line at its mean.
+- **Mean wall-time chart** — same treatment on wall time so the
+  user can spot "lower objective AND lower time = free win" cells.
+- **All-runs scatter** — one dot per (value × seed), exposes bimodal
+  behaviour the summary table hides.
+- Summary table now highlights the best-objective + best-time rows.
+- Header call-out: best value + its mean objective, fastest value +
+  its mean time.
+
+**`/lab/fairness`:**
+- **Reading-guide card** — what Gini / CV / range / per-individual
+  Δ mean in plain words, with "healthy" vs "smell" thresholds.
+- **Per-individual FTE-normalised workload chart** — one bar per
+  doctor, coloured by tier, sorted within-tier by Δ (most over-
+  worked to most under-worked). Dashed per-tier median reference
+  lines so outliers are obvious at a glance. Bars labelled with
+  FTE if it's not 1.0.
+- Retains the existing `FairnessView` (per-tier cards, DoW bar
+  chart, subspec parity) and coverage audit below.
+
+**Shared:**
+- New Lab colour palette — each solver has one colour across all
+  Lab charts (CP-SAT indigo, greedy teal, random_repair amber),
+  each tier has one colour on fairness charts. Makes
+  cross-chart tracking trivial.
+- No backend changes; no test changes; 56/56 pytest still pass.
+  Frontend build 884 KB JS / 259 KB gzip (~35 KB larger for the
+  extra chart code, acceptable).
+
 ## 2026-04-23 — Split GitHub ↔ HF deploy (docs stripped from Space)
 
 **What:** HF Space deploys now go through `scripts/deploy_hf.sh`,
