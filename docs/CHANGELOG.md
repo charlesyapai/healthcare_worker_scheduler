@@ -2,6 +2,38 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-23 — Split GitHub ↔ HF deploy (docs stripped from Space)
+
+**What:** HF Space deploys now go through `scripts/deploy_hf.sh`,
+which rebuilds a local `hf-deploy` branch from `react-ui` with the
+entire `docs/` tree removed and force-pushes it to HF's `main`.
+GitHub stays the canonical source of truth with full docs; HF
+ships only what the running app needs.
+
+**Why:** The HF Space is public-facing and should expose the minimum
+surface — research notes, validation plans, internal briefings, and
+the CHANGELOG are valuable in the GitHub repo but not on the hosted
+app. Manual web-UI deletions kept getting stomped by `git push`; the
+new script makes the split automatic.
+
+**Workflow:**
+```bash
+git push origin react-ui          # GitHub — full repo
+./scripts/deploy_hf.sh             # HF — docs-stripped, polls to RUNNING
+```
+
+The script:
+1. Fails if the working tree has uncommitted changes.
+2. Rebuilds `hf-deploy` from the latest `react-ui` (or a named branch).
+3. `git rm -r docs`, single commit with a `Deploy <sha> to HF` message.
+4. Force-pushes `hf-deploy:main` → HF (canonical history is on
+   GitHub; HF's history is intentionally disposable).
+5. Polls `huggingface.co/api/spaces/…/runtime` until
+   `stage == RUNNING`.
+6. Returns to the caller's original branch.
+
+No scheduler / solver / UI changes — pure deploy plumbing.
+
 ## 2026-04-23 — Scenario refresh: 7 scenarios, rescaled stations
 
 **What:** Reorganised the scenario picker so every pre-built scenario
