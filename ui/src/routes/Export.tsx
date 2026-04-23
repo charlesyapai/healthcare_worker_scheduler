@@ -546,14 +546,26 @@ function buildPrintableHtml(args: {
   nDays: number;
 }): string {
   const { title, rows, doctors, startDate, nDays } = args;
-  const dates: string[] = [];
+
+  // Chunk the horizon into 7-day "weeks" starting from `startDate`. Using
+  // horizon-relative chunks (rather than Mon-anchored calendar weeks)
+  // keeps every block a uniform 7-column grid unless the final partial
+  // week is shorter — much easier to scan on a printed page than a
+  // sprawling N×doctors table.
+  const weeks: string[][] = [];
   if (startDate && nDays > 0) {
-    const start = new Date(startDate);
+    const start = new Date(`${startDate}T00:00`);
+    let cursor: string[] = [];
     for (let i = 0; i < nDays; i++) {
       const d = new Date(start);
       d.setDate(start.getDate() + i);
-      dates.push(d.toISOString().slice(0, 10));
+      cursor.push(d.toISOString().slice(0, 10));
+      if (cursor.length === 7) {
+        weeks.push(cursor);
+        cursor = [];
+      }
     }
+    if (cursor.length) weeks.push(cursor);
   }
 
   const key = (doctor: string, date: string) => `${doctor}|${date}`;
@@ -565,40 +577,154 @@ function buildPrintableHtml(args: {
     cell.set(k, list);
   }
 
-  const head = dates.map((d) => `<th>${d.slice(5)}</th>`).join("");
-  const body = doctors
-    .map((name) => {
-      const cells = dates
-        .map((d) => {
-          const cs = (cell.get(key(name, d)) ?? []).join(" / ");
-          return `<td>${cs}</td>`;
-        })
-        .join("");
-      return `<tr><th>${escapeHtml(name)}</th>${cells}</tr>`;
-    })
-    .join("");
+  const weekBlocks = weeks
+    .map((days, wIdx) => buildWeekBlock({ days, doctors, cell, key, wIdx }))
+    .join("\n");
 
   return `<!doctype html>
 <html><head>
 <meta charset="UTF-8" />
 <title>${escapeHtml(title)}</title>
 <style>
-  body { font: 11px ui-sans-serif, system-ui, sans-serif; margin: 16px; color: #0f172a; }
+  :root { color-scheme: light; }
+  body {
+    font: 11px ui-sans-serif, system-ui, sans-serif;
+    margin: 16px;
+    color: #0f172a;
+    background: #ffffff;
+  }
   h1 { font-size: 16px; margin: 0 0 12px; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { border: 1px solid #cbd5e1; padding: 3px 5px; text-align: center; font-size: 10px; }
-  th { background: #f1f5f9; position: sticky; top: 0; }
-  tr > th:first-child { text-align: left; background: #f8fafc; min-width: 130px; }
-  @media print { body { margin: 8mm; } h1 { font-size: 14px; } }
+  .week {
+    margin: 0 0 18px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .week-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin: 0 0 4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #334155;
+  }
+  .week-head .range { font-weight: 400; color: #64748b; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  col.doctor { width: 22%; }
+  col.day { width: 11.14%; }
+  th, td {
+    border: 1px solid #cbd5e1;
+    padding: 3px 4px;
+    font-size: 10px;
+    text-align: center;
+    vertical-align: middle;
+    word-break: break-word;
+  }
+  th { background: #f1f5f9; }
+  th.weekend { background: #fef3c7; color: #92400e; }
+  td.weekend { background: #fffbeb; }
+  tr > th:first-child,
+  tr > td:first-child {
+    text-align: left;
+    background: #f8fafc;
+    font-weight: 500;
+  }
+  td:empty::after { content: "·"; color: #cbd5e1; }
+  @media print {
+    body { margin: 8mm; }
+    h1 { font-size: 13px; margin-bottom: 8px; }
+    .week { margin-bottom: 10px; }
+  }
 </style>
 </head><body>
 <h1>${escapeHtml(title)}</h1>
-<table>
-<thead><tr><th>Doctor</th>${head}</tr></thead>
-<tbody>${body}</tbody>
-</table>
+${weekBlocks}
 <script>window.onload = () => setTimeout(() => window.print(), 250);</script>
 </body></html>`;
+}
+
+function buildWeekBlock(args: {
+  days: string[];
+  doctors: string[];
+  cell: Map<string, string[]>;
+  key: (doctor: string, date: string) => string;
+  wIdx: number;
+}): string {
+  const { days, doctors, cell, key, wIdx } = args;
+  const first = days[0];
+  const last = days[days.length - 1];
+  const rangeLabel = formatDayRange(first, last);
+
+  // Pad the final (possibly short) week with empty columns so it still
+  // renders as a 7-column grid. Empty cells render as "·" via CSS.
+  const PAD = 7;
+  const paddedDays = days.slice();
+  while (paddedDays.length < PAD) paddedDays.push("");
+
+  const colDefs =
+    '<col class="doctor" />' +
+    paddedDays.map(() => '<col class="day" />').join("");
+
+  const head = paddedDays
+    .map((iso) => {
+      if (!iso) return "<th></th>";
+      const d = new Date(`${iso}T00:00`);
+      const dow = d.getDay();
+      const we = dow === 0 || dow === 6;
+      const weekdayShort = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][
+        dow
+      ];
+      const label = `${weekdayShort}<br>${iso.slice(5)}`;
+      return `<th class="${we ? "weekend" : ""}">${label}</th>`;
+    })
+    .join("");
+
+  const body = doctors
+    .map((name) => {
+      const cells = paddedDays
+        .map((iso) => {
+          if (!iso) return "<td></td>";
+          const d = new Date(`${iso}T00:00`);
+          const dow = d.getDay();
+          const we = dow === 0 || dow === 6;
+          const cs = (cell.get(key(name, iso)) ?? []).join(" / ");
+          return `<td class="${we ? "weekend" : ""}">${escapeHtml(cs)}</td>`;
+        })
+        .join("");
+      return `<tr><td>${escapeHtml(name)}</td>${cells}</tr>`;
+    })
+    .join("");
+
+  return `<section class="week">
+  <div class="week-head">
+    <span>Week ${wIdx + 1}</span>
+    <span class="range">${rangeLabel}</span>
+  </div>
+  <table>
+    <colgroup>${colDefs}</colgroup>
+    <thead><tr><th>Doctor</th>${head}</tr></thead>
+    <tbody>${body}</tbody>
+  </table>
+</section>`;
+}
+
+function formatDayRange(firstIso: string, lastIso: string): string {
+  if (!firstIso || !lastIso) return "";
+  const a = new Date(`${firstIso}T00:00`);
+  const b = new Date(`${lastIso}T00:00`);
+  const opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
+  const sameMonth =
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+  const aTxt = a.toLocaleDateString("en-GB", sameMonth ? { day: "numeric" } : opts);
+  const bTxt = b.toLocaleDateString("en-GB", {
+    ...opts,
+    year: a.getFullYear() !== b.getFullYear() ? "numeric" : undefined,
+  });
+  return `${aTxt} – ${bTxt}`;
 }
 
 function compactRole(role: string): string {
