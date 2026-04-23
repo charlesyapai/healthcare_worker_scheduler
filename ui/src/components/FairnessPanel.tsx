@@ -75,19 +75,32 @@ export function FairnessPanel({ assignments, tierLabels }: Props) {
         {fairness.isPending && !data && (
           <p className="text-xs text-slate-500 dark:text-slate-400">Computing…</p>
         )}
-        {!data ? null : (
-          <>
-            <TierCards data={data} tierLabels={tierLabels} />
-            <DowLoad data={data} tierLabels={tierLabels} />
-            {data.subspec_parity.subspecs &&
-              Object.keys(data.subspec_parity.subspecs).length > 0 && (
-                <SubspecParity data={data} />
-              )}
-            <OutlierList data={data} tierLabels={tierLabels} />
-          </>
-        )}
+        {data && <FairnessView data={data} tierLabels={tierLabels} />}
       </CardContent>
     </Card>
+  );
+}
+
+/** Pure renderer — no data fetching. Re-used by the Lab's fairness
+ * deep-dive tab where the payload is already cached on a SingleRunDetail.
+ */
+export function FairnessView({
+  data,
+  tierLabels,
+}: {
+  data: FairnessPayload;
+  tierLabels: { junior: string; senior: string; consultant: string };
+}) {
+  return (
+    <div className="space-y-4">
+      <TierCards data={data} tierLabels={tierLabels} />
+      <DowLoad data={data} tierLabels={tierLabels} />
+      {data.subspec_parity.subspecs &&
+        Object.keys(data.subspec_parity.subspecs).length > 0 && (
+          <SubspecParity data={data} />
+        )}
+      <OutlierList data={data} tierLabels={tierLabels} />
+    </div>
   );
 }
 

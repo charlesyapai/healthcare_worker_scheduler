@@ -299,3 +299,41 @@ export function useBatchHistory() {
     staleTime: 5_000,
   });
 }
+
+export interface SingleRunDetail {
+  run_id: string;
+  batch_id: string;
+  solver: SolverKey;
+  seed: number;
+  result: unknown;
+  coverage: {
+    shortfall_total: number;
+    over_total: number;
+    ok: boolean;
+    station_gaps: Array<{
+      date: string;
+      station: string;
+      session: string;
+      required: number;
+      assigned: number;
+      shortfall: number;
+      over: number;
+    }>;
+    per_station: Record<string, { required: number; assigned: number; shortfall: number; over: number }>;
+  };
+  fairness: FairnessPayload;
+}
+
+export interface BatchDetail {
+  summary: BatchSummary;
+  details: Record<string, SingleRunDetail>;
+}
+
+export function useBatchDetail(batchId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["lab-runs", batchId],
+    queryFn: () => apiFetch<BatchDetail>(`/api/lab/runs/${batchId}`),
+    enabled: !!batchId,
+    staleTime: 60_000,
+  });
+}

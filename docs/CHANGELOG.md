@@ -2,6 +2,43 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-23 — Validation Phase 4: /lab/sweep + /lab/fairness subtabs
+
+**What:** Two new Lab sub-tabs flesh out the research surface per
+[`docs/LAB_TAB_SPEC.md §§3–4`](LAB_TAB_SPEC.md).
+
+**/lab/sweep — parameter sensitivity (RESEARCH_METRICS §6.2):**
+- Sweeps one CP-SAT lever (search_branching / linearization_level /
+  random_seed / num_workers / time_limit_s) across a user-specified
+  value list.
+- Fires one `POST /api/lab/run` per value (reusing the Phase 2
+  endpoint; no new backend required). Each value contributes one
+  BatchSummary to the history list.
+- Surfaces ΔZ_θ and ΔT_θ — the sensitivity metrics from
+  `docs/RESEARCH_METRICS.md §6.2` — plus per-value mean objective /
+  min / max / mean wall-time and a line chart of objectives.
+
+**/lab/fairness — deep-dive (LAB_TAB_SPEC §4):**
+- Run-picker (batch dropdown → solver × seed dropdown) over the
+  in-memory history.
+- Renders the SingleRunDetail's already-computed `fairness` payload
+  via the refactored `FairnessView` pure-render component. No extra
+  backend roundtrip.
+- Bonus: Coverage-audit panel showing shortfall / over / top-10 gap
+  list per result — the §5.1b counterpart that was only aggregated
+  (mean) on the main benchmark table.
+- `components/FairnessPanel.tsx` refactored to export `FairnessView`
+  for reuse; the old Panel still works on `/roster`.
+
+**Front-end:** `Lab` layout now shows three sub-tabs
+(Benchmark / Sweep / Fairness). Scaling sub-tab is deferred.
+
+**Reliability posture after Phase 4:**
+- Parameter sensitivity is testable (ΔZ_θ / ΔT_θ exposed).
+- Every run's coverage + fairness drill-downs are reachable with
+  one click from the Lab run history — reviewers can audit any
+  published claim at the per-individual level.
+
 ## 2026-04-23 — Validation Phase 3: reproducibility bundle + CP-SAT lever exposure
 
 **What:** A Lab batch now downloads as a replayable ZIP and exposes

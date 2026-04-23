@@ -4,7 +4,8 @@ import { cn } from "@/lib/utils";
 
 const TABS = [
   { to: "benchmark", label: "Benchmark" },
-  // Sweep / Fairness / Scaling land in Phase 4 per LAB_TAB_SPEC.md.
+  { to: "sweep", label: "Sweep" },
+  { to: "fairness", label: "Fairness" },
 ];
 
 export function LabLayout() {
