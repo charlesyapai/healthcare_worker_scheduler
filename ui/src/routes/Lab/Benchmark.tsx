@@ -738,40 +738,48 @@ function BenchmarkIntro() {
       <CardHeader className="pb-2">
         <div className="flex items-center gap-2">
           <BookOpen className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
-          <CardTitle className="text-sm">What this tab does</CardTitle>
+          <CardTitle className="text-sm">
+            How to answer "is the solver worth it?"
+          </CardTitle>
         </div>
       </CardHeader>
       <CardContent className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
         <p>
-          Runs the selected solvers over a cross-product of seeds on the
-          <strong> currently loaded scenario</strong>, then compares them on
-          the NRP-literature reliability metrics. A batch of 3 solvers × 3
-          seeds = 9 runs in ~a minute.
+          Runs the selected solvers over a cross-product of seeds on the{" "}
+          <strong>currently loaded scenario</strong>, then compares them
+          on a set of "is the roster any good?" metrics. A batch of 3
+          solvers × 3 seeds = 9 runs in about a minute.
+        </p>
+        <p>
+          <strong>The two baselines are intentionally weak</strong> so
+          CP-SAT's lift is measurable — they exist to fail in visible
+          ways, not to produce a good roster. Greedy is a "nobody
+          plans ahead" heuristic; random+repair is "shuffle + patch".
+          If CP-SAT doesn't beat them you've got a bug, or the
+          scenario is trivially small.
         </p>
         <p className="mt-1">
           <strong>What to watch:</strong>
         </p>
         <ul className="ml-4 list-disc space-y-0.5">
           <li>
-            <strong>Feasibility rate</strong> — % of runs with zero hard-
-            constraint violations. Our CP-SAT should sit at 100%. Greedy
-            usually green on clean scenarios, red on tight ones.
-            Random-repair ≈ always red (it skips H4/H5/H8 by design).
+            <strong>Feasibility rate</strong> — share of runs that passed
+            every hard rule. CP-SAT should sit at 100%. Baselines drop.
           </li>
           <li>
-            <strong>Coverage shortfall</strong> — unfilled station-slots.
-            Zero = every required slot staffed.
+            <strong>Coverage shortfall</strong> — unfilled station slots
+            across the horizon. Zero = every required slot staffed.
           </li>
           <li>
-            <strong>Objective</strong> — weighted soft-penalty sum. Lower
-            is better; different orders of magnitude across solvers are
-            normal (baselines don't optimise).
+            <strong>Objective</strong> — weighted soft-penalty sum.
+            Lower is better. Baselines show <code>n/a</code> because they
+            don't try to minimise anything — judge them on coverage +
+            self-check instead.
           </li>
           <li>
-            <strong>Quality ratio Q</strong> — Z<sub>baseline</sub> /
-            Z<sub>ours</sub>. Only appears when both methods report an
-            objective; currently only CP-SAT does, so Q lights up once a
-            MILP baseline ships.
+            <strong>Wall time</strong> — how long the solver took.
+            Sub-second baselines render as <em>ms</em>, not seconds, so a
+            fast heuristic doesn't look like a broken one.
           </li>
         </ul>
       </CardContent>

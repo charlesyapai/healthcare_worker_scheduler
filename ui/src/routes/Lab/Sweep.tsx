@@ -299,40 +299,50 @@ function SweepIntro() {
       <CardHeader className="pb-2">
         <div className="flex items-center gap-2">
           <BookOpen className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
-          <CardTitle className="text-sm">How to read a parameter sweep</CardTitle>
+          <CardTitle className="text-sm">
+            How to answer "does this setting actually matter?"
+          </CardTitle>
         </div>
       </CardHeader>
       <CardContent className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
         <p>
-          A sweep holds the scenario + every other CP-SAT knob fixed and
-          varies <strong>one parameter</strong> across the value list you
-          pick. For each value we run a batch of seeds, then compare
-          objective + wall-time distributions.
+          Pick one solver knob, pick a list of values to try, and we
+          hold everything else constant. We run a batch of seeds at
+          each value and compare the resulting objectives + wall
+          times. If the chart is flat, the knob doesn't matter for
+          this scenario — save yourself the tuning. If it's spiky,
+          pick the value with the lowest mean <em>and</em> the shortest
+          whisker.
+        </p>
+        <p>
+          <strong>When this is useful:</strong> you suspect CP-SAT is
+          leaving objective on the table, or you want to justify a
+          default choice (e.g. "do I really need 8 workers or is 4
+          fine on our hardware?").
         </p>
         <p>
           <strong>What the charts show:</strong>
         </p>
         <ul className="ml-4 list-disc space-y-0.5">
           <li>
-            <strong>Objective bar</strong> — mean objective per parameter
-            value. Whiskers span <em>min → max</em> across seeds. A value
-            with a low mean AND a short whisker is robustly better.
+            <strong>Objective bar</strong> — mean objective per value.
+            Whiskers span <em>min → max</em> across seeds. Low mean +
+            short whisker = robustly better.
           </li>
           <li>
             <strong>Time bar</strong> — mean wall time per value. A
-            parameter that slashes time without raising objective is a
+            change that cuts time without raising the objective is a
             free win.
           </li>
           <li>
-            <strong>All-runs scatter</strong> — one dot per (value × seed)
-            cell. Useful for spotting bimodal behaviour the summary
-            table hides.
+            <strong>All-runs scatter</strong> — one dot per (value ×
+            seed). Useful when the mean hides bimodal behaviour.
           </li>
         </ul>
-        <p>
-          <strong>Headline metrics</strong> at the top of the next card:
-          ΔZ_θ (max − min across means) and ΔT_θ (wall-time range). See{" "}
-          <code>docs/RESEARCH_METRICS.md §6.2</code>.
+        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+          ΔZ_θ (max − min of value means) and ΔT_θ (wall-time range) at
+          the top of the results are a one-number summary of
+          sensitivity. Near-zero ΔZ means "the knob does nothing here".
         </p>
       </CardContent>
     </Card>

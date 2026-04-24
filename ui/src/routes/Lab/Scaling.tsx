@@ -272,43 +272,50 @@ function ScalingIntro() {
       <CardHeader className="pb-2">
         <div className="flex items-center gap-2">
           <BookOpen className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
-          <CardTitle className="text-sm">How to read a scaling sweep</CardTitle>
+          <CardTitle className="text-sm">
+            How to answer "will this still work at N times the size?"
+          </CardTitle>
         </div>
       </CardHeader>
       <CardContent className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
         <p>
-          Each cell is a fresh synthetic instance with the given doctor
-          count and horizon length, solved by CP-SAT under the selected
-          time budget. Instances are generated deterministically from
-          <code> (n_doctors, n_days, seed)</code> so re-runs with the
-          same inputs produce the same sizes.
+          We generate a grid of synthetic instances at the sizes you
+          pick, solve each one, and fit a curve through the wall
+          times. The result tells you how solve time grows as your
+          department / horizon gets bigger — so you can size a pilot
+          before committing to it.
+        </p>
+        <p>
+          <strong>When this is useful:</strong> a single hospital
+          wants to know "if we double our team size, does this still
+          run in under a minute?", or you're deciding whether to
+          roster a whole month vs a fortnight at a time.
         </p>
         <p>
           <strong>What the fit tells you:</strong>
         </p>
         <ul className="ml-4 list-disc space-y-0.5">
           <li>
-            <strong>Exponent b</strong> — rough "how fast does solve
-            time grow with instance size". b ≈ 1 is linear; b &gt; 2 is
-            super-quadratic and signals scaling trouble.
+            <strong>Exponent b</strong> — how fast solve time grows
+            with size (N = doctors × days). b ≈ 1 is linear; b &gt; 2
+            is super-quadratic and signals scaling trouble.
           </li>
           <li>
-            <strong>R²</strong> — how well a single power law describes
-            the curve. Low R² (&lt; 0.6) usually means CP-SAT hit a
-            phase transition — some size bracket solves in ms, another
-            bracket saturates the time budget.
+            <strong>R²</strong> — how well a single power law fits
+            the curve. Below ~0.6 usually means CP-SAT hit a phase
+            transition — one size range solves instantly, another
+            saturates the time budget.
           </li>
           <li>
             <strong>Prediction tool</strong> — plug in a hypothetical
-            (doctors × days) and read the projected wall time. Useful
-            for sizing a pilot before you commit to a scenario.
+            (doctors × days) and read the projected wall time.
           </li>
         </ul>
         <p className="text-[11px] text-slate-500 dark:text-slate-400">
-          Cells that hit the time budget report the budget itself as the
-          wall time, which flattens the tail of the curve and biases the
-          fit downward. Raise the time limit if you see runs piling up
-          at the cap.
+          Cells that hit the time budget report the budget itself as
+          the wall time, which flattens the tail of the curve and
+          biases the fit downward. Raise the time limit if you see
+          runs piling up at the cap.
         </p>
       </CardContent>
     </Card>

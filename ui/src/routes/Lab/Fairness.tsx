@@ -169,37 +169,48 @@ function FairnessIntro() {
       <CardHeader className="pb-2">
         <div className="flex items-center gap-2">
           <BookOpen className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
-          <CardTitle className="text-sm">How to read a fairness audit</CardTitle>
+          <CardTitle className="text-sm">
+            How to answer "is this roster fair?"
+          </CardTitle>
         </div>
       </CardHeader>
       <CardContent className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
         <p>
-          All fairness metrics are computed on <strong>FTE-normalised</strong>{" "}
-          weighted workload. A 0.5-FTE doctor doing half the work shows up
-          identical to a full-timer doing 100%. See{" "}
-          <code>docs/RESEARCH_METRICS.md §4</code>.
+          Pick any recorded run and we break down the workload by
+          tier, by individual, by day-of-week, and by consultant
+          sub-spec. All numbers are <strong>FTE-normalised</strong> —
+          a 0.5-FTE doctor doing half the work is not flagged as
+          unfair.
+        </p>
+        <p>
+          <strong>When this is useful:</strong> someone asks "why is
+          Dr A on call every other week?", or you want to check a
+          solved roster isn't quietly loading one tier at the other's
+          expense.
+        </p>
+        <p>
+          <strong>What to look at:</strong>
         </p>
         <ul className="ml-4 list-disc space-y-0.5">
           <li>
-            <strong>Gini</strong> — 0 = perfectly equal, 1 = one person
-            did everything. Under 0.05 is "very even"; over 0.25 is a
-            smell.
+            <strong>Gini</strong> — 0 = perfectly equal, 1 = one
+            person did everything. Under 0.05 is very even; over 0.25
+            is a smell.
           </li>
           <li>
-            <strong>CV</strong> (coefficient of variation, σ / μ) —
-            standard in NRP literature. Under 0.1 = tight; over 0.3 =
-            high variance.
+            <strong>CV</strong> (σ / μ) — the same idea in the
+            statistic most NRP papers use. Under 0.1 is tight; over
+            0.3 is high variance.
           </li>
           <li>
-            <strong>Range</strong> — max − min of normalised workload,
-            in raw workload-points. The most intuitive "how bad is the
-            tail?" number.
+            <strong>Range</strong> — max − min of normalised
+            workload. The most intuitive "how bad is the tail?"
+            number.
           </li>
           <li>
             <strong>Per-individual Δ</strong> — each doctor's score
-            minus their tier median. The bar chart below sorts by Δ so
-            over-worked people float to the top and under-worked to
-            the bottom.
+            minus their tier median. Over-loaded people float to the
+            top, under-loaded to the bottom.
           </li>
         </ul>
       </CardContent>
