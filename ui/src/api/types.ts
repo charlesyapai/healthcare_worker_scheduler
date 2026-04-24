@@ -84,6 +84,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lab/capacity/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Capacity Run
+         * @description Analyse manpower / team sizing on the current session state.
+         *
+         *     Two modes:
+         *
+         *     * **hours_vs_target** — single CP-SAT solve, then compute each
+         *       doctor's worked hours (from the session's `Hours` weights) and
+         *       compare to `target_hours_per_week × fte`. Fast: one solve.
+         *     * **team_reduction** — baseline solve + up to `max_drop` iterative
+         *       re-solves with the lowest-loaded doctor dropped each step. Slow:
+         *       up to `(max_drop + 1) × time_limit_s` wall time.
+         *
+         *     The session state is never mutated — analyses run on a snapshot
+         *     copy. Returns a ``CapacityResponse`` shaped by the requested mode.
+         */
+        post: operations["capacity_run_api_lab_capacity_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/lab/run": {
         parameters: {
             query?: never;
@@ -562,6 +594,77 @@ export interface components {
              */
             type: "Leave" | "No on-call" | "No AM" | "No PM" | "Prefer AM" | "Prefer PM";
         };
+        /**
+         * CapacityRequest
+         * @description Manpower / capacity analysis over the current session state.
+         *
+         *     Two modes:
+         *
+         *     * **hours_vs_target** — run CP-SAT once, compute hours worked per
+         *       doctor from the solved roster, compare to an FTE-scaled
+         *       `target_hours_per_week`. Cheap (one solve).
+         *     * **team_reduction** — run CP-SAT once with the full team to get a
+         *       baseline, then re-solve K times dropping the lowest-loaded
+         *       doctor(s) one at a time. Surfaces the minimum viable team size.
+         *       Expensive (K+1 solves at up to `time_limit_s` each).
+         */
+        CapacityRequest: {
+            /**
+             * Max Drop
+             * @default 5
+             */
+            max_drop: number;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "hours_vs_target" | "team_reduction";
+            /**
+             * Num Workers
+             * @default 2
+             */
+            num_workers: number;
+            /**
+             * Target Hours Per Week
+             * @default 40
+             */
+            target_hours_per_week: number;
+            /**
+             * Time Limit S
+             * @default 20
+             */
+            time_limit_s: number;
+        };
+        /**
+         * CapacityResponse
+         * @description Result of a capacity analysis.
+         */
+        CapacityResponse: {
+            /** Batch Id */
+            batch_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Min Viable Team Size */
+            min_viable_team_size?: number | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "hours_vs_target" | "team_reduction";
+            /** Per Doctor */
+            per_doctor?: components["schemas"]["HoursPerDoctor"][];
+            /** Per Tier */
+            per_tier?: components["schemas"]["TierWorkload"][];
+            /** Reduction */
+            reduction?: components["schemas"]["ReductionCell"][];
+            /** Target Hours Per Week */
+            target_hours_per_week?: number | null;
+            /** Time Limit S */
+            time_limit_s: number;
+        };
         /** ConstraintsConfig */
         ConstraintsConfig: {
             /**
@@ -758,6 +861,34 @@ export interface components {
              */
             weekend_pm: number;
         };
+        /**
+         * HoursPerDoctor
+         * @description Actual vs target hours for one doctor on a solved roster.
+         */
+        HoursPerDoctor: {
+            /** Actual Hours */
+            actual_hours: number;
+            /** Delta */
+            delta: number;
+            /** Doctor Id */
+            doctor_id: number;
+            /** Doctor Name */
+            doctor_name: string;
+            /** Fte */
+            fte: number;
+            /** Oncalls */
+            oncalls: number;
+            /** Sessions */
+            sessions: number;
+            /** Status */
+            status: string;
+            /** Target Hours */
+            target_hours: number;
+            /** Tier */
+            tier: string;
+            /** Weekend Duties */
+            weekend_duties: number;
+        };
         /** OverrideEntry */
         OverrideEntry: {
             /**
@@ -777,6 +908,33 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /**
+         * ReductionCell
+         * @description One step in the team-reduction sweep: try solving with `team_size`
+         *     doctors and see what happens.
+         */
+        ReductionCell: {
+            /** Coverage Over */
+            coverage_over: number;
+            /** Coverage Shortfall */
+            coverage_shortfall: number;
+            /** Objective */
+            objective: number | null;
+            /** Removed */
+            removed: string[];
+            /** Self Check Ok */
+            self_check_ok: boolean | null;
+            /** Status */
+            status: string;
+            /** Step */
+            step: number;
+            /** Team Size */
+            team_size: number;
+            /** Violation Count */
+            violation_count: number | null;
+            /** Wall Time S */
+            wall_time_s: number;
+        };
         /** RestSolveRequest */
         RestSolveRequest: {
             /**
@@ -789,6 +947,40 @@ export interface components {
              * @default false
              */
             snapshot_assignments: boolean;
+        };
+        /**
+         * RolePreferenceEntry
+         * @description A doctor's preference for a particular role, expressed as a
+         *     minimum allocation target over the horizon with a priority weight.
+         *
+         *     `role` is either:
+         *       * a station name (e.g. "CT", "MR") — counts AM + PM allocations at
+         *         that station, regardless of session side;
+         *       * one of the literal non-station roles: "ONCALL", "WEEKEND_EXT",
+         *         "WEEKEND_CONSULT".
+         *
+         *     The solver adds a soft shortfall penalty
+         *     ``priority × max(0, min_allocations − actual)`` to the objective, so
+         *     a higher-priority preference is more costly to under-deliver. This
+         *     is a bias, not a hard guarantee — if the preference can't be met
+         *     without breaking H1/H2/H8 the solver will still ship a roster and
+         *     let the shortfall show in the audit.
+         */
+        RolePreferenceEntry: {
+            /** Doctor */
+            doctor: string;
+            /**
+             * Min Allocations
+             * @default 1
+             */
+            min_allocations: number;
+            /**
+             * Priority
+             * @default 5
+             */
+            priority: number;
+            /** Role */
+            role: string;
         };
         /**
          * RunConfig
@@ -1012,6 +1204,8 @@ export interface components {
             hours?: components["schemas"]["Hours"];
             /** Overrides */
             overrides?: components["schemas"]["OverrideEntry"][];
+            /** Role Preferences */
+            role_preferences?: components["schemas"]["RolePreferenceEntry"][];
             /**
              * Schema Version
              * @default 1
@@ -1302,6 +1496,34 @@ export interface components {
              */
             senior: string;
         };
+        /**
+         * TierWorkload
+         * @description Aggregate workload per tier. Useful for the "how is the load
+         *     spread across juniors / seniors / consultants?" question a
+         *     coordinator asks before re-shuffling tier counts.
+         */
+        TierWorkload: {
+            /** Headcount */
+            headcount: number;
+            /** Mean Weekly Hours */
+            mean_weekly_hours: number;
+            /** Oncalls */
+            oncalls: number;
+            /** Sessions */
+            sessions: number;
+            /** Share Of Fte */
+            share_of_fte: number;
+            /** Share Of Total Hours */
+            share_of_total_hours: number;
+            /** Tier */
+            tier: string;
+            /** Total Fte */
+            total_fte: number;
+            /** Total Hours */
+            total_hours: number;
+            /** Weekend Duties */
+            weekend_duties: number;
+        };
         /** ValidateRequest */
         ValidateRequest: {
             /** Assignments */
@@ -1519,6 +1741,39 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    capacity_run_api_lab_capacity_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CapacityRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapacityResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

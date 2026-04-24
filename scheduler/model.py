@@ -809,6 +809,80 @@ def solve(
                 penalty_components["S6_unmet_preferences"] = (
                     pref_total, weights.preference)
 
+        # S7 — Per-doctor role preferences (soft shortfall).
+        # For each (doctor, role, min, priority), count actual allocations
+        # to the role across the horizon and add a shortfall variable
+        # ``max(0, min − actual)``. Penalty weight is ``priority``
+        # directly (independent of weights.preference) so two preferences
+        # with different priorities can coexist meaningfully; priority = 1
+        # is a gentle nudge, priority = 10 is "try hard".
+        if inst.role_preferences:
+            rp_shortfalls: list[tuple[cp_model.IntVar, int]] = []
+            rp_shortfall_ub = 0
+            station_names = {s.name for s in inst.stations}
+            for did, per_role in inst.role_preferences.items():
+                for role, (min_alloc, priority) in per_role.items():
+                    if min_alloc <= 0 or priority <= 0:
+                        continue
+                    # Resolve the actual-allocation vars for this role.
+                    actual_vars: list[cp_model.IntVar] = []
+                    if role in station_names:
+                        for (d, _day, st_name, _sess), v in assign.items():
+                            if d == did and st_name == role:
+                                actual_vars.append(v)
+                    elif role == "ONCALL":
+                        for (d, _day), v in oncall.items():
+                            if d == did:
+                                actual_vars.append(v)
+                    elif role == "WEEKEND_EXT":
+                        for (d, _day), v in ext.items():
+                            if d == did:
+                                actual_vars.append(v)
+                    elif role == "WEEKEND_CONSULT":
+                        for (d, _day), v in wconsult.items():
+                            if d == did:
+                                actual_vars.append(v)
+                    else:
+                        # Unknown role label — skip silently. UI validates.
+                        continue
+                    if not actual_vars:
+                        # Doctor is ineligible for the role anywhere — the
+                        # preference can't ever be met. Record full shortfall
+                        # so the audit exposes the mismatch.
+                        shortfall_const = min_alloc * priority
+                        if shortfall_const > 0:
+                            # Materialise a constant var so the component
+                            # shows up in penalty_components.
+                            zero = model.NewIntVar(0, 0, f"rp_zero_{did}_{role}")
+                            penalty_components[
+                                f"S7_role_pref_{did}_{role}_missed"
+                            ] = (zero, shortfall_const)
+                            penalties.append(shortfall_const)
+                        continue
+                    actual = model.NewIntVar(
+                        0, len(actual_vars), f"rp_actual_{did}_{role}"
+                    )
+                    model.Add(actual == sum(actual_vars))
+                    shortfall = model.NewIntVar(
+                        0, min_alloc, f"rp_shortfall_{did}_{role}"
+                    )
+                    # shortfall ≥ min_alloc − actual, shortfall ≥ 0
+                    model.Add(shortfall >= min_alloc - actual)
+                    penalties.append(shortfall * int(priority))
+                    rp_shortfalls.append((shortfall, int(priority)))
+                    rp_shortfall_ub += min_alloc
+            if rp_shortfalls:
+                total_shortfall = model.NewIntVar(
+                    0, max(1, rp_shortfall_ub), "rp_total_shortfall",
+                )
+                model.Add(total_shortfall == sum(s for s, _ in rp_shortfalls))
+                # Weight = 1 so the component shows raw shortfall sum; the
+                # per-preference `priority` already weights each one in the
+                # penalties list above.
+                penalty_components["S7_role_pref_shortfall"] = (
+                    total_shortfall, 1,
+                )
+
         # S4 reporting-station consecutive-day spread.
         if weights.reporting_spread:
             rep_pair_vars: list[cp_model.IntVar] = []

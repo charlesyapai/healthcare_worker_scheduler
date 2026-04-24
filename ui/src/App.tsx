@@ -7,6 +7,7 @@ import { Dashboard } from "@/routes/Dashboard";
 import { Export } from "@/routes/Export";
 import { LabLayout } from "@/routes/Lab";
 import { LabBenchmark } from "@/routes/Lab/Benchmark";
+import { LabCapacity } from "@/routes/Lab/Capacity";
 import { LabFairness } from "@/routes/Lab/Fairness";
 import { LabScaling } from "@/routes/Lab/Scaling";
 import { LabSweep } from "@/routes/Lab/Sweep";
@@ -19,6 +20,7 @@ import { Weights } from "@/routes/Rules/Weights";
 import { Blocks } from "@/routes/Setup/Blocks";
 import { Doctors } from "@/routes/Setup/Doctors";
 import { Overrides } from "@/routes/Setup/Overrides";
+import { Preferences } from "@/routes/Setup/Preferences";
 import { SetupLayout } from "@/routes/Setup";
 import { Templates } from "@/routes/Setup/Templates";
 import { When } from "@/routes/Setup/When";
@@ -49,6 +51,7 @@ export function App() {
               <Route path="when" element={<When />} />
               <Route path="doctors" element={<Doctors />} />
               <Route path="blocks" element={<Blocks />} />
+              <Route path="preferences" element={<Preferences />} />
               <Route path="overrides" element={<Overrides />} />
             </Route>
             <Route path="rules" element={<RulesLayout />}>
@@ -71,6 +74,7 @@ export function App() {
             <Route path="lab" element={<LabLayout />}>
               <Route index element={<Navigate to="benchmark" replace />} />
               <Route path="benchmark" element={<LabBenchmark />} />
+              <Route path="capacity" element={<LabCapacity />} />
               <Route path="sweep" element={<LabSweep />} />
               <Route path="fairness" element={<LabFairness />} />
               <Route path="scaling" element={<LabScaling />} />

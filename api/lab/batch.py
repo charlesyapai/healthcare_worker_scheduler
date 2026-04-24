@@ -168,7 +168,7 @@ def run_batch(
                     solver=solver,
                     seed=seed,
                     status="ERROR",
-                    wall_time_s=round(time.perf_counter() - t0, 3),
+                    wall_time_s=round(time.perf_counter() - t0, 6),
                     objective=None,
                     best_bound=None,
                     headroom=None,

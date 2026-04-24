@@ -68,6 +68,14 @@ class Instance:
     # Soft positive preferences: doctor prefers a particular session on a day.
     # {doctor_id: {day_idx: {"AM", "PM"}}}. Rewarded via objective.
     prefer_session: dict[int, dict[int, set[str]]] = field(default_factory=dict)
+    # Per-doctor role preferences: "Dr A wants ≥ N allocations of role X
+    # this period". Role is either a station name (sums AM + PM hits on
+    # that station) or one of the literal non-station roles
+    # (ONCALL, WEEKEND_EXT, WEEKEND_CONSULT). Stored as
+    # {doctor_id: {role: (min_allocations, priority)}}. The solver emits
+    # a soft shortfall penalty per unmet preference (see model.py S7).
+    role_preferences: dict[int, dict[str, tuple[int, int]]] = field(
+        default_factory=dict)
     # Manual overrides: force a specific assignment. Treated as hard constraints.
     # Each item is (doctor_id, day, station_name_or_None, session_or_None, role)
     # where role is one of "STATION" / "ONCALL" / "EXT" / "WCONSULT".

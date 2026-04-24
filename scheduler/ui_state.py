@@ -137,6 +137,7 @@ def build_instance(
     prev_oncall_names: Iterable[str] = (),
     block_entries: Iterable[tuple[str, date, date | None, str]] = (),
     override_entries: Iterable[tuple[str, date, str]] = (),
+    role_preference_entries: Iterable[tuple[str, str, int, int]] = (),
     subspecs: Iterable[str] | None = None,
 ) -> Instance:
     """Assemble an Instance from editable tables.
@@ -361,6 +362,58 @@ def build_instance(
                 f"Override for {name}: unknown role '{role}'. Use one of: "
                 "STATION_<name>_AM, STATION_<name>_PM, ONCALL, EXT, WCONSULT.")
 
+    # Role preferences: (doctor_name, role, min_allocations, priority).
+    # Role is either a station name (case-insensitive match against the
+    # station set) or one of the non-station role literals.
+    role_preferences: dict[int, dict[str, tuple[int, int]]] = {}
+    non_station_roles = {"ONCALL", "WEEKEND_EXT", "WEEKEND_CONSULT"}
+    for entry in role_preference_entries or ():
+        if entry is None:
+            continue
+        try:
+            name, role, min_alloc, priority = entry
+        except Exception as exc:
+            raise BuildError(
+                f"Role preference entry is malformed: {entry!r}"
+            ) from exc
+        if not name:
+            continue
+        name = str(name).strip()
+        if name not in name_to_id:
+            raise BuildError(
+                f"Role preference for unknown doctor '{name}'."
+            )
+        did = name_to_id[name]
+        role_clean = str(role or "").strip()
+        if not role_clean:
+            continue
+        # Normalise station names to the canonical case in `station_names`.
+        st_match = next(
+            (s for s in station_names if s.upper() == role_clean.upper()),
+            None,
+        )
+        if st_match is not None:
+            resolved_role = st_match
+        elif role_clean.upper() in non_station_roles:
+            resolved_role = role_clean.upper()
+        else:
+            raise BuildError(
+                f"Role preference for {name}: unknown role '{role_clean}'. "
+                f"Use a station name or one of ONCALL / WEEKEND_EXT / "
+                f"WEEKEND_CONSULT."
+            )
+        try:
+            m = max(0, int(min_alloc))
+            p = max(0, int(priority))
+        except (TypeError, ValueError):
+            raise BuildError(
+                f"Role preference for {name}: min_allocations and priority "
+                f"must be integers."
+            )
+        if m == 0 or p == 0:
+            continue
+        role_preferences.setdefault(did, {})[resolved_role] = (m, p)
+
     # Public holidays.
     ph_idx: set[int] = set()
     for d in public_holidays:
@@ -387,6 +440,7 @@ def build_instance(
         no_session=no_session,
         prefer_session=prefer_session,
         overrides=overrides,
+        role_preferences=role_preferences,
         subspecs=subspec_tuple,
     )
 

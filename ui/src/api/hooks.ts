@@ -19,6 +19,7 @@ export type DoctorEntry = components["schemas"]["DoctorEntry"];
 export type StationEntry = components["schemas"]["StationEntry"];
 export type BlockEntry = components["schemas"]["BlockEntry"];
 export type OverrideEntry = components["schemas"]["OverrideEntry"];
+export type RolePreferenceEntry = components["schemas"]["RolePreferenceEntry"];
 export type ShiftLabels = components["schemas"]["ShiftLabels"];
 export type HealthResponse = { status: string; phase: number; scheduler_version: string };
 

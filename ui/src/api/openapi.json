@@ -202,6 +202,129 @@
         "title": "BlockEntry",
         "type": "object"
       },
+      "CapacityRequest": {
+        "description": "Manpower / capacity analysis over the current session state.\n\nTwo modes:\n\n* **hours_vs_target** \u2014 run CP-SAT once, compute hours worked per\n  doctor from the solved roster, compare to an FTE-scaled\n  `target_hours_per_week`. Cheap (one solve).\n* **team_reduction** \u2014 run CP-SAT once with the full team to get a\n  baseline, then re-solve K times dropping the lowest-loaded\n  doctor(s) one at a time. Surfaces the minimum viable team size.\n  Expensive (K+1 solves at up to `time_limit_s` each).",
+        "properties": {
+          "max_drop": {
+            "default": 5,
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Max Drop",
+            "type": "integer"
+          },
+          "mode": {
+            "enum": [
+              "hours_vs_target",
+              "team_reduction"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "num_workers": {
+            "default": 2,
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Num Workers",
+            "type": "integer"
+          },
+          "target_hours_per_week": {
+            "default": 40.0,
+            "maximum": 168.0,
+            "minimum": 1.0,
+            "title": "Target Hours Per Week",
+            "type": "number"
+          },
+          "time_limit_s": {
+            "default": 20.0,
+            "maximum": 120.0,
+            "minimum": 5.0,
+            "title": "Time Limit S",
+            "type": "number"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "CapacityRequest",
+        "type": "object"
+      },
+      "CapacityResponse": {
+        "description": "Result of a capacity analysis.",
+        "properties": {
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "min_viable_team_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Viable Team Size"
+          },
+          "mode": {
+            "enum": [
+              "hours_vs_target",
+              "team_reduction"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "per_doctor": {
+            "items": {
+              "$ref": "#/components/schemas/HoursPerDoctor"
+            },
+            "title": "Per Doctor",
+            "type": "array"
+          },
+          "per_tier": {
+            "items": {
+              "$ref": "#/components/schemas/TierWorkload"
+            },
+            "title": "Per Tier",
+            "type": "array"
+          },
+          "reduction": {
+            "items": {
+              "$ref": "#/components/schemas/ReductionCell"
+            },
+            "title": "Reduction",
+            "type": "array"
+          },
+          "target_hours_per_week": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Hours Per Week"
+          },
+          "time_limit_s": {
+            "title": "Time Limit S",
+            "type": "number"
+          }
+        },
+        "required": [
+          "batch_id",
+          "created_at",
+          "mode",
+          "time_limit_s"
+        ],
+        "title": "CapacityResponse",
+        "type": "object"
+      },
       "ConstraintsConfig": {
         "properties": {
           "h11_enabled": {
@@ -519,6 +642,70 @@
         "title": "Hours",
         "type": "object"
       },
+      "HoursPerDoctor": {
+        "description": "Actual vs target hours for one doctor on a solved roster.",
+        "properties": {
+          "actual_hours": {
+            "title": "Actual Hours",
+            "type": "number"
+          },
+          "delta": {
+            "title": "Delta",
+            "type": "number"
+          },
+          "doctor_id": {
+            "title": "Doctor Id",
+            "type": "integer"
+          },
+          "doctor_name": {
+            "title": "Doctor Name",
+            "type": "string"
+          },
+          "fte": {
+            "title": "Fte",
+            "type": "number"
+          },
+          "oncalls": {
+            "title": "Oncalls",
+            "type": "integer"
+          },
+          "sessions": {
+            "title": "Sessions",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "target_hours": {
+            "title": "Target Hours",
+            "type": "number"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "string"
+          },
+          "weekend_duties": {
+            "title": "Weekend Duties",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "doctor_id",
+          "doctor_name",
+          "tier",
+          "fte",
+          "actual_hours",
+          "target_hours",
+          "delta",
+          "status",
+          "sessions",
+          "oncalls",
+          "weekend_duties"
+        ],
+        "title": "HoursPerDoctor",
+        "type": "object"
+      },
       "OverrideEntry": {
         "properties": {
           "date": {
@@ -557,6 +744,89 @@
         "title": "PrevWorkloadRequest",
         "type": "object"
       },
+      "ReductionCell": {
+        "description": "One step in the team-reduction sweep: try solving with `team_size`\ndoctors and see what happens.",
+        "properties": {
+          "coverage_over": {
+            "title": "Coverage Over",
+            "type": "integer"
+          },
+          "coverage_shortfall": {
+            "title": "Coverage Shortfall",
+            "type": "integer"
+          },
+          "objective": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Removed",
+            "type": "array"
+          },
+          "self_check_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Self Check Ok"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "step": {
+            "title": "Step",
+            "type": "integer"
+          },
+          "team_size": {
+            "title": "Team Size",
+            "type": "integer"
+          },
+          "violation_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Violation Count"
+          },
+          "wall_time_s": {
+            "title": "Wall Time S",
+            "type": "number"
+          }
+        },
+        "required": [
+          "step",
+          "team_size",
+          "removed",
+          "status",
+          "wall_time_s",
+          "objective",
+          "coverage_shortfall",
+          "coverage_over",
+          "self_check_ok",
+          "violation_count"
+        ],
+        "title": "ReductionCell",
+        "type": "object"
+      },
       "RestSolveRequest": {
         "properties": {
           "mode": {
@@ -571,6 +841,39 @@
           }
         },
         "title": "RestSolveRequest",
+        "type": "object"
+      },
+      "RolePreferenceEntry": {
+        "description": "A doctor's preference for a particular role, expressed as a\nminimum allocation target over the horizon with a priority weight.\n\n`role` is either:\n  * a station name (e.g. \"CT\", \"MR\") \u2014 counts AM + PM allocations at\n    that station, regardless of session side;\n  * one of the literal non-station roles: \"ONCALL\", \"WEEKEND_EXT\",\n    \"WEEKEND_CONSULT\".\n\nThe solver adds a soft shortfall penalty\n``priority \u00d7 max(0, min_allocations \u2212 actual)`` to the objective, so\na higher-priority preference is more costly to under-deliver. This\nis a bias, not a hard guarantee \u2014 if the preference can't be met\nwithout breaking H1/H2/H8 the solver will still ship a roster and\nlet the shortfall show in the audit.",
+        "properties": {
+          "doctor": {
+            "title": "Doctor",
+            "type": "string"
+          },
+          "min_allocations": {
+            "default": 1,
+            "maximum": 90.0,
+            "minimum": 1.0,
+            "title": "Min Allocations",
+            "type": "integer"
+          },
+          "priority": {
+            "default": 5,
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Priority",
+            "type": "integer"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "doctor",
+          "role"
+        ],
+        "title": "RolePreferenceEntry",
         "type": "object"
       },
       "RunConfig": {
@@ -990,6 +1293,13 @@
               "$ref": "#/components/schemas/OverrideEntry"
             },
             "title": "Overrides",
+            "type": "array"
+          },
+          "role_preferences": {
+            "items": {
+              "$ref": "#/components/schemas/RolePreferenceEntry"
+            },
+            "title": "Role Preferences",
             "type": "array"
           },
           "schema_version": {
@@ -1571,6 +1881,65 @@
         "title": "TierLabels",
         "type": "object"
       },
+      "TierWorkload": {
+        "description": "Aggregate workload per tier. Useful for the \"how is the load\nspread across juniors / seniors / consultants?\" question a\ncoordinator asks before re-shuffling tier counts.",
+        "properties": {
+          "headcount": {
+            "title": "Headcount",
+            "type": "integer"
+          },
+          "mean_weekly_hours": {
+            "title": "Mean Weekly Hours",
+            "type": "number"
+          },
+          "oncalls": {
+            "title": "Oncalls",
+            "type": "integer"
+          },
+          "sessions": {
+            "title": "Sessions",
+            "type": "integer"
+          },
+          "share_of_fte": {
+            "title": "Share Of Fte",
+            "type": "number"
+          },
+          "share_of_total_hours": {
+            "title": "Share Of Total Hours",
+            "type": "number"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "string"
+          },
+          "total_fte": {
+            "title": "Total Fte",
+            "type": "number"
+          },
+          "total_hours": {
+            "title": "Total Hours",
+            "type": "number"
+          },
+          "weekend_duties": {
+            "title": "Weekend Duties",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tier",
+          "headcount",
+          "total_fte",
+          "total_hours",
+          "mean_weekly_hours",
+          "share_of_total_hours",
+          "share_of_fte",
+          "sessions",
+          "oncalls",
+          "weekend_duties"
+        ],
+        "title": "TierWorkload",
+        "type": "object"
+      },
       "ValidateRequest": {
         "properties": {
           "assignments": {
@@ -1991,6 +2360,48 @@
           }
         },
         "summary": "Health"
+      }
+    },
+    "/api/lab/capacity/run": {
+      "post": {
+        "description": "Analyse manpower / team sizing on the current session state.\n\nTwo modes:\n\n* **hours_vs_target** \u2014 single CP-SAT solve, then compute each\n  doctor's worked hours (from the session's `Hours` weights) and\n  compare to `target_hours_per_week \u00d7 fte`. Fast: one solve.\n* **team_reduction** \u2014 baseline solve + up to `max_drop` iterative\n  re-solves with the lowest-loaded doctor dropped each step. Slow:\n  up to `(max_drop + 1) \u00d7 time_limit_s` wall time.\n\nThe session state is never mutated \u2014 analyses run on a snapshot\ncopy. Returns a ``CapacityResponse`` shaped by the requested mode.",
+        "operationId": "capacity_run_api_lab_capacity_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapacityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapacityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Capacity Run",
+        "tags": [
+          "lab"
+        ]
       }
     },
     "/api/lab/run": {

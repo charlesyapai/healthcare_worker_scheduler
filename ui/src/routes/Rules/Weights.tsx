@@ -234,7 +234,12 @@ function PrioritiesCard() {
         <CardTitle className="text-base">Solver priorities</CardTitle>
         <CardDescription className="text-xs">
           How hard the solver tries to achieve each goal. Higher = more
-          important. Set to 0 to disable.
+          important. Set to 0 to disable. All balance terms (workload,
+          sessions, on-call, weekends) are computed{" "}
+          <strong>per tier</strong> — juniors compete with juniors,
+          seniors with seniors, consultants with consultants. A
+          consultant doing less work than a junior is not "unfair" in
+          the objective; uneven load <em>within</em> a tier is.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-2">

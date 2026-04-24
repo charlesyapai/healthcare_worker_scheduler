@@ -95,6 +95,30 @@ class OverrideEntry(StrictModel):
     role: str  # STATION_<name>_<AM|PM> | ONCALL | WEEKEND_EXT | WEEKEND_CONSULT
 
 
+class RolePreferenceEntry(StrictModel):
+    """A doctor's preference for a particular role, expressed as a
+    minimum allocation target over the horizon with a priority weight.
+
+    `role` is either:
+      * a station name (e.g. "CT", "MR") — counts AM + PM allocations at
+        that station, regardless of session side;
+      * one of the literal non-station roles: "ONCALL", "WEEKEND_EXT",
+        "WEEKEND_CONSULT".
+
+    The solver adds a soft shortfall penalty
+    ``priority × max(0, min_allocations − actual)`` to the objective, so
+    a higher-priority preference is more costly to under-deliver. This
+    is a bias, not a hard guarantee — if the preference can't be met
+    without breaking H1/H2/H8 the solver will still ship a roster and
+    let the shortfall show in the audit.
+    """
+
+    doctor: str
+    role: str
+    min_allocations: int = Field(default=1, ge=1, le=90)
+    priority: int = Field(default=5, ge=1, le=10)
+
+
 class TierLabels(StrictModel):
     junior: str = "Junior"
     senior: str = "Senior"
@@ -186,6 +210,7 @@ class SessionState(StrictModel):
     stations: list[StationEntry] = Field(default_factory=list)
     blocks: list[BlockEntry] = Field(default_factory=list)
     overrides: list[OverrideEntry] = Field(default_factory=list)
+    role_preferences: list[RolePreferenceEntry] = Field(default_factory=list)
     tier_labels: TierLabels = Field(default_factory=TierLabels)
     shift_labels: ShiftLabels = Field(default_factory=ShiftLabels)
     subspecs: list[str] = Field(default_factory=lambda: ["Neuro", "Body", "MSK"])

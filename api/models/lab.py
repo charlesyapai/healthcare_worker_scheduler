@@ -193,3 +193,97 @@ class ScalingResponse(StrictModel):
     leave_rate: float
     cells: list[ScalingCell]
     fit: ScalingFit
+
+
+# --------------------------------------------------------------- capacity
+
+
+CapacityMode = Literal["hours_vs_target", "team_reduction"]
+
+
+class CapacityRequest(StrictModel):
+    """Manpower / capacity analysis over the current session state.
+
+    Two modes:
+
+    * **hours_vs_target** — run CP-SAT once, compute hours worked per
+      doctor from the solved roster, compare to an FTE-scaled
+      `target_hours_per_week`. Cheap (one solve).
+    * **team_reduction** — run CP-SAT once with the full team to get a
+      baseline, then re-solve K times dropping the lowest-loaded
+      doctor(s) one at a time. Surfaces the minimum viable team size.
+      Expensive (K+1 solves at up to `time_limit_s` each).
+    """
+
+    mode: CapacityMode
+    time_limit_s: float = Field(default=20.0, ge=5.0, le=120.0)
+    num_workers: int = Field(default=2, ge=1, le=8)
+    # hours_vs_target
+    target_hours_per_week: float = Field(default=40.0, ge=1.0, le=168.0)
+    # team_reduction
+    max_drop: int = Field(default=5, ge=1, le=20)
+
+
+class HoursPerDoctor(StrictModel):
+    """Actual vs target hours for one doctor on a solved roster."""
+
+    doctor_id: int
+    doctor_name: str
+    tier: str
+    fte: float
+    actual_hours: float
+    target_hours: float
+    delta: float   # actual - target
+    status: str    # "under" | "on_target" | "over"
+    sessions: int
+    oncalls: int
+    weekend_duties: int
+
+
+class TierWorkload(StrictModel):
+    """Aggregate workload per tier. Useful for the "how is the load
+    spread across juniors / seniors / consultants?" question a
+    coordinator asks before re-shuffling tier counts."""
+
+    tier: str
+    headcount: int
+    total_fte: float
+    total_hours: float      # summed across every doctor in the tier over the horizon
+    mean_weekly_hours: float
+    share_of_total_hours: float   # 0..1, fraction of all worked hours
+    share_of_fte: float           # 0..1, fraction of total FTE across the team
+    sessions: int
+    oncalls: int
+    weekend_duties: int
+
+
+class ReductionCell(StrictModel):
+    """One step in the team-reduction sweep: try solving with `team_size`
+    doctors and see what happens."""
+
+    step: int            # 0 = full team, 1 = minus 1, 2 = minus 2, ...
+    team_size: int
+    removed: list[str]   # doctor names removed vs the full team
+    status: str
+    wall_time_s: float
+    objective: float | None
+    coverage_shortfall: int
+    coverage_over: int
+    self_check_ok: bool | None
+    violation_count: int | None
+
+
+class CapacityResponse(StrictModel):
+    """Result of a capacity analysis."""
+
+    batch_id: str
+    created_at: datetime
+    mode: CapacityMode
+    time_limit_s: float
+    # hours_vs_target: populated when mode is "hours_vs_target".
+    per_doctor: list[HoursPerDoctor] = Field(default_factory=list)
+    per_tier: list[TierWorkload] = Field(default_factory=list)
+    target_hours_per_week: float | None = None
+    # team_reduction: populated when mode is "team_reduction".
+    reduction: list[ReductionCell] = Field(default_factory=list)
+    min_viable_team_size: int | None = None

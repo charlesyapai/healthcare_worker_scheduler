@@ -90,6 +90,9 @@ def dump_state(ss) -> str:
         "stations": _df_to_records(get("stations_df", pd.DataFrame())),
         "blocks": _df_to_records(get("blocks_df", pd.DataFrame())),
         "overrides": _df_to_records(get("overrides_df", pd.DataFrame())),
+        "role_preferences": _df_to_records(
+            get("role_prefs_df", pd.DataFrame())
+        ),
         "tier_labels": get("tier_labels") or {
             "junior": "Junior", "senior": "Senior", "consultant": "Consultant",
         },
@@ -156,6 +159,7 @@ STATION_COLS = ["name", "sessions", "required_per_session",
                 "eligible_tiers", "is_reporting"]
 BLOCK_COLS = ["doctor", "date", "end_date", "type"]
 OVERRIDE_COLS = ["doctor", "date", "role"]
+ROLE_PREF_COLS = ["doctor", "role", "min_allocations", "priority"]
 
 
 def load_state(yaml_text: str) -> dict[str, Any]:
@@ -191,6 +195,10 @@ def load_state(yaml_text: str) -> dict[str, Any]:
         out["blocks_df"] = _records_to_df(data["blocks"] or [], BLOCK_COLS)
     if "overrides" in data:
         out["overrides_df"] = _records_to_df(data["overrides"] or [], OVERRIDE_COLS)
+    if "role_preferences" in data:
+        out["role_prefs_df"] = _records_to_df(
+            data["role_preferences"] or [], ROLE_PREF_COLS,
+        )
 
     if "tier_labels" in data and isinstance(data["tier_labels"], dict):
         out["tier_labels"] = {

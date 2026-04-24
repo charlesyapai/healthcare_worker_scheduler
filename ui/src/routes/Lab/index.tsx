@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 
 const TABS = [
   { to: "benchmark", label: "Benchmark" },
+  { to: "capacity", label: "Capacity" },
   { to: "sweep", label: "Sweep" },
   { to: "fairness", label: "Fairness" },
   { to: "scaling", label: "Scaling" },

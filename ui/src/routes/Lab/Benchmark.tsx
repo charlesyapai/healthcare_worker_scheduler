@@ -76,15 +76,21 @@ const SOLVER_SHORT_LABELS: Record<SolverKey, string> = {
   random_repair: "Random+repair",
 };
 
-/** Adaptive wall-time formatter. `toFixed(1)` made sub-second baselines
- *  look like "0.0s" — giving the impression they didn't run at all.
- *  Use 3 decimals under 0.1s, 2 decimals under 1s, 1 decimal otherwise. */
+/** Adaptive wall-time formatter. Greedy + random_repair finish in <1 ms
+ *  on small instances; rendering them as "0.000 s" made it look like they
+ *  didn't run. We now swap units:
+ *   < 10 ms  →  "X.X ms"    (keeps 1 dp so 0.4 ms reads as 0.4 ms, not 0)
+ *   < 1 s    →  "X ms"      (integer ms — nobody cares about sub-ms)
+ *   < 10 s   →  "X.Xs"
+ *   ≥ 10 s   →  "Xs"
+ *  Returns a UNITLESS string; callers append "s" where the context
+ *  already implies seconds. The ms-unit strings carry their own unit. */
 function formatWallTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return "—";
-  if (seconds < 0.1) return seconds.toFixed(3);
-  if (seconds < 1) return seconds.toFixed(2);
-  if (seconds < 10) return seconds.toFixed(1);
-  return seconds.toFixed(0);
+  if (seconds < 0.01) return `${(seconds * 1000).toFixed(1)}ms`;
+  if (seconds < 1) return `${Math.round(seconds * 1000)}ms`;
+  if (seconds < 10) return `${seconds.toFixed(1)}s`;
+  return `${seconds.toFixed(0)}s`;
 }
 
 const SOLVER_LABELS: Record<SolverKey, string> = {
@@ -967,7 +973,7 @@ function RunScatter({ summary }: { summary: BatchSummary }) {
                 contentStyle={{ fontSize: 11 }}
                 cursor={{ strokeDasharray: "3 3" }}
                 formatter={(v, key) => {
-                  if (key === "x") return [`${formatWallTime(Number(v))}s`, "wall time"];
+                  if (key === "x") return [formatWallTime(Number(v)), "wall time"];
                   if (key === "y") return [Number(v).toFixed(0), "objective"];
                   return [v, key];
                 }}
@@ -1089,7 +1095,7 @@ function SolverReliabilityCard({
         value={
           nRuns === 0
             ? "0"
-            : `${nRuns}/${nRuns} in ${formatWallTime(meanTime)}s${nRuns > 1 ? "/run" : ""}`
+            : `${nRuns}/${nRuns} in ${formatWallTime(meanTime)}${nRuns > 1 ? "/run" : ""}`
         }
         muted={nRuns === 0}
       />
@@ -1245,10 +1251,27 @@ function RunRow({ row }: { row: SingleRun }) {
       <td className="px-2 py-1 font-mono">{row.seed}</td>
       <td className={cn("px-2 py-1 font-semibold", statusCls)}>{row.status}</td>
       <td className="px-2 py-1 text-right font-mono">
-        {row.objective == null ? "—" : row.objective.toFixed(0)}
+        {row.objective == null ? (
+          <span
+            className="text-slate-400 dark:text-slate-600"
+            title={
+              row.status === "HEURISTIC"
+                ? "Baselines don't minimise our objective — judge them on coverage + self-check instead."
+                : "Objective not reported."
+            }
+          >
+            {row.status === "HEURISTIC" ? "n/a" : "—"}
+          </span>
+        ) : (
+          row.objective.toFixed(0)
+        )}
       </td>
       <td className="px-2 py-1 text-right font-mono">
-        {row.headroom == null ? "—" : row.headroom.toFixed(0)}
+        {row.headroom == null ? (
+          <span className="text-slate-400 dark:text-slate-600">—</span>
+        ) : (
+          row.headroom.toFixed(0)
+        )}
       </td>
       <td className="px-2 py-1 text-right font-mono">{formatWallTime(row.wall_time_s)}</td>
       <td className="px-2 py-1 text-center">

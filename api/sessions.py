@@ -155,6 +155,16 @@ def session_to_v1_dict(state: SessionState) -> dict[str, Any]:
         for o in state.overrides
     ]) if state.overrides else pd.DataFrame()
 
+    role_prefs_df = pd.DataFrame([
+        {
+            "doctor": p.doctor,
+            "role": p.role,
+            "min_allocations": p.min_allocations,
+            "priority": p.priority,
+        }
+        for p in state.role_preferences
+    ]) if state.role_preferences else pd.DataFrame()
+
     return {
         "start_date": state.horizon.start_date,
         "n_days": state.horizon.n_days,
@@ -163,6 +173,7 @@ def session_to_v1_dict(state: SessionState) -> dict[str, Any]:
         "stations_df": stations_df,
         "blocks_df": blocks_df,
         "overrides_df": overrides_df,
+        "role_prefs_df": role_prefs_df,
         "tier_labels": state.tier_labels.model_dump(),
         "shift_labels": state.shift_labels.model_dump(),
         "subspecs": list(state.subspecs),
@@ -250,6 +261,8 @@ def v1_dict_to_session(update: dict[str, Any], base: SessionState | None = None)
         data["blocks"] = _df_rows("blocks_df")
     if "overrides_df" in update:
         data["overrides"] = _df_rows("overrides_df")
+    if "role_prefs_df" in update:
+        data["role_preferences"] = _df_rows("role_prefs_df")
     if "tier_labels" in update and isinstance(update["tier_labels"], dict):
         data["tier_labels"].update(update["tier_labels"])
     if "shift_labels" in update and isinstance(update["shift_labels"], dict):
@@ -325,6 +338,10 @@ def session_to_instance(state: SessionState) -> Instance:
         for b in state.blocks
     ]
     override_entries = [(o.doctor, o.date, o.role) for o in state.overrides]
+    role_preference_entries = [
+        (p.doctor, p.role, p.min_allocations, p.priority)
+        for p in state.role_preferences
+    ]
     return build_instance(
         start_date=state.horizon.start_date,
         n_days=state.horizon.n_days,
@@ -334,6 +351,7 @@ def session_to_instance(state: SessionState) -> Instance:
         weekend_am_pm_enabled=state.constraints.weekend_am_pm,
         block_entries=block_entries,
         override_entries=override_entries,
+        role_preference_entries=role_preference_entries,
         subspecs=list(state.subspecs),
     )
 

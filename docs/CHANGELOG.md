@@ -2,6 +2,52 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-25 — Per-doctor role preferences (S7) + per-tier balance callout
+
+**What:** Two coordinator asks the old model couldn't express cleanly:
+
+1. Period-wide count targets for a given role ("Dr A wants the cath
+   lab 4 times this period"). Existing Prefer-AM/Prefer-PM blocks
+   are day-specific and can't say "some N times across the horizon".
+2. Clarity that balance is already per-tier — the solver does this
+   but the UI didn't say so, and users were nervous consultants
+   would be "unfairly" flagged for doing less than juniors.
+
+**S7 — per-doctor role preferences (soft shortfall):**
+
+- New `RolePreferenceEntry` on SessionState:
+  `{doctor, role, min_allocations (1–90), priority (1–10)}`.
+  `role` is either a station name or one of `ONCALL` /
+  `WEEKEND_EXT` / `WEEKEND_CONSULT`.
+- Solver adds `priority × max(0, min − actual)` per entry to the
+  objective. Priority 1 = nudge, 5 = default, 10 = try hard.
+- Soft — never makes a solve infeasible. An unreachable preference
+  (doctor not eligible for the role anywhere) is reported as a
+  permanent shortfall component `S7_role_pref_<did>_<role>_missed`
+  so the audit surfaces the mismatch.
+- Plumbed through Instance, `ui_state.build_instance`,
+  `api/sessions.session_to_instance`, and both directions of the
+  v1-dict / YAML round-trip.
+- New UI: `/setup/preferences` sub-tab — table editor with doctor
+  dropdown, role selector (grouped: Stations · Other roles),
+  min-allocations, priority, plus an explanation card covering
+  soft-vs-hard semantics and unreachable preferences.
+- 4 tests in `tests/test_role_preferences.py`: no-op cases (priority
+  or min = 0), high-priority biases the solver toward the role
+  (floor check), unreachable-preference fallback, and non-station
+  role (ONCALL) resolution.
+
+**Per-tier balance callout:**
+
+- `/rules/weights` Priorities card description now explicitly states
+  that all balance terms compute per tier. "Juniors compete with
+  juniors, seniors with seniors, consultants with consultants."
+  No solver change — the model has always iterated per tier (see
+  `scheduler/model.py` §S0 loop); this pass just surfaces it.
+
+**Test headline:** 93/93 pytest pass (was 89 including full-day +
+lab-capacity). `pnpm build` clean.
+
 ## 2026-04-25 — Templates moved to Setup, Dashboard → landing, scenarios on preset
 
 **What:** Three changes that together make first use a much cleaner

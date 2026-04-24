@@ -7,6 +7,7 @@ const TABS = [
   { to: "when", label: "When" },
   { to: "doctors", label: "People" },
   { to: "blocks", label: "Leave & blocks" },
+  { to: "preferences", label: "Role preferences" },
   { to: "overrides", label: "Manual overrides" },
 ];
 

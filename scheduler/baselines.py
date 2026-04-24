@@ -47,7 +47,10 @@ def _build_result(
     )
     return SolveResult(
         status=status,
-        wall_time_s=round(wall_s, 3),
+        # 6 dp so sub-ms heuristics don't collapse to "0.000" downstream —
+        # greedy + random_repair finish in ~0.4 ms on small instances and
+        # the UI was showing that as "0.000 s", reading as "didn't run".
+        wall_time_s=round(wall_s, 6),
         objective=None,
         best_bound=None,
         n_vars=n_station + n_other,   # cheap proxy; used only for display
