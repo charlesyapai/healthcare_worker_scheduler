@@ -22,6 +22,7 @@ import {
 import { Link } from "react-router-dom";
 
 import { useHealth, useSessionState } from "@/api/hooks";
+import { CharlesAvatar } from "@/components/CharlesAvatar";
 import { useSolveStore } from "@/store/solve";
 import {
   Card,
@@ -119,9 +120,12 @@ export function Dashboard() {
 function Hero() {
   return (
     <header className="space-y-2 pt-2">
-      <h1 className="text-3xl font-semibold tracking-tight">
-        Healthcare Roster Scheduler
-      </h1>
+      <div className="flex items-center gap-3">
+        <CharlesAvatar size="lg" />
+        <h1 className="text-3xl font-semibold tracking-tight">
+          Charles' Healthcare Roster Scheduler
+        </h1>
+      </div>
       <p className="text-base text-slate-600 dark:text-slate-400">
         Turn a list of doctors, a set of stations, and a date range into
         a fair, feasible roster — automatically. The solver respects

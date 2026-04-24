@@ -5,12 +5,12 @@ import {
   Home,
   LayoutDashboard,
   Play,
-  Settings2,
   Sliders,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 
+import { CharlesAvatar } from "@/components/CharlesAvatar";
 import { DarkModeToggle } from "@/components/DarkModeToggle";
 import { SaveIndicator } from "@/components/SaveIndicator";
 import { YamlMenu } from "@/components/YamlMenu";
@@ -51,8 +51,8 @@ function TopBar() {
   return (
     <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
       <div className="flex items-center gap-2">
-        <Settings2 className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-        <span className="text-sm font-semibold">Roster Scheduler</span>
+        <CharlesAvatar size="sm" />
+        <span className="text-sm font-semibold">Charles' Healthcare Roster Scheduler</span>
         <span className="ml-2 hidden rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 md:inline">
           v2
         </span>
