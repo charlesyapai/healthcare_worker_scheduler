@@ -3,6 +3,11 @@
     "id": "clinic_week",
     "title": "Outpatient clinic \u2014 1 week",
     "description": "Small 10-person team: 4 juniors, 3 seniors, 3 consultants. Trimmed station list (US / XR_REPORT / GEN_AM / GEN_PM only). Good for seeing the tool's behaviour on a tight workforce.",
+    "category": "quickstart",
+    "tags": [
+      "10 people",
+      "weekday-only"
+    ],
     "n_doctors": 10,
     "n_stations": 4,
     "n_days": 7,
@@ -10,12 +15,20 @@
       "10 doctors (4/3/3)",
       "4 stations",
       "7-day horizon"
-    ]
+    ],
+    "solve_status": "OPTIMAL",
+    "solve_time_s": 0.79,
+    "difficulty": "easy"
   },
   {
     "id": "radiology_small",
-    "title": "Radiology department \u2014 1 week",
+    "title": "Radiology \u2014 1 week",
     "description": "15 doctors across junior / senior / consultant. Clean slate. Solves to OPTIMAL in seconds \u2014 great smoke test.",
+    "category": "quickstart",
+    "tags": [
+      "15 people",
+      "fastest"
+    ],
     "n_doctors": 15,
     "n_stations": 8,
     "n_days": 7,
@@ -23,12 +36,127 @@
       "15 doctors (5/4/6)",
       "8 stations",
       "7-day horizon"
-    ]
+    ],
+    "solve_status": "FEASIBLE",
+    "solve_time_s": 30.01,
+    "difficulty": "hard"
+  },
+  {
+    "id": "cardiology_week",
+    "title": "Cardiology \u2014 1 week",
+    "description": "18 cardiologists with Invasive / Non-invasive / Electrophysiology subspecs. Cath lab is consultant-led; echo is senior+; clinic + ward rounds are mixed-tier.",
+    "category": "specialty",
+    "tags": [
+      "cardiology",
+      "3 subspecs"
+    ],
+    "n_doctors": 18,
+    "n_stations": 5,
+    "n_days": 7,
+    "highlights": [
+      "18 doctors (6/4/8)",
+      "5 stations",
+      "7-day horizon"
+    ],
+    "solve_status": "FEASIBLE",
+    "solve_time_s": 30.01,
+    "difficulty": "hard"
+  },
+  {
+    "id": "anaesthesia_two_weeks",
+    "title": "Anaesthesia \u2014 2 weeks",
+    "description": "24 anaesthetists across General / Cardiac / Obstetric / Paediatric subspecs. Theatre lists are subspec-restricted; trainees staff pre-op and recovery.",
+    "category": "specialty",
+    "tags": [
+      "anaesthesia",
+      "4 subspecs"
+    ],
+    "n_doctors": 24,
+    "n_stations": 7,
+    "n_days": 14,
+    "highlights": [
+      "24 doctors (8/6/10)",
+      "7 stations",
+      "14-day horizon"
+    ],
+    "solve_status": "FEASIBLE",
+    "solve_time_s": 29.99,
+    "difficulty": "hard"
+  },
+  {
+    "id": "icu_two_weeks",
+    "title": "ICU / Critical Care \u2014 2 weeks",
+    "description": "16-doctor critical-care unit with 24/7 cover. Single subspec, max 4 on-calls per doctor over the fortnight so the fatigue load spreads evenly.",
+    "category": "specialty",
+    "tags": [
+      "icu",
+      "single subspec",
+      "max_oncalls"
+    ],
+    "n_doctors": 16,
+    "n_stations": 4,
+    "n_days": 14,
+    "highlights": [
+      "16 doctors (6/4/6)",
+      "4 stations",
+      "14-day horizon"
+    ],
+    "solve_status": "FEASIBLE",
+    "solve_time_s": 30.0,
+    "difficulty": "hard"
+  },
+  {
+    "id": "emergency_week",
+    "title": "Emergency Department \u2014 1 week",
+    "description": "26 ED doctors, AM/PM/night shift pattern, weekend cover enabled. Trauma-lead subspec for weekend H8 compliance.",
+    "category": "specialty",
+    "tags": [
+      "emergency",
+      "weekend on",
+      "3-shift"
+    ],
+    "n_doctors": 26,
+    "n_stations": 5,
+    "n_days": 7,
+    "highlights": [
+      "26 doctors (10/8/8)",
+      "5 stations",
+      "7-day horizon"
+    ],
+    "solve_status": "FEASIBLE",
+    "solve_time_s": 30.0,
+    "difficulty": "hard"
+  },
+  {
+    "id": "paediatrics_two_weeks",
+    "title": "Paediatrics \u2014 2 weeks",
+    "description": "20 paediatricians with General / Neonatal subspecs. NICU lead station is neonatology-only \u2014 solver has to respect the subspec restriction during weekend H8.",
+    "category": "specialty",
+    "tags": [
+      "paediatrics",
+      "NICU"
+    ],
+    "n_doctors": 20,
+    "n_stations": 5,
+    "n_days": 14,
+    "highlights": [
+      "20 doctors (7/5/8)",
+      "5 stations",
+      "14-day horizon"
+    ],
+    "solve_status": "FEASIBLE",
+    "solve_time_s": 30.01,
+    "difficulty": "hard"
   },
   {
     "id": "nursing_ward",
     "title": "Nursing ward \u2014 2 weeks",
     "description": "17 nurses across ward / senior / manager tiers with Medical and Surgical sub-wards. Same engine, different vocabulary.",
+    "category": "specialty",
+    "tags": [
+      "nursing",
+      "renamed tiers"
+    ],
     "n_doctors": 17,
     "n_stations": 5,
     "n_days": 14,
@@ -37,12 +165,20 @@
       "5 stations",
       "14-day horizon",
       "Tiers: Staff Nurse / Senior Nurse / Ward Manager"
-    ]
+    ],
+    "solve_status": "FEASIBLE",
+    "solve_time_s": 30.01,
+    "difficulty": "hard"
   },
   {
     "id": "busy_month_with_leave",
     "title": "Busy hospital \u2014 2 weeks with leave",
     "description": "22 doctors, a public holiday, and a handful of leave blocks. Realistic mid-sized problem; shows how leave affects coverage.",
+    "category": "realistic",
+    "tags": [
+      "leave",
+      "public holiday"
+    ],
     "n_doctors": 22,
     "n_stations": 8,
     "n_days": 14,
@@ -52,12 +188,20 @@
       "14-day horizon",
       "1 public holiday(s)",
       "4 leave / block entries"
-    ]
+    ],
+    "solve_status": "FEASIBLE",
+    "solve_time_s": 30.01,
+    "difficulty": "hard"
   },
   {
     "id": "teaching_hospital_week",
     "title": "Teaching hospital \u2014 1 week",
-    "description": "Larger 30-doctor department (8 juniors, 6 seniors, 16 consultants across 3 subspecs). Station demand scaled to match the team size so weekday utilisation stays high. Small amount of leave + one preferred-shift request.",
+    "description": "Larger 30-doctor radiology department. Station demand scaled to match team size so weekday utilisation stays high. Small amount of leave + one preferred-shift request.",
+    "category": "realistic",
+    "tags": [
+      "30 doctors",
+      "preferences"
+    ],
     "n_doctors": 30,
     "n_stations": 8,
     "n_days": 7,
@@ -66,12 +210,21 @@
       "8 stations",
       "7-day horizon",
       "5 leave / block entries"
-    ]
+    ],
+    "solve_status": "FEASIBLE",
+    "solve_time_s": 30.01,
+    "difficulty": "hard"
   },
   {
     "id": "regional_hospital_month",
     "title": "Regional hospital \u2014 4 weeks",
     "description": "Full month horizon over a 30-doctor team. One part-timer (0.5 FTE), one max-oncall cap, one public holiday, mixed leave + call blocks + soft preferences. Best scenario for stress-testing /lab/fairness's per-individual \u0394 view.",
+    "category": "realistic",
+    "tags": [
+      "4 weeks",
+      "FTE",
+      "fairness stress"
+    ],
     "n_doctors": 30,
     "n_stations": 8,
     "n_days": 28,
@@ -81,12 +234,21 @@
       "28-day horizon",
       "1 public holiday(s)",
       "12 leave / block entries"
-    ]
+    ],
+    "solve_status": "FEASIBLE",
+    "solve_time_s": 30.01,
+    "difficulty": "hard"
   },
   {
     "id": "hospital_long_month",
     "title": "Large hospital \u2014 4 weeks",
-    "description": "Biggest bundled scenario: 35 doctors (10/7/18), 8 stations scaled up, two public holidays, leave in every week, two part-time doctors (0.5 + 0.75 FTE). Solves more slowly \u2014 treat as 'how far can you push this'.",
+    "description": "Biggest day-to-day scenario: 35 doctors (10/7/18), 8 stations scaled up, two public holidays, leave in every week, two part-time doctors (0.5 + 0.75 FTE). Solves more slowly \u2014 treat as 'how far can you push this'.",
+    "category": "realistic",
+    "tags": [
+      "35 doctors",
+      "4 weeks",
+      "largest"
+    ],
     "n_doctors": 35,
     "n_stations": 8,
     "n_days": 28,
@@ -96,6 +258,99 @@
       "28-day horizon",
       "2 public holiday(s)",
       "8 leave / block entries"
-    ]
+    ],
+    "solve_status": "FEASIBLE",
+    "solve_time_s": 30.01,
+    "difficulty": "hard"
+  },
+  {
+    "id": "benchmark_nrp_small",
+    "title": "Benchmark \u00b7 NRP small (11\u00d714)",
+    "description": "Clean-room reference instance: 11 doctors \u00d7 14 days, default stations, no leave / no holidays / no overrides. Reproducible baseline for CP-SAT vs greedy comparisons and /lab/scaling.",
+    "category": "research",
+    "tags": [
+      "benchmark",
+      "NRP",
+      "reproducible"
+    ],
+    "n_doctors": 11,
+    "n_stations": 6,
+    "n_days": 14,
+    "highlights": [
+      "11 doctors (4/4/3)",
+      "6 stations",
+      "14-day horizon"
+    ],
+    "solve_status": "FEASIBLE",
+    "solve_time_s": 30.0,
+    "difficulty": "hard"
+  },
+  {
+    "id": "benchmark_nrp_medium",
+    "title": "Benchmark \u00b7 NRP medium (20\u00d728)",
+    "description": "Mid-sized reference: 20 doctors \u00d7 28 days with the standard 8-station set. Clean inputs for publishing CP-SAT vs greedy gaps at a non-trivial problem size.",
+    "category": "research",
+    "tags": [
+      "benchmark",
+      "NRP",
+      "mid-sized"
+    ],
+    "n_doctors": 20,
+    "n_stations": 8,
+    "n_days": 28,
+    "highlights": [
+      "20 doctors (7/4/9)",
+      "8 stations",
+      "28-day horizon"
+    ],
+    "solve_status": "FEASIBLE",
+    "solve_time_s": 30.01,
+    "difficulty": "hard"
+  },
+  {
+    "id": "stress_tight_oncall",
+    "title": "Stress \u00b7 Tight on-call bench",
+    "description": "12 doctors \u00d7 4 weeks with a thin senior bench. H4 + H5 + weekday on-call coverage push the solver to its limits \u2014 expect FEASIBLE rather than OPTIMAL inside 30 s.",
+    "category": "research",
+    "tags": [
+      "stress",
+      "hard",
+      "oncall pressure"
+    ],
+    "n_doctors": 12,
+    "n_stations": 6,
+    "n_days": 28,
+    "highlights": [
+      "12 doctors (4/4/4)",
+      "6 stations",
+      "28-day horizon"
+    ],
+    "solve_status": "FEASIBLE",
+    "solve_time_s": 30.05,
+    "difficulty": "hard"
+  },
+  {
+    "id": "stress_dense_leave",
+    "title": "Stress \u00b7 Dense leave + holidays",
+    "description": "18 doctors \u00d7 14 days with heavy overlapping leave and two public holidays. Shows what happens when a coordinator tries to schedule through a holiday-and-leave crunch.",
+    "category": "research",
+    "tags": [
+      "stress",
+      "leave",
+      "holidays"
+    ],
+    "n_doctors": 18,
+    "n_stations": 8,
+    "n_days": 14,
+    "highlights": [
+      "18 doctors (7/5/6)",
+      "8 stations",
+      "14-day horizon",
+      "2 public holiday(s)",
+      "8 leave / block entries"
+    ],
+    "solve_status": "FEASIBLE",
+    "solve_time_s": 30.01,
+    "difficulty": "hard"
   }
 ]

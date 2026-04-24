@@ -63,6 +63,14 @@ export function useLoadSample(
   });
 }
 
+export type ScenarioCategory =
+  | "quickstart"
+  | "specialty"
+  | "realistic"
+  | "research";
+
+export type ScenarioDifficulty = "easy" | "hard" | "stress";
+
 export interface ScenarioSummary {
   id: string;
   title: string;
@@ -71,6 +79,11 @@ export interface ScenarioSummary {
   n_stations: number;
   n_days: number;
   highlights: string[];
+  category?: ScenarioCategory;
+  tags?: string[];
+  solve_status?: string;
+  solve_time_s?: number;
+  difficulty?: ScenarioDifficulty;
 }
 
 export function useScenarios() {

@@ -1,0 +1,200 @@
+schema_version: 1
+horizon:
+  start_date: '2026-04-27'
+  n_days: 14
+  public_holidays: []
+doctors:
+- name: ST1
+  tier: junior
+  subspec: ''
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER
+  prev_workload: 0
+  fte: 1.0
+- name: ST2
+  tier: junior
+  subspec: ''
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER
+  prev_workload: 0
+  fte: 1.0
+- name: ST3
+  tier: junior
+  subspec: ''
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER
+  prev_workload: 0
+  fte: 1.0
+- name: ST4
+  tier: junior
+  subspec: ''
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER
+  prev_workload: 0
+  fte: 1.0
+- name: ST5
+  tier: junior
+  subspec: ''
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER
+  prev_workload: 0
+  fte: 1.0
+- name: ST6
+  tier: junior
+  subspec: ''
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER
+  prev_workload: 0
+  fte: 1.0
+- name: ST7
+  tier: junior
+  subspec: ''
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER
+  prev_workload: 0
+  fte: 1.0
+- name: PEM-R1
+  tier: senior
+  subspec: ''
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER,HDU
+  prev_workload: 0
+  fte: 1.0
+- name: PEM-R2
+  tier: senior
+  subspec: ''
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER,HDU
+  prev_workload: 0
+  fte: 1.0
+- name: PEM-R3
+  tier: senior
+  subspec: ''
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER,HDU
+  prev_workload: 0
+  fte: 1.0
+- name: PEM-R4
+  tier: senior
+  subspec: ''
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER,HDU
+  prev_workload: 0
+  fte: 1.0
+- name: PEM-R5
+  tier: senior
+  subspec: ''
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER,HDU
+  prev_workload: 0
+  fte: 1.0
+- name: Dr Tots1
+  tier: consultant
+  subspec: General
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_LEAD,HDU
+  prev_workload: 0
+  fte: 1.0
+- name: Dr Tots2
+  tier: consultant
+  subspec: General
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_LEAD,HDU
+  prev_workload: 0
+  fte: 1.0
+- name: Dr Tots3
+  tier: consultant
+  subspec: General
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_LEAD,HDU
+  prev_workload: 0
+  fte: 1.0
+- name: Dr Tots4
+  tier: consultant
+  subspec: General
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_LEAD,HDU
+  prev_workload: 0
+  fte: 1.0
+- name: Dr Neo1
+  tier: consultant
+  subspec: Neonatal
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_LEAD,HDU
+  prev_workload: 0
+  fte: 1.0
+- name: Dr Neo2
+  tier: consultant
+  subspec: Neonatal
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_LEAD,HDU
+  prev_workload: 0
+  fte: 1.0
+- name: Dr Neo3
+  tier: consultant
+  subspec: Neonatal
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_LEAD,HDU
+  prev_workload: 0
+  fte: 1.0
+- name: Dr Tots5
+  tier: consultant
+  subspec: General
+  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_LEAD,HDU
+  prev_workload: 0
+  fte: 1.0
+stations:
+- name: GEN_WARD
+  sessions: AM,PM
+  required_per_session: 2
+  eligible_tiers: junior,senior,consultant
+  is_reporting: false
+- name: OUTPATIENTS
+  sessions: AM,PM
+  required_per_session: 2
+  eligible_tiers: junior,senior,consultant
+  is_reporting: false
+- name: HDU
+  sessions: AM,PM
+  required_per_session: 1
+  eligible_tiers: senior,consultant
+  is_reporting: false
+- name: NICU_LEAD
+  sessions: AM,PM
+  required_per_session: 1
+  eligible_tiers: consultant
+  is_reporting: false
+- name: NICU_COVER
+  sessions: AM,PM
+  required_per_session: 1
+  eligible_tiers: junior,senior,consultant
+  is_reporting: false
+blocks: []
+overrides: []
+tier_labels:
+  junior: Junior
+  senior: Senior
+  consultant: Consultant
+subspecs:
+- General
+- Neonatal
+soft_weights:
+  workload: 40
+  sessions: 5
+  oncall: 10
+  weekend: 10
+  reporting: 5
+  idle_weekday: 100
+  preference: 5
+workload_weights:
+  weekday_session: 10
+  weekend_session: 15
+  weekday_oncall: 20
+  weekend_oncall: 35
+  weekend_ext: 20
+  weekend_consult: 25
+hours:
+  weekday_am: 4.0
+  weekday_pm: 4.0
+  weekend_am: 4.0
+  weekend_pm: 4.0
+  weekday_oncall: 12.0
+  weekend_oncall: 16.0
+  weekend_ext: 12.0
+  weekend_consult: 8.0
+constraints:
+  h4_enabled: true
+  h4_gap: 3
+  h5_enabled: true
+  h6_enabled: true
+  h7_enabled: true
+  h8_enabled: true
+  h9_enabled: true
+  h11_enabled: true
+  weekend_am_pm: false
+  weekday_oncall_coverage: true
+solver:
+  time_limit: 30
+  num_workers: 8
+  feasibility_only: false

@@ -1,0 +1,158 @@
+schema_version: 1
+horizon:
+  start_date: '2026-04-27'
+  n_days: 28
+  public_holidays: []
+doctors:
+- name: J01
+  tier: junior
+  subspec: ''
+  eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
+  prev_workload: 0
+  fte: 1.0
+- name: J02
+  tier: junior
+  subspec: ''
+  eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
+  prev_workload: 0
+  fte: 1.0
+- name: J03
+  tier: junior
+  subspec: ''
+  eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
+  prev_workload: 0
+  fte: 1.0
+- name: J04
+  tier: junior
+  subspec: ''
+  eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
+  prev_workload: 0
+  fte: 1.0
+- name: S01
+  tier: senior
+  subspec: ''
+  eligible_stations: CT,US,XR_REPORT,GEN_AM,GEN_PM
+  prev_workload: 0
+  fte: 1.0
+- name: S02
+  tier: senior
+  subspec: ''
+  eligible_stations: CT,US,XR_REPORT,GEN_AM,GEN_PM
+  prev_workload: 0
+  fte: 1.0
+- name: S03
+  tier: senior
+  subspec: ''
+  eligible_stations: CT,US,XR_REPORT,GEN_AM,GEN_PM
+  prev_workload: 0
+  fte: 1.0
+- name: S04
+  tier: senior
+  subspec: ''
+  eligible_stations: CT,US,XR_REPORT,GEN_AM,GEN_PM
+  prev_workload: 0
+  fte: 1.0
+- name: C01
+  tier: consultant
+  subspec: Neuro
+  eligible_stations: CT,US,XR_REPORT,IR
+  prev_workload: 0
+  fte: 1.0
+- name: C02
+  tier: consultant
+  subspec: Body
+  eligible_stations: CT,US,XR_REPORT,IR
+  prev_workload: 0
+  fte: 1.0
+- name: C03
+  tier: consultant
+  subspec: MSK
+  eligible_stations: CT,US,XR_REPORT,IR
+  prev_workload: 0
+  fte: 1.0
+- name: C04
+  tier: consultant
+  subspec: Neuro
+  eligible_stations: CT,US,XR_REPORT,IR
+  prev_workload: 0
+  fte: 1.0
+stations:
+- name: US
+  sessions: AM,PM
+  required_per_session: 1
+  eligible_tiers: junior,senior,consultant
+  is_reporting: false
+- name: XR_REPORT
+  sessions: AM,PM
+  required_per_session: 1
+  eligible_tiers: junior,senior,consultant
+  is_reporting: true
+- name: CT
+  sessions: AM,PM
+  required_per_session: 1
+  eligible_tiers: senior,consultant
+  is_reporting: false
+- name: IR
+  sessions: AM,PM
+  required_per_session: 1
+  eligible_tiers: consultant
+  is_reporting: false
+- name: GEN_AM
+  sessions: AM
+  required_per_session: 1
+  eligible_tiers: junior,senior,consultant
+  is_reporting: false
+- name: GEN_PM
+  sessions: PM
+  required_per_session: 1
+  eligible_tiers: junior,senior,consultant
+  is_reporting: false
+blocks: []
+overrides: []
+tier_labels:
+  junior: Junior
+  senior: Senior
+  consultant: Consultant
+subspecs:
+- Neuro
+- Body
+- MSK
+soft_weights:
+  workload: 40
+  sessions: 5
+  oncall: 10
+  weekend: 10
+  reporting: 5
+  idle_weekday: 100
+  preference: 5
+workload_weights:
+  weekday_session: 10
+  weekend_session: 15
+  weekday_oncall: 20
+  weekend_oncall: 35
+  weekend_ext: 20
+  weekend_consult: 25
+hours:
+  weekday_am: 4.0
+  weekday_pm: 4.0
+  weekend_am: 4.0
+  weekend_pm: 4.0
+  weekday_oncall: 12.0
+  weekend_oncall: 16.0
+  weekend_ext: 12.0
+  weekend_consult: 8.0
+constraints:
+  h4_enabled: true
+  h4_gap: 3
+  h5_enabled: true
+  h6_enabled: true
+  h7_enabled: true
+  h8_enabled: true
+  h9_enabled: true
+  h11_enabled: true
+  weekend_am_pm: false
+  weekday_oncall_coverage: true
+solver:
+  time_limit: 30
+  num_workers: 8
+  feasibility_only: false

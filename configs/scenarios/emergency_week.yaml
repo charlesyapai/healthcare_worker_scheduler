@@ -1,0 +1,236 @@
+schema_version: 1
+horizon:
+  start_date: '2026-04-27'
+  n_days: 7
+  public_holidays: []
+doctors:
+- name: SHO1
+  tier: junior
+  subspec: ''
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: SHO2
+  tier: junior
+  subspec: ''
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: SHO3
+  tier: junior
+  subspec: ''
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: SHO4
+  tier: junior
+  subspec: ''
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: SHO5
+  tier: junior
+  subspec: ''
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: SHO6
+  tier: junior
+  subspec: ''
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: SHO7
+  tier: junior
+  subspec: ''
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: SHO8
+  tier: junior
+  subspec: ''
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: SHO9
+  tier: junior
+  subspec: ''
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: SHO10
+  tier: junior
+  subspec: ''
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: ED-R1
+  tier: senior
+  subspec: ''
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: ED-R2
+  tier: senior
+  subspec: ''
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: ED-R3
+  tier: senior
+  subspec: ''
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: ED-R4
+  tier: senior
+  subspec: ''
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: ED-R5
+  tier: senior
+  subspec: ''
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: ED-R6
+  tier: senior
+  subspec: ''
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: ED-R7
+  tier: senior
+  subspec: ''
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: ED-R8
+  tier: senior
+  subspec: ''
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: Dr ED1
+  tier: consultant
+  subspec: General
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: Dr ED2
+  tier: consultant
+  subspec: General
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: Dr ED3
+  tier: consultant
+  subspec: General
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: Dr ED4
+  tier: consultant
+  subspec: General
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: Dr Traum1
+  tier: consultant
+  subspec: Trauma
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: Dr Traum2
+  tier: consultant
+  subspec: Trauma
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: Dr ED5
+  tier: consultant
+  subspec: General
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+- name: Dr Traum3
+  tier: consultant
+  subspec: Trauma
+  eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  prev_workload: 0
+  fte: 1.0
+stations:
+- name: MAJORS
+  sessions: AM,PM
+  required_per_session: 3
+  eligible_tiers: junior,senior,consultant
+  is_reporting: false
+- name: MINORS
+  sessions: AM,PM
+  required_per_session: 2
+  eligible_tiers: junior,senior,consultant
+  is_reporting: false
+- name: RESUS
+  sessions: AM,PM
+  required_per_session: 1
+  eligible_tiers: senior,consultant
+  is_reporting: false
+- name: TRIAGE
+  sessions: AM,PM
+  required_per_session: 1
+  eligible_tiers: junior,senior,consultant
+  is_reporting: false
+- name: PAEDS_ED
+  sessions: AM,PM
+  required_per_session: 1
+  eligible_tiers: senior,consultant
+  is_reporting: false
+blocks: []
+overrides: []
+tier_labels:
+  junior: Junior
+  senior: Senior
+  consultant: Consultant
+subspecs:
+- General
+- Trauma
+soft_weights:
+  workload: 40
+  sessions: 5
+  oncall: 10
+  weekend: 10
+  reporting: 5
+  idle_weekday: 100
+  preference: 5
+workload_weights:
+  weekday_session: 10
+  weekend_session: 15
+  weekday_oncall: 20
+  weekend_oncall: 35
+  weekend_ext: 20
+  weekend_consult: 25
+hours:
+  weekday_am: 4.0
+  weekday_pm: 4.0
+  weekend_am: 4.0
+  weekend_pm: 4.0
+  weekday_oncall: 12.0
+  weekend_oncall: 16.0
+  weekend_ext: 12.0
+  weekend_consult: 8.0
+constraints:
+  h4_enabled: true
+  h4_gap: 3
+  h5_enabled: true
+  h6_enabled: true
+  h7_enabled: true
+  h8_enabled: true
+  h9_enabled: true
+  h11_enabled: true
+  weekend_am_pm: true
+  weekday_oncall_coverage: true
+solver:
+  time_limit: 30
+  num_workers: 8
+  feasibility_only: false

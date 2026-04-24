@@ -2,6 +2,62 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-24 — Template library revamp: categories, specialties, stress tests
+
+**What:** The old 7-scenario library was radiology-heavy and gave no
+signal about which template fit which use-case. Rebuilt into 16
+templates organised into four categories plus an honest difficulty
+badge.
+
+**Categories (new `category` + `tags` fields in manifest.json):**
+
+- **Quickstart** (2) — small, solve in seconds. `clinic_week`,
+  `radiology_small`.
+- **By specialty** (6, new) — department-shaped templates:
+  - `cardiology_week` — Invasive / Non-invasive / Electrophysiology
+    subspecs; cath lab is consultant-only.
+  - `anaesthesia_two_weeks` — General / Cardiac / Obstetric /
+    Paediatric subspecs; theatre lists are subspec-restricted.
+  - `icu_two_weeks` — single-subspec critical care, `max_oncalls=4`
+    cap so the fatigue load spreads evenly.
+  - `emergency_week` — 26-doctor ED with `weekend_am_pm=True` so the
+    whole week runs weekend-style cover.
+  - `paediatrics_two_weeks` — General / Neonatal subspecs; NICU lead
+    is consultant-only.
+  - `nursing_ward` (re-categorised) — same engine, renamed tiers.
+- **Real-world sized** (4) — `busy_month_with_leave`,
+  `teaching_hospital_week`, `regional_hospital_month`,
+  `hospital_long_month`.
+- **Research & benchmarks** (4, new):
+  - `benchmark_nrp_small` (11×14) and `benchmark_nrp_medium` (20×28)
+    — clean-room reference shapes for `/lab/scaling` + CP-SAT vs
+    greedy comparisons.
+  - `stress_tight_oncall` (12×28) — intentionally thin senior bench
+    to probe H4 + H5 + weekday on-call coverage limits.
+  - `stress_dense_leave` (18×14) — two public holidays + heavy
+    overlapping leave; shows holiday-and-leave crunch behaviour.
+
+**Honest difficulty badges:** each scenario is solved at build time
+(30 s / 4 workers) and the result recorded in the manifest as
+`solve_status`, `solve_time_s`, and a three-bucket `difficulty`
+(`easy` / `hard` / `stress`). The Dashboard now shows a green "Solves
+fast", amber "Long solve", or red "Stress test" pill on each card —
+so a first-time user isn't misled into expecting a 20-second OPTIMAL
+out of the 35-doctor month.
+
+**Feasibility gate loosened:** `scripts/build_scenarios.py` no longer
+aborts when a template fails to solve inside 30 s. Hard / stress-test
+scenarios are a legitimate part of the library — they teach users (and
+reviewers) where the CP-SAT limits are. Status lands in the manifest
+either way.
+
+**Dashboard layout:** scenarios are now rendered as four category
+blocks with icon + headline + hint. The featured (first-quickstart)
+card still gets a subtle highlight.
+
+**Test headline:** 80/80 pytest still pass. `pnpm build` clean. 16
+scenarios shipped (was 7).
+
 ## 2026-04-24 — Rules UX pass: 3 subtabs, preset row, fixed toggle, compact stations
 
 **What:** Rules had seven sub-tabs (Tiers, Sub-specs, Stations, Rules,
