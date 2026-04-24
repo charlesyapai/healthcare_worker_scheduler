@@ -164,6 +164,7 @@ def session_to_v1_dict(state: SessionState) -> dict[str, Any]:
         "blocks_df": blocks_df,
         "overrides_df": overrides_df,
         "tier_labels": state.tier_labels.model_dump(),
+        "shift_labels": state.shift_labels.model_dump(),
         "subspecs": list(state.subspecs),
         # Flat soft weights — keys match what dump_state reads.
         "w_workload": state.soft_weights.workload,
@@ -251,6 +252,8 @@ def v1_dict_to_session(update: dict[str, Any], base: SessionState | None = None)
         data["overrides"] = _df_rows("overrides_df")
     if "tier_labels" in update and isinstance(update["tier_labels"], dict):
         data["tier_labels"].update(update["tier_labels"])
+    if "shift_labels" in update and isinstance(update["shift_labels"], dict):
+        data["shift_labels"].update(update["shift_labels"])
     if "subspecs" in update:
         data["subspecs"] = list(update["subspecs"])
 

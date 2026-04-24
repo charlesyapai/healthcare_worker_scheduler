@@ -695,6 +695,243 @@
         "title": "RunHistoryEntry",
         "type": "object"
       },
+      "ScalingCell": {
+        "description": "One solve in the scaling grid.",
+        "properties": {
+          "first_feasible_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Feasible S"
+          },
+          "n_assignments": {
+            "title": "N Assignments",
+            "type": "integer"
+          },
+          "n_days": {
+            "title": "N Days",
+            "type": "integer"
+          },
+          "n_doctors": {
+            "title": "N Doctors",
+            "type": "integer"
+          },
+          "objective": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective"
+          },
+          "seed": {
+            "title": "Seed",
+            "type": "integer"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "wall_time_s": {
+            "title": "Wall Time S",
+            "type": "number"
+          }
+        },
+        "required": [
+          "n_doctors",
+          "n_days",
+          "seed",
+          "status",
+          "wall_time_s",
+          "first_feasible_s",
+          "objective",
+          "n_assignments",
+          "size"
+        ],
+        "title": "ScalingCell",
+        "type": "object"
+      },
+      "ScalingFit": {
+        "description": "Power-law fit T = a \u00b7 N^b across all cells where `status` is in\n{OPTIMAL, FEASIBLE}. `r_squared` is the linear-regression R\u00b2 in\nlog-log space; `n_points` is the number of points used in the fit.",
+        "properties": {
+          "coefficient": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coefficient"
+          },
+          "exponent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exponent"
+          },
+          "n_points": {
+            "default": 0,
+            "title": "N Points",
+            "type": "integer"
+          },
+          "r_squared": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "R Squared"
+          }
+        },
+        "title": "ScalingFit",
+        "type": "object"
+      },
+      "ScalingRequest": {
+        "description": "Run CP-SAT against a grid of synthetic instance sizes, measure\nwall-time and objective per cell. See `docs/LAB_TAB_SPEC.md \u00a75`.\n\nUses `scheduler.instance.make_synthetic` under the hood so the\ninstance shape matches our default stations/tier mix. Per-size\n`leave_rate` is fixed so the only varying inputs are size + seed.",
+        "properties": {
+          "feasibility_only": {
+            "default": false,
+            "title": "Feasibility Only",
+            "type": "boolean"
+          },
+          "leave_rate": {
+            "default": 0.03,
+            "maximum": 0.25,
+            "minimum": 0.0,
+            "title": "Leave Rate",
+            "type": "number"
+          },
+          "num_workers": {
+            "default": 1,
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Num Workers",
+            "type": "integer"
+          },
+          "seeds": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Seeds",
+            "type": "array"
+          },
+          "sizes": {
+            "items": {
+              "$ref": "#/components/schemas/ScalingSize"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Sizes",
+            "type": "array"
+          },
+          "time_limit_s": {
+            "default": 15.0,
+            "maximum": 120.0,
+            "minimum": 1.0,
+            "title": "Time Limit S",
+            "type": "number"
+          }
+        },
+        "required": [
+          "sizes"
+        ],
+        "title": "ScalingRequest",
+        "type": "object"
+      },
+      "ScalingResponse": {
+        "description": "Result of a scaling sweep.",
+        "properties": {
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/ScalingCell"
+            },
+            "title": "Cells",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "fit": {
+            "$ref": "#/components/schemas/ScalingFit"
+          },
+          "leave_rate": {
+            "title": "Leave Rate",
+            "type": "number"
+          },
+          "num_workers": {
+            "title": "Num Workers",
+            "type": "integer"
+          },
+          "time_limit_s": {
+            "title": "Time Limit S",
+            "type": "number"
+          }
+        },
+        "required": [
+          "batch_id",
+          "created_at",
+          "time_limit_s",
+          "num_workers",
+          "leave_rate",
+          "cells",
+          "fit"
+        ],
+        "title": "ScalingResponse",
+        "type": "object"
+      },
+      "ScalingSize": {
+        "description": "One (n_doctors, n_days) point in the scaling sweep.",
+        "properties": {
+          "n_days": {
+            "maximum": 120.0,
+            "minimum": 1.0,
+            "title": "N Days",
+            "type": "integer"
+          },
+          "n_doctors": {
+            "maximum": 200.0,
+            "minimum": 4.0,
+            "title": "N Doctors",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "n_doctors",
+          "n_days"
+        ],
+        "title": "ScalingSize",
+        "type": "object"
+      },
       "SelfCheckViolation": {
         "properties": {
           "location": {
@@ -760,6 +997,9 @@
             "title": "Schema Version",
             "type": "integer"
           },
+          "shift_labels": {
+            "$ref": "#/components/schemas/ShiftLabels"
+          },
           "soft_weights": {
             "$ref": "#/components/schemas/SoftWeights"
           },
@@ -788,6 +1028,43 @@
           }
         },
         "title": "SessionState",
+        "type": "object"
+      },
+      "ShiftLabels": {
+        "description": "Human-readable labels for the internal session keys.\n\nThe solver reasons over AM / PM / FULL_DAY / ONCALL / EXT /\nWCONSULT \u2014 these labels are cosmetic, used by the UI when it wants\nto say \"Morning 07:00\u201315:00\" instead of \"AM\" in the Roster grid,\nExport preview, and mailto body. Changing them does NOT change\nsolver behaviour. Defaults match the historic names so existing\nexports stay unchanged.",
+        "properties": {
+          "am": {
+            "default": "AM",
+            "title": "Am",
+            "type": "string"
+          },
+          "full_day": {
+            "default": "Full day",
+            "title": "Full Day",
+            "type": "string"
+          },
+          "oncall": {
+            "default": "Night call",
+            "title": "Oncall",
+            "type": "string"
+          },
+          "pm": {
+            "default": "PM",
+            "title": "Pm",
+            "type": "string"
+          },
+          "weekend_consult": {
+            "default": "Weekend consultant",
+            "title": "Weekend Consult",
+            "type": "string"
+          },
+          "weekend_ext": {
+            "default": "Weekend extended",
+            "title": "Weekend Ext",
+            "type": "string"
+          }
+        },
+        "title": "ShiftLabels",
         "type": "object"
       },
       "SingleRun": {
@@ -1258,7 +1535,8 @@
             "items": {
               "enum": [
                 "AM",
-                "PM"
+                "PM",
+                "FULL_DAY"
               ],
               "type": "string"
             },
@@ -1455,6 +1733,120 @@
         "title": "WorkloadWeights",
         "type": "object"
       },
+      "WtdConfigPatch": {
+        "description": "Overrides for the default UK WTD thresholds. All fields optional \u2014\nomit to keep the statutory default. Lets a researcher ablate one\nrule at a time (e.g. \"what if we lift the 72-hr rolling cap?\").",
+        "properties": {
+          "long_day_threshold_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Long Day Threshold Hours"
+          },
+          "max_avg_weekly_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Avg Weekly Hours"
+          },
+          "max_consecutive_long_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Consecutive Long Days"
+          },
+          "max_consecutive_nights": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Consecutive Nights"
+          },
+          "max_hours_per_7_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Hours Per 7 Days"
+          },
+          "max_shift_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Shift Hours"
+          },
+          "min_rest_between_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Rest Between Hours"
+          },
+          "reference_period_weeks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Period Weeks"
+          }
+        },
+        "title": "WtdConfigPatch",
+        "type": "object"
+      },
+      "WtdRequest": {
+        "properties": {
+          "assignments": {
+            "items": {
+              "$ref": "#/components/schemas/AssignmentRow"
+            },
+            "title": "Assignments",
+            "type": "array"
+          },
+          "config": {
+            "$ref": "#/components/schemas/WtdConfigPatch"
+          }
+        },
+        "required": [
+          "assignments"
+        ],
+        "title": "WtdRequest",
+        "type": "object"
+      },
       "YamlExportResponse": {
         "properties": {
           "yaml": {
@@ -1489,6 +1881,50 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/compliance/uk_wtd": {
+      "post": {
+        "description": "Run the UK junior-doctor 2016 + EU WTD audit against a caller-\nprovided roster. Returns structured violations grouped by rule,\nwith counts per severity. The roster is not solved here \u2014 the\ncaller already has one (either from `/api/solve` or manual edit).",
+        "operationId": "uk_wtd_api_compliance_uk_wtd_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WtdRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Uk Wtd Api Compliance Uk Wtd Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Uk Wtd",
+        "tags": [
+          "compliance"
+        ]
+      }
+    },
     "/api/diagnose": {
       "post": {
         "description": "Millisecond necessary-condition checks (L1).",
@@ -1756,6 +2192,48 @@
           }
         },
         "summary": "Get Run Detail",
+        "tags": [
+          "lab"
+        ]
+      }
+    },
+    "/api/lab/scaling/run": {
+      "post": {
+        "description": "Run CP-SAT across a grid of synthetic instance sizes and fit a\npower law T = a \u00b7 N^b where N = n_doctors \u00d7 n_days. See\n`docs/LAB_TAB_SPEC.md \u00a75`. Synchronous; bound your grid \u00d7 seeds \u00d7\ntime_limit to keep this under ~2 minutes.",
+        "operationId": "scaling_run_api_lab_scaling_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScalingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScalingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Scaling Run",
         "tags": [
           "lab"
         ]

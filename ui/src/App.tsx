@@ -13,6 +13,7 @@ import { LabSweep } from "@/routes/Lab/Sweep";
 import { Roster } from "@/routes/Roster";
 import { RulesLayout } from "@/routes/Rules";
 import { Constraints } from "@/routes/Rules/Constraints";
+import { Shape } from "@/routes/Rules/Shape";
 import { Teams } from "@/routes/Rules/Teams";
 import { Weights } from "@/routes/Rules/Weights";
 import { Blocks } from "@/routes/Setup/Blocks";
@@ -49,7 +50,8 @@ export function App() {
               <Route path="overrides" element={<Overrides />} />
             </Route>
             <Route path="rules" element={<RulesLayout />}>
-              <Route index element={<Navigate to="teams" replace />} />
+              <Route index element={<Navigate to="shape" replace />} />
+              <Route path="shape" element={<Shape />} />
               <Route path="teams" element={<Teams />} />
               <Route path="constraints" element={<Constraints />} />
               <Route path="weights" element={<Weights />} />

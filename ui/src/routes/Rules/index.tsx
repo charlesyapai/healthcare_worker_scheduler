@@ -3,6 +3,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
 const TABS = [
+  { to: "shape", label: "Schedule shape" },
   { to: "teams", label: "Teams & stations" },
   { to: "constraints", label: "Rules" },
   { to: "weights", label: "Hours & weights" },

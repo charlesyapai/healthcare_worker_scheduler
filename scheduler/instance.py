@@ -15,7 +15,12 @@ TIERS = ("junior", "senior", "consultant")
 # Instance.subspecs. This module-level tuple is only used for synthetic
 # instance generation (benchmarks / tests).
 SUBSPECS = ("Neuro", "Body", "MSK")
+# Internal session keys the CP-SAT model reasons over. FULL_DAY stations
+# are unpacked by the model into paired AM+PM variables (see
+# scheduler/model.py) so constraints that count AM/PM separately keep
+# working — FULL_DAY is a UX shorthand for "book both halves of the day".
 SESSIONS = ("AM", "PM")
+FULL_DAY = "FULL_DAY"
 
 
 @dataclass(frozen=True)

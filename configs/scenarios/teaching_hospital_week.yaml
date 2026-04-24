@@ -247,6 +247,13 @@ tier_labels:
   junior: Junior
   senior: Senior
   consultant: Consultant
+shift_labels:
+  am: AM
+  pm: PM
+  full_day: Full day
+  oncall: Night call
+  weekend_ext: Weekend extended
+  weekend_consult: Weekend consultant
 subspecs:
 - Neuro
 - Body

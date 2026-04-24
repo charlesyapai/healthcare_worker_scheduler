@@ -17,7 +17,7 @@
       "7-day horizon"
     ],
     "solve_status": "OPTIMAL",
-    "solve_time_s": 0.79,
+    "solve_time_s": 1.27,
     "difficulty": "easy"
   },
   {
@@ -38,7 +38,7 @@
       "7-day horizon"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.01,
+    "solve_time_s": 30.0,
     "difficulty": "hard"
   },
   {
@@ -80,7 +80,7 @@
       "14-day horizon"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 29.99,
+    "solve_time_s": 30.0,
     "difficulty": "hard"
   },
   {
@@ -124,7 +124,7 @@
       "7-day horizon"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.0,
+    "solve_time_s": 30.01,
     "difficulty": "hard"
   },
   {
@@ -146,6 +146,28 @@
     ],
     "solve_status": "FEASIBLE",
     "solve_time_s": 30.01,
+    "difficulty": "hard"
+  },
+  {
+    "id": "surgery_week",
+    "title": "General Surgery \u2014 1 week (FULL_DAY)",
+    "description": "16 doctors. Three consultant OR lists run as FULL_DAY stations \u2014 the first bundled scenario exercising the all-day session shape. Registrars + juniors still split AM/PM on clinic, ward round, and post-op.",
+    "category": "specialty",
+    "tags": [
+      "surgery",
+      "FULL_DAY",
+      "OR lists"
+    ],
+    "n_doctors": 16,
+    "n_stations": 8,
+    "n_days": 7,
+    "highlights": [
+      "16 doctors (6/4/6)",
+      "8 stations",
+      "7-day horizon"
+    ],
+    "solve_status": "FEASIBLE",
+    "solve_time_s": 30.06,
     "difficulty": "hard"
   },
   {
@@ -236,7 +258,7 @@
       "12 leave / block entries"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.01,
+    "solve_time_s": 30.02,
     "difficulty": "hard"
   },
   {
@@ -282,7 +304,7 @@
       "14-day horizon"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.0,
+    "solve_time_s": 30.01,
     "difficulty": "hard"
   },
   {
@@ -326,7 +348,7 @@
       "28-day horizon"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.05,
+    "solve_time_s": 30.01,
     "difficulty": "hard"
   },
   {

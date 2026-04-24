@@ -244,6 +244,17 @@ def solve(
     assign_by_dday_am: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
     assign_by_dday_pm: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
     station_by_name = {s.name: s for s in inst.stations}
+    # Stations whose `sessions` is ("FULL_DAY",). Booking one of these
+    # means the doctor holds both AM and PM on that station for the
+    # whole day. We realise this via a paired-variable trick: create
+    # both an AM and PM assign var and lock them equal. Every downstream
+    # constraint that counts AM-only or PM-only vars keeps working
+    # without needing to know about FULL_DAY at all — the only place
+    # we special-case is H1 (station coverage), which must count pairs
+    # once, not twice.
+    full_day_station_names = {
+        s.name for s in inst.stations if "FULL_DAY" in s.sessions
+    }
     for d in inst.doctors:
         leave_days = inst.leave.get(d.id, set())
         for day in range(inst.n_days):
@@ -255,14 +266,22 @@ def solve(
                 st = station_by_name[st_name]
                 if d.tier not in st.eligible_tiers:
                     continue
-                for sess in SESSIONS:
-                    if sess not in st.sessions:
+                is_full_day = st_name in full_day_station_names
+                session_iter = ("AM", "PM") if is_full_day else SESSIONS
+                created_vars: list[cp_model.IntVar] = []
+                for sess in session_iter:
+                    if not is_full_day and sess not in st.sessions:
                         continue
                     v = model.NewBoolVar(f"a_{d.id}_{day}_{st_name}_{sess}")
                     assign[(d.id, day, st_name, sess)] = v
                     assign_by_dday[(d.id, day)].append(v)
                     (assign_by_dday_am if sess == "AM" else assign_by_dday_pm)[
                         (d.id, day)].append(v)
+                    created_vars.append(v)
+                if is_full_day and len(created_vars) == 2:
+                    # Pair: AM == PM for this (doctor, day, station). If a
+                    # surgeon takes the OR list, they're on it both halves.
+                    model.Add(created_vars[0] == created_vars[1])
 
     # oncall[d, day] — juniors + seniors only.
     oncall: dict[tuple[int, int], cp_model.IntVar] = {}
@@ -346,7 +365,14 @@ def solve(
         if inst.is_weekend(day) and not inst.weekend_am_pm_enabled:
             continue
         for st in inst.stations:
-            for sess in st.sessions:
+            # A FULL_DAY station's AM and PM vars are paired (AM == PM),
+            # so counting either set gives the number of full-day holders.
+            # Use AM side to avoid double-counting.
+            if st.name in full_day_station_names:
+                effective_sessions: tuple[str, ...] = ("AM",)
+            else:
+                effective_sessions = tuple(st.sessions)
+            for sess in effective_sessions:
                 vars_for = [
                     assign[(d.id, day, st.name, sess)]
                     for d in inst.doctors

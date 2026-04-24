@@ -1,4 +1,11 @@
-import { ShieldAlert, ShieldCheck, Shuffle } from "lucide-react";
+import {
+  CalendarDays,
+  Moon,
+  ShieldAlert,
+  ShieldCheck,
+  Shuffle,
+  Sun,
+} from "lucide-react";
 
 import { useAutoSavePatch } from "@/api/autosave";
 import { useSessionState } from "@/api/hooks";
@@ -41,92 +48,113 @@ const DEFAULTS: ConstraintCfg = {
 
 type ToggleKey = Exclude<keyof ConstraintCfg, "h4_gap">;
 
+type RuleGroup = "nights" | "weekends" | "weekdays";
+
 interface RuleDef {
   key: ToggleKey;
   label: string;
   description: string;
-  group: "succession" | "coverage" | "utilisation";
+  group: RuleGroup;
 }
 
+// Rules grouped by the part of the schedule they govern. The user's
+// mental model on Rules is "nights / weekends / weekdays", not
+// "succession / coverage / utilisation" jargon — those are correct
+// but not what a coordinator thinks about first.
 const RULES: RuleDef[] = [
+  // ---- Nights & on-call ----
+  {
+    key: "weekday_oncall_coverage",
+    label: "Cover every weekday night",
+    description:
+      "Require exactly 1 junior + 1 senior on-call every weekday night. Turn off only if your department doesn't run overnight weekday cover.",
+    group: "nights",
+  },
   {
     key: "h4_enabled",
     label: "Cap on-call frequency (1-in-N)",
-    description: "No doctor has more than one on-call in any N-day window.",
-    group: "succession",
+    description:
+      "No doctor does on-call more than once in any N-day window. Default N = 3, i.e. at most one on-call every three days.",
+    group: "nights",
   },
   {
     key: "h5_enabled",
     label: "Day off after a night on-call",
-    description: "Post-call: no AM/PM/on-call the day after.",
-    group: "succession",
+    description:
+      "Post-call: no AM / PM / on-call on the day after a night on-call. The statutory rest rule.",
+    group: "nights",
   },
   {
     key: "h6_enabled",
     label: "Seniors on-call get the whole day off",
-    description: "Senior's on-call day has no station work.",
-    group: "succession",
+    description:
+      "On the day a senior is on-call for that night, they do no station work. Reflects the UK model where seniors typically rest before their night shift.",
+    group: "nights",
   },
   {
     key: "h7_enabled",
     label: "Juniors on-call work the PM session",
-    description: "Junior covers a PM station on their on-call day.",
-    group: "succession",
+    description:
+      "Juniors cover a PM station on their on-call day, then the night on-call. Drops to off if your juniors rest-before-night instead.",
+    group: "nights",
   },
+  // ---- Weekends ----
   {
     key: "h8_enabled",
-    label: "Weekend coverage",
+    label: "Full weekend coverage on Sat & Sun",
     description:
-      "Sat/Sun requires 1 junior EXT, 1 senior EXT, 1 junior OC, 1 senior OC, 1 consultant per sub-spec.",
-    group: "coverage",
-  },
-  {
-    key: "weekday_oncall_coverage",
-    label: "Weekday on-call coverage",
-    description:
-      "Require exactly 1 junior + 1 senior on-call every weekday night. Leave on unless you want weekdays uncovered.",
-    group: "coverage",
+      "Sat/Sun require: 1 junior EXT, 1 senior EXT, 1 junior on-call, 1 senior on-call, and 1 consultant per sub-spec.",
+    group: "weekends",
   },
   {
     key: "weekend_am_pm",
-    label: "Also roster AM/PM stations on weekends",
+    label: "Also run weekday-style AM/PM stations on weekends",
     description:
-      "Off by default. Enable only if your hospital staffs weekday-style stations on weekends.",
-    group: "coverage",
+      "Off by default — most UK hospitals staff weekends via the EXT + on-call block above, not the weekday station grid. Enable for 24/7-shift patterns.",
+    group: "weekends",
   },
   {
     key: "h9_enabled",
-    label: "Day off in lieu after weekend EXT",
+    label: "Day in lieu after weekend EXT",
     description:
-      "Weekend-EXT doctor gets the Friday-before or Monday-after off.",
-    group: "utilisation",
+      "A weekend-EXT doctor gets either the Friday before or the Monday after off. The solver picks whichever is cheaper.",
+    group: "weekends",
   },
+  // ---- Weekdays ----
   {
     key: "h11_enabled",
     label: "Every doctor has a duty every weekday",
-    description: "Soft; penalty per idle doctor-weekday.",
-    group: "utilisation",
+    description:
+      "Soft rule — penalises any doctor-weekday with no station, on-call, lieu, or post-call excuse. Turn off if you want a leaner week where people legitimately get free days.",
+    group: "weekdays",
   },
 ];
 
 const GROUP_META: Record<
-  RuleDef["group"],
-  { label: string; description: string }
+  RuleGroup,
+  {
+    label: string;
+    description: string;
+    icon: React.ComponentType<{ className?: string }>;
+  }
 > = {
-  succession: {
-    label: "Succession (rest & sequencing)",
+  nights: {
+    label: "Nights & on-call",
     description:
-      "When people can / can't work based on what they just did. These are the statutory-flavour rules — disabling any usually needs a good reason.",
+      "How night shifts work. Set up once for your department; changing these mid-period changes which rosters are legal.",
+    icon: Moon,
   },
-  coverage: {
-    label: "Coverage (who must be on shift)",
+  weekends: {
+    label: "Weekends",
     description:
-      "What every day must contain at minimum. Turn off to model a leaner week.",
+      "Sat/Sun coverage. Most hospitals run a different pattern from weekdays — this block controls that.",
+    icon: CalendarDays,
   },
-  utilisation: {
-    label: "Utilisation (lieu days & idle-time)",
+  weekdays: {
+    label: "Weekdays — who must have a duty",
     description:
       "Soft levers that shape how busy each doctor-day looks.",
+    icon: Sun,
   },
 };
 
@@ -193,15 +221,29 @@ export function Constraints() {
   const totalCount = RULES.length;
   const preset = activePreset(cfg);
 
-  const grouped: Record<RuleDef["group"], RuleDef[]> = {
-    succession: [],
-    coverage: [],
-    utilisation: [],
+  const grouped: Record<RuleGroup, RuleDef[]> = {
+    nights: [],
+    weekends: [],
+    weekdays: [],
   };
   for (const r of RULES) grouped[r.group].push(r);
 
   return (
     <div className="space-y-4">
+      <Card className="border-indigo-200 bg-indigo-50/40 dark:border-indigo-900 dark:bg-indigo-950/20">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">
+            How to read these rules
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Each toggle controls a part of your week: when night on-call
+            happens, how weekends are covered, and what counts as a
+            "full" weekday. Pick a strictness preset on the right to
+            get a known-good default, then tweak.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -215,46 +257,51 @@ export function Constraints() {
             <PresetRow active={preset} onPick={applyPreset} />
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {(["succession", "coverage", "utilisation"] as const).map((group) => (
-            <section key={group} className="space-y-1">
-              <header>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {GROUP_META[group].label}
-                </h3>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {GROUP_META[group].description}
-                </p>
-              </header>
-              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {grouped[group].map((rule) => (
-                  <RuleRow
-                    key={rule.key}
-                    rule={rule}
-                    on={cfg[rule.key]}
-                    onToggle={() => toggle(rule.key)}
-                  >
-                    {rule.key === "h4_enabled" && cfg.h4_enabled && (
-                      <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-400">
-                        <span>N =</span>
-                        <Input
-                          className="h-7 w-16 text-xs"
-                          type="number"
-                          min={2}
-                          max={14}
-                          value={cfg.h4_gap}
-                          onChange={(e) =>
-                            setGap(Number(e.target.value) || 3)
-                          }
-                        />
+        <CardContent className="space-y-5">
+          {(["nights", "weekends", "weekdays"] as const).map((group) => {
+            const meta = GROUP_META[group];
+            const Icon = meta.icon;
+            return (
+              <section key={group} className="space-y-1">
+                <header className="flex items-baseline gap-2">
+                  <Icon className="h-3.5 w-3.5 flex-shrink-0 text-indigo-600 dark:text-indigo-300" />
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-200">
+                    {meta.label}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {meta.description}
+                  </p>
+                </header>
+                <ul className="divide-y divide-slate-100 rounded-md border border-slate-200 px-3 dark:divide-slate-800 dark:border-slate-800">
+                  {grouped[group].map((rule) => (
+                    <RuleRow
+                      key={rule.key}
+                      rule={rule}
+                      on={cfg[rule.key]}
+                      onToggle={() => toggle(rule.key)}
+                    >
+                      {rule.key === "h4_enabled" && cfg.h4_enabled && (
+                        <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-400">
+                          <span>N =</span>
+                          <Input
+                            className="h-7 w-16 text-xs"
+                            type="number"
+                            min={2}
+                            max={14}
+                            value={cfg.h4_gap}
+                            onChange={(e) =>
+                              setGap(Number(e.target.value) || 3)
+                            }
+                          />
                         <span>consecutive days</span>
                       </div>
                     )}
-                  </RuleRow>
-                ))}
-              </ul>
-            </section>
-          ))}
+                    </RuleRow>
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
         </CardContent>
       </Card>
     </div>

@@ -17,7 +17,7 @@ BlockType = Literal[
     "Leave", "No on-call", "No AM", "No PM", "Prefer AM", "Prefer PM"
 ]
 Tier = Literal["junior", "senior", "consultant"]
-Session = Literal["AM", "PM"]
+Session = Literal["AM", "PM", "FULL_DAY"]
 
 
 def _split_csv(value: Any) -> list[str]:
@@ -67,8 +67,13 @@ class StationEntry(StrictModel):
     @field_validator("sessions", mode="before")
     @classmethod
     def _coerce_sessions(cls, v: Any) -> list[str]:
-        items = _split_csv(v)
-        return [x.upper() for x in items if x.upper() in ("AM", "PM")] or ["AM", "PM"]
+        items = [x.upper() for x in _split_csv(v)]
+        # FULL_DAY is mutually exclusive with AM/PM — if both are
+        # specified, FULL_DAY wins (it's the more specific intent).
+        if "FULL_DAY" in items:
+            return ["FULL_DAY"]
+        cleaned = [x for x in items if x in ("AM", "PM")]
+        return cleaned or ["AM", "PM"]
 
     @field_validator("eligible_tiers", mode="before")
     @classmethod
@@ -94,6 +99,25 @@ class TierLabels(StrictModel):
     junior: str = "Junior"
     senior: str = "Senior"
     consultant: str = "Consultant"
+
+
+class ShiftLabels(StrictModel):
+    """Human-readable labels for the internal session keys.
+
+    The solver reasons over AM / PM / FULL_DAY / ONCALL / EXT /
+    WCONSULT — these labels are cosmetic, used by the UI when it wants
+    to say "Morning 07:00–15:00" instead of "AM" in the Roster grid,
+    Export preview, and mailto body. Changing them does NOT change
+    solver behaviour. Defaults match the historic names so existing
+    exports stay unchanged.
+    """
+
+    am: str = "AM"
+    pm: str = "PM"
+    full_day: str = "Full day"
+    oncall: str = "Night call"
+    weekend_ext: str = "Weekend extended"
+    weekend_consult: str = "Weekend consultant"
 
 
 class Horizon(StrictModel):
@@ -163,6 +187,7 @@ class SessionState(StrictModel):
     blocks: list[BlockEntry] = Field(default_factory=list)
     overrides: list[OverrideEntry] = Field(default_factory=list)
     tier_labels: TierLabels = Field(default_factory=TierLabels)
+    shift_labels: ShiftLabels = Field(default_factory=ShiftLabels)
     subspecs: list[str] = Field(default_factory=lambda: ["Neuro", "Body", "MSK"])
     soft_weights: SoftWeights = Field(default_factory=SoftWeights)
     workload_weights: WorkloadWeights = Field(default_factory=WorkloadWeights)

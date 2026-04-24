@@ -93,6 +93,14 @@ def dump_state(ss) -> str:
         "tier_labels": get("tier_labels") or {
             "junior": "Junior", "senior": "Senior", "consultant": "Consultant",
         },
+        "shift_labels": get("shift_labels") or {
+            "am": "AM",
+            "pm": "PM",
+            "full_day": "Full day",
+            "oncall": "Night call",
+            "weekend_ext": "Weekend extended",
+            "weekend_consult": "Weekend consultant",
+        },
         "subspecs": list(get("subspecs") or ["Neuro", "Body", "MSK"]),
         "soft_weights": {
             "workload": int(get("w_workload", 40)),
@@ -189,6 +197,16 @@ def load_state(yaml_text: str) -> dict[str, Any]:
             "junior": str(data["tier_labels"].get("junior", "Junior")),
             "senior": str(data["tier_labels"].get("senior", "Senior")),
             "consultant": str(data["tier_labels"].get("consultant", "Consultant")),
+        }
+    if "shift_labels" in data and isinstance(data["shift_labels"], dict):
+        sl = data["shift_labels"]
+        out["shift_labels"] = {
+            "am": str(sl.get("am", "AM")),
+            "pm": str(sl.get("pm", "PM")),
+            "full_day": str(sl.get("full_day", "Full day")),
+            "oncall": str(sl.get("oncall", "Night call")),
+            "weekend_ext": str(sl.get("weekend_ext", "Weekend extended")),
+            "weekend_consult": str(sl.get("weekend_consult", "Weekend consultant")),
         }
     if "subspecs" in data and isinstance(data["subspecs"], list):
         out["subspecs"] = [str(s) for s in data["subspecs"] if s]

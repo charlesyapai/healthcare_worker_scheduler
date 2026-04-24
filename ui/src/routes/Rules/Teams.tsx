@@ -286,24 +286,45 @@ function StationRow({
 
       <ChipGroup label="Sessions">
         {SESSIONS.map((sess) => {
+          const isFullDay = station.sessions.includes("FULL_DAY");
           const on = station.sessions.includes(sess);
           return (
             <Chip
               key={sess}
               active={on}
               tint="emerald"
-              onClick={() =>
+              disabled={isFullDay}
+              onClick={() => {
+                if (isFullDay) return;
                 onUpdate({
                   sessions: on
                     ? station.sessions.filter((x) => x !== sess)
-                    : ([...station.sessions, sess].sort() as StationEntry["sessions"]),
-                })
-              }
+                    : ([
+                        ...station.sessions,
+                        sess,
+                      ].sort() as StationEntry["sessions"]),
+                });
+              }}
             >
               {sess}
             </Chip>
           );
         })}
+        <Chip
+          active={station.sessions.includes("FULL_DAY")}
+          tint="amber"
+          onClick={() => {
+            const wasFullDay = station.sessions.includes("FULL_DAY");
+            onUpdate({
+              sessions: wasFullDay
+                ? (["AM", "PM"] as StationEntry["sessions"])
+                : (["FULL_DAY"] as StationEntry["sessions"]),
+            });
+          }}
+          title="Single all-day booking — one doctor holds the full day (e.g. surgical OR list)."
+        >
+          Full day
+        </Chip>
       </ChipGroup>
 
       <ChipGroup label="Tiers">
@@ -393,25 +414,34 @@ function Chip({
   active,
   tint,
   onClick,
+  disabled,
+  title,
 }: {
   children: React.ReactNode;
   active: boolean;
-  tint: "emerald" | "indigo";
+  tint: "emerald" | "indigo" | "amber";
   onClick: () => void;
+  disabled?: boolean;
+  title?: string;
 }) {
   const activeClass =
     tint === "emerald"
       ? "border-emerald-300 bg-emerald-100 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-      : "border-indigo-300 bg-indigo-100 text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300";
+      : tint === "amber"
+        ? "border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300"
+        : "border-indigo-300 bg-indigo-100 text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300";
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
+      title={title}
       className={cn(
         "rounded-md border px-1.5 py-0.5 text-[11px] font-medium transition-colors",
         active
           ? activeClass
           : "border-slate-200 text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800",
+        disabled && "cursor-not-allowed opacity-40 hover:bg-transparent",
       )}
     >
       {children}

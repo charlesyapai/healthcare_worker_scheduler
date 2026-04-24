@@ -1,154 +1,145 @@
 schema_version: 1
 horizon:
   start_date: '2026-04-27'
-  n_days: 14
+  n_days: 7
   public_holidays: []
 doctors:
-- name: ST1
+- name: FY1
   tier: junior
   subspec: ''
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER
+  eligible_stations: WARD_ROUND,CLINIC,POSTOP
   prev_workload: 0
   fte: 1.0
-- name: ST2
+- name: FY2
   tier: junior
   subspec: ''
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER
+  eligible_stations: WARD_ROUND,CLINIC,POSTOP
   prev_workload: 0
   fte: 1.0
-- name: ST3
+- name: FY3
   tier: junior
   subspec: ''
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER
+  eligible_stations: WARD_ROUND,CLINIC,POSTOP
   prev_workload: 0
   fte: 1.0
-- name: ST4
+- name: FY4
   tier: junior
   subspec: ''
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER
+  eligible_stations: WARD_ROUND,CLINIC,POSTOP
   prev_workload: 0
   fte: 1.0
-- name: ST5
+- name: FY5
   tier: junior
   subspec: ''
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER
+  eligible_stations: WARD_ROUND,CLINIC,POSTOP
   prev_workload: 0
   fte: 1.0
-- name: ST6
+- name: FY6
   tier: junior
   subspec: ''
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER
+  eligible_stations: WARD_ROUND,CLINIC,POSTOP
   prev_workload: 0
   fte: 1.0
-- name: ST7
-  tier: junior
-  subspec: ''
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER
-  prev_workload: 0
-  fte: 1.0
-- name: PEM-R1
+- name: SpR1
   tier: senior
   subspec: ''
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER,HDU
+  eligible_stations: WARD_ROUND,CLINIC,POSTOP,SR_THEATRE,EMERGENCY
   prev_workload: 0
   fte: 1.0
-- name: PEM-R2
+- name: SpR2
   tier: senior
   subspec: ''
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER,HDU
+  eligible_stations: WARD_ROUND,CLINIC,POSTOP,SR_THEATRE,EMERGENCY
   prev_workload: 0
   fte: 1.0
-- name: PEM-R3
+- name: SpR3
   tier: senior
   subspec: ''
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER,HDU
+  eligible_stations: WARD_ROUND,CLINIC,POSTOP,SR_THEATRE,EMERGENCY
   prev_workload: 0
   fte: 1.0
-- name: PEM-R4
+- name: SpR4
   tier: senior
   subspec: ''
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER,HDU
+  eligible_stations: WARD_ROUND,CLINIC,POSTOP,SR_THEATRE,EMERGENCY
   prev_workload: 0
   fte: 1.0
-- name: PEM-R5
-  tier: senior
-  subspec: ''
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_COVER,HDU
-  prev_workload: 0
-  fte: 1.0
-- name: Dr Tots1
+- name: Mr Cutler
   tier: consultant
   subspec: General
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_LEAD,HDU
+  eligible_stations: OR_MAIN,OR_DAY_CASE,OR_EMERGENCY,CLINIC,WARD_ROUND
   prev_workload: 0
   fte: 1.0
-- name: Dr Tots2
+- name: Mr Keyhole
   tier: consultant
   subspec: General
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_LEAD,HDU
+  eligible_stations: OR_MAIN,OR_DAY_CASE,OR_EMERGENCY,CLINIC,WARD_ROUND
   prev_workload: 0
   fte: 1.0
-- name: Dr Tots3
+- name: Ms Mend
   tier: consultant
   subspec: General
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_LEAD,HDU
+  eligible_stations: OR_MAIN,OR_DAY_CASE,OR_EMERGENCY,CLINIC,WARD_ROUND
   prev_workload: 0
   fte: 1.0
-- name: Dr Tots4
+- name: Mr Ortho
   tier: consultant
-  subspec: General
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_LEAD,HDU
+  subspec: Orthopaedic
+  eligible_stations: OR_MAIN,OR_DAY_CASE,OR_EMERGENCY,CLINIC,WARD_ROUND
   prev_workload: 0
   fte: 1.0
-- name: Dr Neo1
+- name: Ms Ortho
   tier: consultant
-  subspec: Neonatal
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_LEAD,HDU
+  subspec: Orthopaedic
+  eligible_stations: OR_MAIN,OR_DAY_CASE,OR_EMERGENCY,CLINIC,WARD_ROUND
   prev_workload: 0
   fte: 1.0
-- name: Dr Neo2
+- name: Mr Vasc
   tier: consultant
-  subspec: Neonatal
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_LEAD,HDU
-  prev_workload: 0
-  fte: 1.0
-- name: Dr Neo3
-  tier: consultant
-  subspec: Neonatal
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_LEAD,HDU
-  prev_workload: 0
-  fte: 1.0
-- name: Dr Tots5
-  tier: consultant
-  subspec: General
-  eligible_stations: GEN_WARD,OUTPATIENTS,NICU_LEAD,HDU
+  subspec: Vascular
+  eligible_stations: OR_MAIN,OR_DAY_CASE,OR_EMERGENCY,CLINIC,WARD_ROUND
   prev_workload: 0
   fte: 1.0
 stations:
-- name: GEN_WARD
-  sessions: AM,PM
-  required_per_session: 2
-  eligible_tiers: junior,senior,consultant
+- name: OR_MAIN
+  sessions: FULL_DAY
+  required_per_session: 1
+  eligible_tiers: consultant
   is_reporting: false
-- name: OUTPATIENTS
-  sessions: AM,PM
-  required_per_session: 2
-  eligible_tiers: junior,senior,consultant
+- name: OR_DAY_CASE
+  sessions: FULL_DAY
+  required_per_session: 1
+  eligible_tiers: consultant
   is_reporting: false
-- name: HDU
+- name: OR_EMERGENCY
+  sessions: FULL_DAY
+  required_per_session: 1
+  eligible_tiers: consultant
+  is_reporting: false
+- name: SR_THEATRE
+  sessions: AM,PM
+  required_per_session: 1
+  eligible_tiers: senior
+  is_reporting: false
+- name: EMERGENCY
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: senior,consultant
   is_reporting: false
-- name: NICU_LEAD
+- name: CLINIC
   sessions: AM,PM
-  required_per_session: 1
-  eligible_tiers: consultant
+  required_per_session: 2
+  eligible_tiers: junior,senior,consultant
   is_reporting: false
-- name: NICU_COVER
+- name: WARD_ROUND
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: junior,senior,consultant
+  is_reporting: false
+- name: POSTOP
+  sessions: AM,PM
+  required_per_session: 1
+  eligible_tiers: junior,senior
   is_reporting: false
 blocks: []
 overrides: []
@@ -165,7 +156,8 @@ shift_labels:
   weekend_consult: Weekend consultant
 subspecs:
 - General
-- Neonatal
+- Orthopaedic
+- Vascular
 soft_weights:
   workload: 40
   sessions: 5

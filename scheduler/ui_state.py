@@ -167,9 +167,14 @@ def build_instance(
         sessions_s = str(row.get("sessions", "AM,PM")).strip() or "AM,PM"
         sessions = tuple(s.strip() for s in sessions_s.split(",") if s.strip())
         for s in sessions:
-            if s not in ("AM", "PM"):
+            if s not in ("AM", "PM", "FULL_DAY"):
                 raise BuildError(
-                    f"Station {name}: session '{s}' must be AM or PM.")
+                    f"Station {name}: session '{s}' must be AM, PM, or "
+                    f"FULL_DAY.")
+        # FULL_DAY is exclusive — a station can't be both FULL_DAY and AM/PM.
+        if "FULL_DAY" in sessions and len(sessions) > 1:
+            raise BuildError(
+                f"Station {name}: FULL_DAY cannot be combined with AM or PM.")
         try:
             req = int(row.get("required_per_session", 1))
         except (TypeError, ValueError):

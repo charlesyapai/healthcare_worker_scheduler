@@ -2,6 +2,80 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-25 — FULL_DAY sessions, shift labels, rota presets, Rules shape page
+
+**What:** Scheduled days were hard-coded as AM + PM + night on-call.
+That covers clinic / ward rotas but can't express a surgeon's all-day
+OR list or a 12h day/night shift pattern, and the session keys were
+literally "AM" / "PM" in every export — no way to surface real clock
+times. This pass closes both gaps (tier 1 + tier 2 from the proposal)
+and restructures Rules around the user's mental model.
+
+**FULL_DAY station sessions (backend):**
+
+- New session value `FULL_DAY` alongside `AM` / `PM`. A station with
+  `sessions=("FULL_DAY",)` binds one doctor for both halves of the
+  day at that station — the shape needed for a surgical OR list or a
+  consultant-led clinic day.
+- Mutually exclusive with AM/PM (`scheduler/ui_state.py` rejects the
+  combo at build time).
+- Model-side: FULL_DAY is unpacked into paired AM+PM variables with
+  an equality constraint (`AM == PM`), so every existing constraint
+  that reasons AM or PM separately (H2, H5, H6, H7, H11) keeps working
+  unchanged. H1 (coverage) is the only rule that needed tweaking — it
+  counts the AM side alone to avoid double-booking.
+- 4 new tests in `tests/test_full_day.py` lock in the pairing, the
+  coverage arithmetic, the "consultant on FULL_DAY can't appear on
+  another station same day" property, and compatibility with leave.
+
+**Shift labels (cosmetic clock-times):**
+
+- New `ShiftLabels` block on SessionState — human-readable names for
+  `am / pm / full_day / oncall / weekend_ext / weekend_consult`.
+  Default values match the historic keys so existing exports are
+  unchanged. Persists through YAML round-trip.
+- Changing them does **not** change solver behaviour — solver keeps
+  reasoning over AM / PM / FULL_DAY / Night call.
+
+**Rules UI — new Shape sub-tab + segment restructure:**
+
+- New `/rules/shape` subtab is now the default when you open Rules.
+  Two cards: (1) **Pick a rota pattern** — four preset tiles
+  (Clinic AM/PM, 12h Day + Night, Surgical lists, 24/7 shifts) that
+  set shift labels + hours + weekend toggles in one click; active
+  preset is auto-detected from the current state. (2) **Shift labels**
+  — direct-edit inputs for each session key. (3) an info card
+  spelling out what the solver does and does not support.
+- `/rules/constraints` restructured: segments are now **Nights &
+  on-call** / **Weekends** / **Weekdays** — mapped to what a
+  coordinator actually thinks about, not the internal "succession /
+  coverage / utilisation" jargon. Each segment has an icon, a
+  plain-English description, and the toggles that belong in it.
+  Rules reordered within each segment so the most consequential
+  toggles come first.
+- Stations on `/rules/teams`: added a "Full day" chip (amber) that's
+  mutually exclusive with AM/PM. Picking Full day flips the station
+  to the new session shape; picking AM or PM flips it back.
+
+**New scenario: `surgery_week`.**
+
+- 16-doctor surgical department with three consultant-led FULL_DAY
+  OR lists (OR_MAIN, OR_DAY_CASE, OR_EMERGENCY), registrar theatre
+  cover (AM/PM), and junior coverage for clinic / ward round /
+  post-op. First bundled scenario exercising the FULL_DAY shape.
+  Solves FEASIBLE in 30 s at build time; labelled "By specialty /
+  hard".
+
+**Roadmap (explicitly NOT in this build):**
+
+- Rotas with more than three shifts per day (early / late / twilight /
+  night all on the same day) — this is tier 3 from the proposal and
+  would need the solver's AM/PM enum replaced with user-defined
+  shifts. Flagged in the Shape-page info card so nobody expects it.
+
+**Test headline:** 84/84 pytest pass (was 80). `pnpm build` clean. 17
+scenarios shipped (was 16).
+
 ## 2026-04-24 — Template library revamp: categories, specialties, stress tests
 
 **What:** The old 7-scenario library was radiology-heavy and gave no

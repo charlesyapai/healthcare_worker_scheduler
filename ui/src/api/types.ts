@@ -4,6 +4,29 @@
  */
 
 export interface paths {
+    "/api/compliance/uk_wtd": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Uk Wtd
+         * @description Run the UK junior-doctor 2016 + EU WTD audit against a caller-
+         *     provided roster. Returns structured violations grouped by rule,
+         *     with counts per severity. The roster is not solved here — the
+         *     caller already has one (either from `/api/solve` or manual edit).
+         */
+        post: operations["uk_wtd_api_compliance_uk_wtd_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diagnose": {
         parameters: {
             query?: never;
@@ -154,6 +177,29 @@ export interface paths {
         get: operations["get_run_detail_api_lab_runs__batch_id__details__run_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lab/scaling/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Scaling Run
+         * @description Run CP-SAT across a grid of synthetic instance sizes and fit a
+         *     power law T = a · N^b where N = n_doctors × n_days. See
+         *     `docs/LAB_TAB_SPEC.md §5`. Synchronous; bound your grid × seeds ×
+         *     time_limit to keep this under ~2 minutes.
+         */
+        post: operations["scaling_run_api_lab_scaling_run_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -834,6 +880,116 @@ export interface components {
             /** Solvers */
             solvers: string[];
         };
+        /**
+         * ScalingCell
+         * @description One solve in the scaling grid.
+         */
+        ScalingCell: {
+            /** First Feasible S */
+            first_feasible_s: number | null;
+            /** N Assignments */
+            n_assignments: number;
+            /** N Days */
+            n_days: number;
+            /** N Doctors */
+            n_doctors: number;
+            /** Objective */
+            objective: number | null;
+            /** Seed */
+            seed: number;
+            /** Size */
+            size: number;
+            /** Status */
+            status: string;
+            /** Wall Time S */
+            wall_time_s: number;
+        };
+        /**
+         * ScalingFit
+         * @description Power-law fit T = a · N^b across all cells where `status` is in
+         *     {OPTIMAL, FEASIBLE}. `r_squared` is the linear-regression R² in
+         *     log-log space; `n_points` is the number of points used in the fit.
+         */
+        ScalingFit: {
+            /** Coefficient */
+            coefficient?: number | null;
+            /** Exponent */
+            exponent?: number | null;
+            /**
+             * N Points
+             * @default 0
+             */
+            n_points: number;
+            /** R Squared */
+            r_squared?: number | null;
+        };
+        /**
+         * ScalingRequest
+         * @description Run CP-SAT against a grid of synthetic instance sizes, measure
+         *     wall-time and objective per cell. See `docs/LAB_TAB_SPEC.md §5`.
+         *
+         *     Uses `scheduler.instance.make_synthetic` under the hood so the
+         *     instance shape matches our default stations/tier mix. Per-size
+         *     `leave_rate` is fixed so the only varying inputs are size + seed.
+         */
+        ScalingRequest: {
+            /**
+             * Feasibility Only
+             * @default false
+             */
+            feasibility_only: boolean;
+            /**
+             * Leave Rate
+             * @default 0.03
+             */
+            leave_rate: number;
+            /**
+             * Num Workers
+             * @default 1
+             */
+            num_workers: number;
+            /** Seeds */
+            seeds?: number[];
+            /** Sizes */
+            sizes: components["schemas"]["ScalingSize"][];
+            /**
+             * Time Limit S
+             * @default 15
+             */
+            time_limit_s: number;
+        };
+        /**
+         * ScalingResponse
+         * @description Result of a scaling sweep.
+         */
+        ScalingResponse: {
+            /** Batch Id */
+            batch_id: string;
+            /** Cells */
+            cells: components["schemas"]["ScalingCell"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            fit: components["schemas"]["ScalingFit"];
+            /** Leave Rate */
+            leave_rate: number;
+            /** Num Workers */
+            num_workers: number;
+            /** Time Limit S */
+            time_limit_s: number;
+        };
+        /**
+         * ScalingSize
+         * @description One (n_doctors, n_days) point in the scaling sweep.
+         */
+        ScalingSize: {
+            /** N Days */
+            n_days: number;
+            /** N Doctors */
+            n_doctors: number;
+        };
         /** SelfCheckViolation */
         SelfCheckViolation: {
             /** Location */
@@ -861,6 +1017,7 @@ export interface components {
              * @default 1
              */
             schema_version: number;
+            shift_labels?: components["schemas"]["ShiftLabels"];
             soft_weights?: components["schemas"]["SoftWeights"];
             solver?: components["schemas"]["SolverSettings"];
             /** Stations */
@@ -869,6 +1026,49 @@ export interface components {
             subspecs?: string[];
             tier_labels?: components["schemas"]["TierLabels"];
             workload_weights?: components["schemas"]["WorkloadWeights"];
+        };
+        /**
+         * ShiftLabels
+         * @description Human-readable labels for the internal session keys.
+         *
+         *     The solver reasons over AM / PM / FULL_DAY / ONCALL / EXT /
+         *     WCONSULT — these labels are cosmetic, used by the UI when it wants
+         *     to say "Morning 07:00–15:00" instead of "AM" in the Roster grid,
+         *     Export preview, and mailto body. Changing them does NOT change
+         *     solver behaviour. Defaults match the historic names so existing
+         *     exports stay unchanged.
+         */
+        ShiftLabels: {
+            /**
+             * Am
+             * @default AM
+             */
+            am: string;
+            /**
+             * Full Day
+             * @default Full day
+             */
+            full_day: string;
+            /**
+             * Oncall
+             * @default Night call
+             */
+            oncall: string;
+            /**
+             * Pm
+             * @default PM
+             */
+            pm: string;
+            /**
+             * Weekend Consult
+             * @default Weekend consultant
+             */
+            weekend_consult: string;
+            /**
+             * Weekend Ext
+             * @default Weekend extended
+             */
+            weekend_ext: string;
         };
         /**
          * SingleRun
@@ -1082,7 +1282,7 @@ export interface components {
              */
             required_per_session: number;
             /** Sessions */
-            sessions?: ("AM" | "PM")[];
+            sessions?: ("AM" | "PM" | "FULL_DAY")[];
         };
         /** TierLabels */
         TierLabels: {
@@ -1177,6 +1377,36 @@ export interface components {
              */
             weekend_session: number;
         };
+        /**
+         * WtdConfigPatch
+         * @description Overrides for the default UK WTD thresholds. All fields optional —
+         *     omit to keep the statutory default. Lets a researcher ablate one
+         *     rule at a time (e.g. "what if we lift the 72-hr rolling cap?").
+         */
+        WtdConfigPatch: {
+            /** Long Day Threshold Hours */
+            long_day_threshold_hours?: number | null;
+            /** Max Avg Weekly Hours */
+            max_avg_weekly_hours?: number | null;
+            /** Max Consecutive Long Days */
+            max_consecutive_long_days?: number | null;
+            /** Max Consecutive Nights */
+            max_consecutive_nights?: number | null;
+            /** Max Hours Per 7 Days */
+            max_hours_per_7_days?: number | null;
+            /** Max Shift Hours */
+            max_shift_hours?: number | null;
+            /** Min Rest Between Hours */
+            min_rest_between_hours?: number | null;
+            /** Reference Period Weeks */
+            reference_period_weeks?: number | null;
+        };
+        /** WtdRequest */
+        WtdRequest: {
+            /** Assignments */
+            assignments: components["schemas"]["AssignmentRow"][];
+            config?: components["schemas"]["WtdConfigPatch"];
+        };
         /** YamlExportResponse */
         YamlExportResponse: {
             /** Yaml */
@@ -1196,6 +1426,41 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    uk_wtd_api_compliance_uk_wtd_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WtdRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     diagnose_api_diagnose_post: {
         parameters: {
             query?: never;
@@ -1394,6 +1659,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SingleRunDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scaling_run_api_lab_scaling_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScalingRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScalingResponse"];
                 };
             };
             /** @description Validation Error */

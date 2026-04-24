@@ -783,6 +783,90 @@ def emergency_week() -> SessionState:
     )
 
 
+# ---------------------------------------------------- Surgery (1 week)
+
+def surgery_week() -> SessionState:
+    """General Surgery — 16 doctors × 1 week.
+
+    Three consultant surgeons run all-day OR lists (FULL_DAY stations:
+    OR_MAIN, OR_DAY_CASE, OR_EMERGENCY). Registrars scrub in on a
+    SR_THEATRE station (AM/PM) when they're not on ward round, and
+    juniors cover clinics + post-op ward rounds in AM/PM. This is the
+    first bundled scenario that exercises the FULL_DAY session shape.
+    """
+    juniors = [f"FY{i+1}" for i in range(6)]
+    seniors = [f"SpR{i+1}" for i in range(4)]
+    consultants = [
+        ("Mr Cutler", "General"), ("Mr Keyhole", "General"),
+        ("Ms Mend", "General"), ("Mr Ortho", "Orthopaedic"),
+        ("Ms Ortho", "Orthopaedic"), ("Mr Vasc", "Vascular"),
+    ]
+
+    junior_stations = ["WARD_ROUND", "CLINIC", "POSTOP"]
+    senior_stations = [
+        "WARD_ROUND", "CLINIC", "POSTOP", "SR_THEATRE", "EMERGENCY",
+    ]
+    consultant_stations = [
+        "OR_MAIN", "OR_DAY_CASE", "OR_EMERGENCY", "CLINIC", "WARD_ROUND",
+    ]
+
+    doctors: list[DoctorEntry] = []
+    for n in juniors:
+        doctors.append(DoctorEntry(
+            name=n, tier="junior", subspec=None,
+            eligible_stations=junior_stations,
+            prev_workload=0, fte=1.0, max_oncalls=None,
+        ))
+    for n in seniors:
+        doctors.append(DoctorEntry(
+            name=n, tier="senior", subspec=None,
+            eligible_stations=senior_stations,
+            prev_workload=0, fte=1.0, max_oncalls=None,
+        ))
+    for n, ss in consultants:
+        doctors.append(DoctorEntry(
+            name=n, tier="consultant", subspec=ss,
+            eligible_stations=consultant_stations,
+            prev_workload=0, fte=1.0, max_oncalls=None,
+        ))
+
+    stations = [
+        # Full-day theatre lists — consultant holds both halves.
+        StationEntry(name="OR_MAIN", sessions=["FULL_DAY"],
+                     required_per_session=1,
+                     eligible_tiers=["consultant"], is_reporting=False),
+        StationEntry(name="OR_DAY_CASE", sessions=["FULL_DAY"],
+                     required_per_session=1,
+                     eligible_tiers=["consultant"], is_reporting=False),
+        StationEntry(name="OR_EMERGENCY", sessions=["FULL_DAY"],
+                     required_per_session=1,
+                     eligible_tiers=["consultant"], is_reporting=False),
+        # Registrar theatre cover — AM/PM half-sessions.
+        StationEntry(name="SR_THEATRE", sessions=["AM", "PM"],
+                     required_per_session=1,
+                     eligible_tiers=["senior"], is_reporting=False),
+        StationEntry(name="EMERGENCY", sessions=["AM", "PM"],
+                     required_per_session=1,
+                     eligible_tiers=["senior", "consultant"], is_reporting=False),
+        # Mixed-tier: clinics, ward rounds, post-op.
+        StationEntry(name="CLINIC", sessions=["AM", "PM"],
+                     required_per_session=2,
+                     eligible_tiers=["junior", "senior", "consultant"], is_reporting=False),
+        StationEntry(name="WARD_ROUND", sessions=["AM", "PM"],
+                     required_per_session=1,
+                     eligible_tiers=["junior", "senior", "consultant"], is_reporting=False),
+        StationEntry(name="POSTOP", sessions=["AM", "PM"],
+                     required_per_session=1,
+                     eligible_tiers=["junior", "senior"], is_reporting=False),
+    ]
+
+    return SessionState(
+        horizon=Horizon(start_date=_monday(), n_days=7, public_holidays=[]),
+        doctors=doctors, stations=stations,
+        subspecs=["General", "Orthopaedic", "Vascular"],
+    )
+
+
 # ---------------------------------------------------- Paediatrics (2 weeks)
 
 def paediatrics_two_weeks() -> SessionState:
@@ -1166,6 +1250,18 @@ SCENARIOS: dict[str, ScenarioDef] = {
         builder=paediatrics_two_weeks,
         category="specialty",
         tags=("paediatrics", "NICU"),
+    ),
+    "surgery_week": ScenarioDef(
+        title="General Surgery — 1 week (FULL_DAY)",
+        description=(
+            "16 doctors. Three consultant OR lists run as FULL_DAY "
+            "stations — the first bundled scenario exercising the "
+            "all-day session shape. Registrars + juniors still split "
+            "AM/PM on clinic, ward round, and post-op."
+        ),
+        builder=surgery_week,
+        category="specialty",
+        tags=("surgery", "FULL_DAY", "OR lists"),
     ),
     "nursing_ward": ScenarioDef(
         title="Nursing ward — 2 weeks",

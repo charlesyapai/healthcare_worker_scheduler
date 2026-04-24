@@ -19,7 +19,22 @@ export type DoctorEntry = components["schemas"]["DoctorEntry"];
 export type StationEntry = components["schemas"]["StationEntry"];
 export type BlockEntry = components["schemas"]["BlockEntry"];
 export type OverrideEntry = components["schemas"]["OverrideEntry"];
+export type ShiftLabels = components["schemas"]["ShiftLabels"];
 export type HealthResponse = { status: string; phase: number; scheduler_version: string };
+
+/** Default copy for shift labels. Used in two places: the UI's label
+ *  editor needs a fallback when a freshly-seeded session hasn't yet
+ *  received a `shift_labels` block from the server, and formatters
+ *  throughout the app fall back to these defaults when they render
+ *  a role token and the server payload is missing a label. */
+export const DEFAULT_SHIFT_LABELS: ShiftLabels = {
+  am: "AM",
+  pm: "PM",
+  full_day: "Full day",
+  oncall: "Night call",
+  weekend_ext: "Weekend extended",
+  weekend_consult: "Weekend consultant",
+};
 
 export function useHealth() {
   return useQuery({
