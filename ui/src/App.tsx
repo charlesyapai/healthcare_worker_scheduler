@@ -20,6 +20,7 @@ import { Blocks } from "@/routes/Setup/Blocks";
 import { Doctors } from "@/routes/Setup/Doctors";
 import { Overrides } from "@/routes/Setup/Overrides";
 import { SetupLayout } from "@/routes/Setup";
+import { Templates } from "@/routes/Setup/Templates";
 import { When } from "@/routes/Setup/When";
 import { Solve } from "@/routes/Solve";
 import { useThemeEffect, useUIStore } from "@/store/ui";
@@ -43,7 +44,8 @@ export function App() {
           <Route element={<Layout />}>
             <Route index element={<Dashboard />} />
             <Route path="setup" element={<SetupLayout />}>
-              <Route index element={<Navigate to="when" replace />} />
+              <Route index element={<Navigate to="templates" replace />} />
+              <Route path="templates" element={<Templates />} />
               <Route path="when" element={<When />} />
               <Route path="doctors" element={<Doctors />} />
               <Route path="blocks" element={<Blocks />} />

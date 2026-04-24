@@ -3,6 +3,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
 const TABS = [
+  { to: "templates", label: "Templates" },
   { to: "when", label: "When" },
   { to: "doctors", label: "People" },
   { to: "blocks", label: "Leave & blocks" },

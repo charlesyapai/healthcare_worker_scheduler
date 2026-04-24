@@ -8,6 +8,7 @@
       "10 people",
       "weekday-only"
     ],
+    "preset": "clinic",
     "n_doctors": 10,
     "n_stations": 4,
     "n_days": 7,
@@ -17,7 +18,7 @@
       "7-day horizon"
     ],
     "solve_status": "OPTIMAL",
-    "solve_time_s": 1.27,
+    "solve_time_s": 1.33,
     "difficulty": "easy"
   },
   {
@@ -29,6 +30,7 @@
       "15 people",
       "fastest"
     ],
+    "preset": "clinic",
     "n_doctors": 15,
     "n_stations": 8,
     "n_days": 7,
@@ -44,12 +46,14 @@
   {
     "id": "cardiology_week",
     "title": "Cardiology \u2014 1 week",
-    "description": "18 cardiologists with Invasive / Non-invasive / Electrophysiology subspecs. Cath lab is consultant-led; echo is senior+; clinic + ward rounds are mixed-tier.",
+    "description": "18 cardiologists with Invasive / Non-invasive / Electrophysiology subspecs. Cath lab runs as a FULL_DAY consultant list; echo is senior+; clinic + ward rounds are mixed-tier.",
     "category": "specialty",
     "tags": [
       "cardiology",
+      "FULL_DAY",
       "3 subspecs"
     ],
+    "preset": "clinic",
     "n_doctors": 18,
     "n_stations": 5,
     "n_days": 7,
@@ -59,18 +63,20 @@
       "7-day horizon"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.01,
+    "solve_time_s": 30.02,
     "difficulty": "hard"
   },
   {
     "id": "anaesthesia_two_weeks",
-    "title": "Anaesthesia \u2014 2 weeks",
-    "description": "24 anaesthetists across General / Cardiac / Obstetric / Paediatric subspecs. Theatre lists are subspec-restricted; trainees staff pre-op and recovery.",
+    "title": "Anaesthesia \u2014 2 weeks (FULL_DAY theatre lists)",
+    "description": "24 anaesthetists across General / Cardiac / Obstetric / Paediatric subspecs. Cardiac and paediatric theatre lists are FULL_DAY; general theatre + obstetric stay AM/PM.",
     "category": "specialty",
     "tags": [
       "anaesthesia",
+      "FULL_DAY",
       "4 subspecs"
     ],
+    "preset": "surgical",
     "n_doctors": 24,
     "n_stations": 7,
     "n_days": 14,
@@ -80,19 +86,20 @@
       "14-day horizon"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.0,
+    "solve_time_s": 30.02,
     "difficulty": "hard"
   },
   {
     "id": "icu_two_weeks",
-    "title": "ICU / Critical Care \u2014 2 weeks",
-    "description": "16-doctor critical-care unit with 24/7 cover. Single subspec, max 4 on-calls per doctor over the fortnight so the fatigue load spreads evenly.",
+    "title": "ICU / Critical Care \u2014 2 weeks (12h shifts)",
+    "description": "16-doctor critical-care unit on a 12h day/night pattern. Single subspec, max 4 on-calls per doctor over the fortnight so the fatigue load spreads evenly.",
     "category": "specialty",
     "tags": [
       "icu",
-      "single subspec",
+      "12h shifts",
       "max_oncalls"
     ],
+    "preset": "day_night_12h",
     "n_doctors": 16,
     "n_stations": 4,
     "n_days": 14,
@@ -102,19 +109,20 @@
       "14-day horizon"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.0,
+    "solve_time_s": 30.01,
     "difficulty": "hard"
   },
   {
     "id": "emergency_week",
-    "title": "Emergency Department \u2014 1 week",
-    "description": "26 ED doctors, AM/PM/night shift pattern, weekend cover enabled. Trauma-lead subspec for weekend H8 compliance.",
+    "title": "Emergency Department \u2014 1 week (24/7 shifts)",
+    "description": "26 ED doctors on a 24/7 early / late / night shift pattern with weekend cover enabled. Trauma-lead subspec for weekend H8 compliance.",
     "category": "specialty",
     "tags": [
       "emergency",
-      "weekend on",
-      "3-shift"
+      "24/7 shifts",
+      "weekend on"
     ],
+    "preset": "shift_24_7",
     "n_doctors": 26,
     "n_stations": 5,
     "n_days": 7,
@@ -136,6 +144,7 @@
       "paediatrics",
       "NICU"
     ],
+    "preset": "clinic",
     "n_doctors": 20,
     "n_stations": 5,
     "n_days": 14,
@@ -150,14 +159,15 @@
   },
   {
     "id": "surgery_week",
-    "title": "General Surgery \u2014 1 week (FULL_DAY)",
-    "description": "16 doctors. Three consultant OR lists run as FULL_DAY stations \u2014 the first bundled scenario exercising the all-day session shape. Registrars + juniors still split AM/PM on clinic, ward round, and post-op.",
+    "title": "General Surgery \u2014 1 week (FULL_DAY OR lists)",
+    "description": "16 doctors. Three consultant OR lists run as FULL_DAY stations \u2014 exercises the all-day session shape. Registrars + juniors still split AM/PM on clinic, ward round, and post-op.",
     "category": "specialty",
     "tags": [
       "surgery",
       "FULL_DAY",
       "OR lists"
     ],
+    "preset": "surgical",
     "n_doctors": 16,
     "n_stations": 8,
     "n_days": 7,
@@ -167,18 +177,20 @@
       "7-day horizon"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.06,
+    "solve_time_s": 30.01,
     "difficulty": "hard"
   },
   {
     "id": "nursing_ward",
-    "title": "Nursing ward \u2014 2 weeks",
-    "description": "17 nurses across ward / senior / manager tiers with Medical and Surgical sub-wards. Same engine, different vocabulary.",
+    "title": "Nursing ward \u2014 2 weeks (12h shifts)",
+    "description": "17 nurses across ward / senior / manager tiers with Medical and Surgical sub-wards on a 12h day/night pattern.",
     "category": "specialty",
     "tags": [
       "nursing",
+      "12h shifts",
       "renamed tiers"
     ],
+    "preset": "day_night_12h",
     "n_doctors": 17,
     "n_stations": 5,
     "n_days": 14,
@@ -201,6 +213,7 @@
       "leave",
       "public holiday"
     ],
+    "preset": "clinic",
     "n_doctors": 22,
     "n_stations": 8,
     "n_days": 14,
@@ -224,6 +237,7 @@
       "30 doctors",
       "preferences"
     ],
+    "preset": "clinic",
     "n_doctors": 30,
     "n_stations": 8,
     "n_days": 7,
@@ -247,6 +261,7 @@
       "FTE",
       "fairness stress"
     ],
+    "preset": "clinic",
     "n_doctors": 30,
     "n_stations": 8,
     "n_days": 28,
@@ -258,7 +273,7 @@
       "12 leave / block entries"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.02,
+    "solve_time_s": 30.01,
     "difficulty": "hard"
   },
   {
@@ -271,6 +286,7 @@
       "4 weeks",
       "largest"
     ],
+    "preset": "clinic",
     "n_doctors": 35,
     "n_stations": 8,
     "n_days": 28,
@@ -295,6 +311,7 @@
       "NRP",
       "reproducible"
     ],
+    "preset": "clinic",
     "n_doctors": 11,
     "n_stations": 6,
     "n_days": 14,
@@ -317,6 +334,7 @@
       "NRP",
       "mid-sized"
     ],
+    "preset": "clinic",
     "n_doctors": 20,
     "n_stations": 8,
     "n_days": 28,
@@ -339,6 +357,7 @@
       "hard",
       "oncall pressure"
     ],
+    "preset": "clinic",
     "n_doctors": 12,
     "n_stations": 6,
     "n_days": 28,
@@ -361,6 +380,7 @@
       "leave",
       "holidays"
     ],
+    "preset": "clinic",
     "n_doctors": 18,
     "n_stations": 8,
     "n_days": 14,
@@ -372,7 +392,7 @@
       "8 leave / block entries"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.01,
+    "solve_time_s": 30.0,
     "difficulty": "hard"
   }
 ]

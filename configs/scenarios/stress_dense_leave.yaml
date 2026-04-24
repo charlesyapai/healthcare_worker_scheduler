@@ -192,10 +192,10 @@ tier_labels:
   senior: Senior
   consultant: Consultant
 shift_labels:
-  am: AM
-  pm: PM
-  full_day: Full day
-  oncall: Night call
+  am: "Morning 08:00\u201313:00"
+  pm: "Afternoon 13:00\u201318:00"
+  full_day: "Full day 08:00\u201318:00"
+  oncall: "Night call 20:00\u201308:00"
   weekend_ext: Weekend extended
   weekend_consult: Weekend consultant
 subspecs:

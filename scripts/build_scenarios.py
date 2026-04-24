@@ -27,10 +27,128 @@ from api.models.session import (  # noqa: E402
     ConstraintsConfig,
     DoctorEntry,
     Horizon,
+    Hours,
     SessionState,
+    ShiftLabels,
     StationEntry,
     TierLabels,
 )
+
+
+# ============================================================== rota presets
+#
+# Mirrors the four presets the Shape sub-tab ships on the UI. Each
+# scenario picks one of these so the template demonstrates the
+# matching shift-label / hours shape — a clinic-style scenario gets
+# "Morning 08:00–13:00" labels, a 24/7 ED gets "Early / Late / Night",
+# a surgical department enables FULL_DAY for theatre lists, and so on.
+# Keeping the source of truth here (duplicated from the UI) avoids the
+# backend having to import from the frontend or ship a shared YAML.
+
+RotaPresetKey = str  # "clinic" | "day_night_12h" | "surgical" | "shift_24_7"
+
+
+@dataclass(frozen=True)
+class _RotaPreset:
+    labels: ShiftLabels
+    hours: Hours
+    weekend_am_pm: bool
+    weekday_oncall_coverage: bool
+
+
+ROTA_PRESETS: dict[RotaPresetKey, _RotaPreset] = {
+    "clinic": _RotaPreset(
+        labels=ShiftLabels(
+            am="Morning 08:00–13:00",
+            pm="Afternoon 13:00–18:00",
+            full_day="Full day 08:00–18:00",
+            oncall="Night call 20:00–08:00",
+            weekend_ext="Weekend extended",
+            weekend_consult="Weekend consultant",
+        ),
+        hours=Hours(
+            weekday_am=4, weekday_pm=4,
+            weekend_am=4, weekend_pm=4,
+            weekday_oncall=12, weekend_oncall=16,
+            weekend_ext=12, weekend_consult=8,
+        ),
+        weekend_am_pm=False,
+        weekday_oncall_coverage=False,
+    ),
+    "day_night_12h": _RotaPreset(
+        labels=ShiftLabels(
+            am="Day 08:00–14:00",
+            pm="Day 14:00–20:00",
+            full_day="Day shift 08:00–20:00",
+            oncall="Night 20:00–08:00",
+            weekend_ext="Weekend day",
+            weekend_consult="Weekend consultant",
+        ),
+        hours=Hours(
+            weekday_am=6, weekday_pm=6,
+            weekend_am=6, weekend_pm=6,
+            weekday_oncall=12, weekend_oncall=12,
+            weekend_ext=12, weekend_consult=12,
+        ),
+        weekend_am_pm=True,
+        weekday_oncall_coverage=True,
+    ),
+    "surgical": _RotaPreset(
+        labels=ShiftLabels(
+            am="Morning 08:00–13:00",
+            pm="Afternoon 13:00–17:00",
+            full_day="OR list 08:00–17:00",
+            oncall="Night call 17:00–08:00",
+            weekend_ext="Weekend on-call",
+            weekend_consult="Weekend consultant",
+        ),
+        hours=Hours(
+            weekday_am=4, weekday_pm=4,
+            weekend_am=4, weekend_pm=4,
+            weekday_oncall=15, weekend_oncall=16,
+            weekend_ext=12, weekend_consult=9,
+        ),
+        weekend_am_pm=False,
+        weekday_oncall_coverage=True,
+    ),
+    "shift_24_7": _RotaPreset(
+        labels=ShiftLabels(
+            am="Early 07:00–15:00",
+            pm="Late 15:00–23:00",
+            full_day="Long day 07:00–23:00",
+            oncall="Night 23:00–07:00",
+            weekend_ext="Weekend long day",
+            weekend_consult="Weekend consultant",
+        ),
+        hours=Hours(
+            weekday_am=8, weekday_pm=8,
+            weekend_am=8, weekend_pm=8,
+            weekday_oncall=8, weekend_oncall=8,
+            weekend_ext=12, weekend_consult=10,
+        ),
+        weekend_am_pm=True,
+        weekday_oncall_coverage=True,
+    ),
+}
+
+
+def _apply_preset(state: SessionState, preset_key: RotaPresetKey) -> SessionState:
+    """Stamp the rota preset's labels + hours onto a scenario's
+    SessionState. Presets also carry an opinion on `weekend_am_pm`
+    (do you staff AM/PM stations on Saturday?) because it's tightly
+    coupled to the shift shape. Weekday on-call coverage is NOT
+    touched — that's a scenario-level clinical choice (clinic_week
+    disables it because clinics don't run nights; every other
+    scenario keeps it)."""
+    p = ROTA_PRESETS[preset_key]
+    constraints = state.constraints.model_copy(update={
+        "weekend_am_pm": p.weekend_am_pm,
+    })
+    return state.model_copy(update={
+        "shift_labels": p.labels,
+        "hours": p.hours,
+        "constraints": constraints,
+    })
 from api.sessions import (  # noqa: E402
     session_to_instance,
     session_to_solver_configs,
@@ -570,8 +688,10 @@ def cardiology_week() -> SessionState:
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
 
+    # Cath lab runs as an all-day list (Invasive consultants on a FULL_DAY
+    # session). Everything else is still AM/PM half-day.
     stations = [
-        StationEntry(name="CATH_LAB", sessions=["AM", "PM"], required_per_session=1,
+        StationEntry(name="CATH_LAB", sessions=["FULL_DAY"], required_per_session=1,
                      eligible_tiers=["consultant"], is_reporting=False),
         StationEntry(name="ECHO", sessions=["AM", "PM"], required_per_session=1,
                      eligible_tiers=["senior", "consultant"], is_reporting=False),
@@ -635,12 +755,15 @@ def anaesthesia_two_weeks() -> SessionState:
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
 
+    # Theatre lists are FULL_DAY — anaesthetists hold a whole list. OR_GENERAL
+    # keeps AM/PM so pre-op and recovery can rotate staff through half-sessions
+    # (two different anaesthetists can cover the two halves of a general list).
     stations = [
         StationEntry(name="OR_GENERAL", sessions=["AM", "PM"], required_per_session=2,
                      eligible_tiers=["senior", "consultant"], is_reporting=False),
-        StationEntry(name="OR_CARDIAC", sessions=["AM", "PM"], required_per_session=1,
+        StationEntry(name="OR_CARDIAC", sessions=["FULL_DAY"], required_per_session=1,
                      eligible_tiers=["consultant"], is_reporting=False),
-        StationEntry(name="OR_PAEDS", sessions=["AM", "PM"], required_per_session=1,
+        StationEntry(name="OR_PAEDS", sessions=["FULL_DAY"], required_per_session=1,
                      eligible_tiers=["consultant"], is_reporting=False),
         StationEntry(name="OBSTETRIC", sessions=["AM", "PM"], required_per_session=1,
                      eligible_tiers=["senior", "consultant"], is_reporting=False),
@@ -1171,6 +1294,7 @@ class ScenarioDef:
     builder: Callable[[], SessionState]
     category: Category
     tags: tuple[str, ...] = ()
+    preset: RotaPresetKey = "clinic"
 
 
 SCENARIOS: dict[str, ScenarioDef] = {
@@ -1185,6 +1309,7 @@ SCENARIOS: dict[str, ScenarioDef] = {
         builder=clinic_week,
         category="quickstart",
         tags=("10 people", "weekday-only"),
+        preset="clinic",
     ),
     "radiology_small": ScenarioDef(
         title="Radiology — 1 week",
@@ -1195,50 +1320,57 @@ SCENARIOS: dict[str, ScenarioDef] = {
         builder=radiology_small,
         category="quickstart",
         tags=("15 people", "fastest"),
+        preset="clinic",
     ),
     # ---- Specialty scenarios --------------------------------------------
     "cardiology_week": ScenarioDef(
         title="Cardiology — 1 week",
         description=(
             "18 cardiologists with Invasive / Non-invasive / "
-            "Electrophysiology subspecs. Cath lab is consultant-led; "
-            "echo is senior+; clinic + ward rounds are mixed-tier."
+            "Electrophysiology subspecs. Cath lab runs as a FULL_DAY "
+            "consultant list; echo is senior+; clinic + ward rounds "
+            "are mixed-tier."
         ),
         builder=cardiology_week,
         category="specialty",
-        tags=("cardiology", "3 subspecs"),
+        tags=("cardiology", "FULL_DAY", "3 subspecs"),
+        preset="clinic",
     ),
     "anaesthesia_two_weeks": ScenarioDef(
-        title="Anaesthesia — 2 weeks",
+        title="Anaesthesia — 2 weeks (FULL_DAY theatre lists)",
         description=(
             "24 anaesthetists across General / Cardiac / Obstetric / "
-            "Paediatric subspecs. Theatre lists are subspec-restricted; "
-            "trainees staff pre-op and recovery."
+            "Paediatric subspecs. Cardiac and paediatric theatre lists "
+            "are FULL_DAY; general theatre + obstetric stay AM/PM."
         ),
         builder=anaesthesia_two_weeks,
         category="specialty",
-        tags=("anaesthesia", "4 subspecs"),
+        tags=("anaesthesia", "FULL_DAY", "4 subspecs"),
+        preset="surgical",
     ),
     "icu_two_weeks": ScenarioDef(
-        title="ICU / Critical Care — 2 weeks",
+        title="ICU / Critical Care — 2 weeks (12h shifts)",
         description=(
-            "16-doctor critical-care unit with 24/7 cover. Single subspec, "
-            "max 4 on-calls per doctor over the fortnight so the fatigue "
-            "load spreads evenly."
+            "16-doctor critical-care unit on a 12h day/night pattern. "
+            "Single subspec, max 4 on-calls per doctor over the "
+            "fortnight so the fatigue load spreads evenly."
         ),
         builder=icu_two_weeks,
         category="specialty",
-        tags=("icu", "single subspec", "max_oncalls"),
+        tags=("icu", "12h shifts", "max_oncalls"),
+        preset="day_night_12h",
     ),
     "emergency_week": ScenarioDef(
-        title="Emergency Department — 1 week",
+        title="Emergency Department — 1 week (24/7 shifts)",
         description=(
-            "26 ED doctors, AM/PM/night shift pattern, weekend cover "
-            "enabled. Trauma-lead subspec for weekend H8 compliance."
+            "26 ED doctors on a 24/7 early / late / night shift pattern "
+            "with weekend cover enabled. Trauma-lead subspec for "
+            "weekend H8 compliance."
         ),
         builder=emergency_week,
         category="specialty",
-        tags=("emergency", "weekend on", "3-shift"),
+        tags=("emergency", "24/7 shifts", "weekend on"),
+        preset="shift_24_7",
     ),
     "paediatrics_two_weeks": ScenarioDef(
         title="Paediatrics — 2 weeks",
@@ -1250,28 +1382,31 @@ SCENARIOS: dict[str, ScenarioDef] = {
         builder=paediatrics_two_weeks,
         category="specialty",
         tags=("paediatrics", "NICU"),
+        preset="clinic",
     ),
     "surgery_week": ScenarioDef(
-        title="General Surgery — 1 week (FULL_DAY)",
+        title="General Surgery — 1 week (FULL_DAY OR lists)",
         description=(
             "16 doctors. Three consultant OR lists run as FULL_DAY "
-            "stations — the first bundled scenario exercising the "
-            "all-day session shape. Registrars + juniors still split "
-            "AM/PM on clinic, ward round, and post-op."
+            "stations — exercises the all-day session shape. Registrars "
+            "+ juniors still split AM/PM on clinic, ward round, and "
+            "post-op."
         ),
         builder=surgery_week,
         category="specialty",
         tags=("surgery", "FULL_DAY", "OR lists"),
+        preset="surgical",
     ),
     "nursing_ward": ScenarioDef(
-        title="Nursing ward — 2 weeks",
+        title="Nursing ward — 2 weeks (12h shifts)",
         description=(
             "17 nurses across ward / senior / manager tiers with Medical "
-            "and Surgical sub-wards. Same engine, different vocabulary."
+            "and Surgical sub-wards on a 12h day/night pattern."
         ),
         builder=nursing_ward,
         category="specialty",
-        tags=("nursing", "renamed tiers"),
+        tags=("nursing", "12h shifts", "renamed tiers"),
+        preset="day_night_12h",
     ),
     # ---- Realistic / stress-test ----------------------------------------
     "busy_month_with_leave": ScenarioDef(
@@ -1283,6 +1418,7 @@ SCENARIOS: dict[str, ScenarioDef] = {
         builder=busy_month_with_leave,
         category="realistic",
         tags=("leave", "public holiday"),
+        preset="clinic",
     ),
     "teaching_hospital_week": ScenarioDef(
         title="Teaching hospital — 1 week",
@@ -1294,6 +1430,7 @@ SCENARIOS: dict[str, ScenarioDef] = {
         builder=teaching_hospital_week,
         category="realistic",
         tags=("30 doctors", "preferences"),
+        preset="clinic",
     ),
     "regional_hospital_month": ScenarioDef(
         title="Regional hospital — 4 weeks",
@@ -1306,6 +1443,7 @@ SCENARIOS: dict[str, ScenarioDef] = {
         builder=regional_hospital_month,
         category="realistic",
         tags=("4 weeks", "FTE", "fairness stress"),
+        preset="clinic",
     ),
     "hospital_long_month": ScenarioDef(
         title="Large hospital — 4 weeks",
@@ -1318,6 +1456,7 @@ SCENARIOS: dict[str, ScenarioDef] = {
         builder=hospital_long_month,
         category="realistic",
         tags=("35 doctors", "4 weeks", "largest"),
+        preset="clinic",
     ),
     # ---- Research / benchmark references --------------------------------
     "benchmark_nrp_small": ScenarioDef(
@@ -1330,6 +1469,7 @@ SCENARIOS: dict[str, ScenarioDef] = {
         builder=benchmark_nrp_small,
         category="research",
         tags=("benchmark", "NRP", "reproducible"),
+        preset="clinic",
     ),
     "benchmark_nrp_medium": ScenarioDef(
         title="Benchmark · NRP medium (20×28)",
@@ -1341,6 +1481,7 @@ SCENARIOS: dict[str, ScenarioDef] = {
         builder=benchmark_nrp_medium,
         category="research",
         tags=("benchmark", "NRP", "mid-sized"),
+        preset="clinic",
     ),
     # ---- Stress-test (deliberately hard) --------------------------------
     "stress_tight_oncall": ScenarioDef(
@@ -1353,6 +1494,7 @@ SCENARIOS: dict[str, ScenarioDef] = {
         builder=stress_tight_oncall,
         category="research",
         tags=("stress", "hard", "oncall pressure"),
+        preset="clinic",
     ),
     "stress_dense_leave": ScenarioDef(
         title="Stress · Dense leave + holidays",
@@ -1364,6 +1506,7 @@ SCENARIOS: dict[str, ScenarioDef] = {
         builder=stress_dense_leave,
         category="research",
         tags=("stress", "leave", "holidays"),
+        preset="clinic",
     ),
 }
 
@@ -1376,6 +1519,12 @@ def main() -> None:
 
     for scenario_id, sdef in SCENARIOS.items():
         state = sdef.builder()
+        # Stamp the scenario's rota preset onto the state — this is what
+        # gives each template realistic shift labels + hours + weekend
+        # coverage toggles. Scenarios that pre-set a weekend-coverage
+        # constraint (e.g. emergency_week) keep their explicit choice;
+        # see `_apply_preset`.
+        state = _apply_preset(state, sdef.preset)
         # Bias scenarios toward a shorter solver budget so they always
         # produce a result inside typical cloud-proxy WebSocket timeouts.
         state = state.model_copy(
@@ -1426,6 +1575,7 @@ def main() -> None:
             "description": sdef.description,
             "category": sdef.category,
             "tags": list(sdef.tags),
+            "preset": sdef.preset,
             "n_doctors": n_doctors,
             "n_stations": n_stations,
             "n_days": n_days,

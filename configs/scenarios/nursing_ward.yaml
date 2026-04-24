@@ -139,11 +139,11 @@ tier_labels:
   senior: Senior Nurse
   consultant: Ward Manager
 shift_labels:
-  am: AM
-  pm: PM
-  full_day: Full day
-  oncall: Night call
-  weekend_ext: Weekend extended
+  am: "Day 08:00\u201314:00"
+  pm: "Day 14:00\u201320:00"
+  full_day: "Day shift 08:00\u201320:00"
+  oncall: "Night 20:00\u201308:00"
+  weekend_ext: Weekend day
   weekend_consult: Weekend consultant
 subspecs:
 - Medical
@@ -164,14 +164,14 @@ workload_weights:
   weekend_ext: 20
   weekend_consult: 25
 hours:
-  weekday_am: 4.0
-  weekday_pm: 4.0
-  weekend_am: 4.0
-  weekend_pm: 4.0
+  weekday_am: 6.0
+  weekday_pm: 6.0
+  weekend_am: 6.0
+  weekend_pm: 6.0
   weekday_oncall: 12.0
-  weekend_oncall: 16.0
+  weekend_oncall: 12.0
   weekend_ext: 12.0
-  weekend_consult: 8.0
+  weekend_consult: 12.0
 constraints:
   h4_enabled: true
   h4_gap: 3
@@ -181,7 +181,7 @@ constraints:
   h8_enabled: true
   h9_enabled: true
   h11_enabled: true
-  weekend_am_pm: false
+  weekend_am_pm: true
   weekday_oncall_coverage: true
 solver:
   time_limit: 30

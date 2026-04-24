@@ -2,6 +2,68 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-25 — Templates moved to Setup, Dashboard → landing, scenarios on preset
+
+**What:** Three changes that together make first use a much cleaner
+flow.
+
+**Every bundled template now stamps a rota preset.** `scripts/build
+_scenarios.py` gained a `_apply_preset` helper that writes shift
+labels + hours + weekend-coverage onto a scenario's SessionState.
+Each of the 17 templates now picks the preset that matches its
+specialty, so a user loading `emergency_week` sees "Early 07:00–15:00
+/ Late 15:00–23:00 / Night 23:00–07:00" in the Roster grid instead
+of the generic "AM / PM / Night call":
+
+- `clinic` preset → clinic_week, radiology_small, paediatrics_two
+  _weeks, busy_month_with_leave, teaching_hospital_week,
+  regional_hospital_month, hospital_long_month, cardiology_week,
+  benchmarks, stress tests
+- `surgical` preset → anaesthesia_two_weeks, surgery_week
+- `day_night_12h` preset → icu_two_weeks, nursing_ward
+- `shift_24_7` preset → emergency_week
+
+Additional FULL_DAY conversions on specialty templates:
+`cardiology_week.CATH_LAB`, `anaesthesia_two_weeks.OR_CARDIAC`,
+`anaesthesia_two_weeks.OR_PAEDS` — one-doctor-holds-the-list is the
+real shape, so the templates now show it.
+
+Preset now only touches `weekend_am_pm`; `weekday_oncall_coverage`
+is a clinical choice that stays scenario-level. Mirrors in both the
+build script and the UI Shape page.
+
+**Scenarios moved into Setup.** The scenario picker used to live on
+the Dashboard alongside the "getting started" guide — wrong home,
+because loading a scenario is an act of populating session state
+(what the rest of Setup is for). New route `/setup/templates` is
+now the Setup default. After a successful load, the user is routed
+on to `/setup/when` so they immediately see the horizon we just
+stamped in. YAML import/export also lives here now.
+
+`ScenarioPicker` component extracted to `ui/src/components/` so both
+Setup → Templates (and any future surface) can reuse it. The
+Dashboard no longer holds any scenario UI.
+
+**Dashboard → landing page.** Replaced the 4-step accordion +
+scenario grid with a short landing layout:
+
+- Hero headline + one-paragraph purpose statement
+- Status strip showing the currently-loaded config (or a prompt to
+  start)
+- One big context-aware CTA ("Start from a template" / "Run the
+  solver" / "Open roster")
+- "How it works" — 3 numbered cards covering team input, solver,
+  review + export
+- "What you'll key in" — 4 deep-links to the four data-entry
+  surfaces with one-line descriptions of each
+
+No scenario cards on the landing page, no dropzone, no 4-step
+accordion. A first-time user reads one screen and clicks exactly
+one link to get started.
+
+**Test headline:** 84/84 pytest pass. `pnpm build` clean. 17
+scenarios regenerated with the new preset stamps.
+
 ## 2026-04-25 — FULL_DAY sessions, shift labels, rota presets, Rules shape page
 
 **What:** Scheduled days were hard-coded as AM + PM + night on-call.

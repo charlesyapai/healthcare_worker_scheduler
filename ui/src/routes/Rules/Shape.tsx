@@ -57,7 +57,6 @@ interface Preset {
   };
   constraints: {
     weekend_am_pm: boolean;
-    weekday_oncall_coverage: boolean;
   };
 }
 
@@ -86,7 +85,6 @@ const PRESETS: Preset[] = [
     },
     constraints: {
       weekend_am_pm: false,
-      weekday_oncall_coverage: false,
     },
   },
   {
@@ -113,7 +111,6 @@ const PRESETS: Preset[] = [
     },
     constraints: {
       weekend_am_pm: true,
-      weekday_oncall_coverage: true,
     },
   },
   {
@@ -141,7 +138,6 @@ const PRESETS: Preset[] = [
     },
     constraints: {
       weekend_am_pm: false,
-      weekday_oncall_coverage: true,
     },
   },
   {
@@ -168,7 +164,6 @@ const PRESETS: Preset[] = [
     },
     constraints: {
       weekend_am_pm: true,
-      weekday_oncall_coverage: true,
     },
   },
 ];
@@ -196,16 +191,16 @@ export function Shape() {
 
   const applyPreset = (p: Preset) => {
     // The backend PATCH endpoint does a deep-merge, so passing only
-    // the two fields we want to override (inside `constraints`) is
-    // enough to leave the other toggles untouched. `Partial<SessionState>`
-    // is only shallowly-partial on the TypeScript side though, so we
-    // cast through `unknown` to let the nested-partial shape land.
+    // the one field we want to override inside `constraints` is
+    // enough to leave the other toggles untouched. Weekday on-call
+    // coverage is intentionally NOT touched — that's a clinical
+    // choice (does this department run nights?) that users set on
+    // the Rules tab, not something a rota preset should override.
     const patch = {
       shift_labels: p.labels,
       hours: p.hours,
       constraints: {
         weekend_am_pm: p.constraints.weekend_am_pm,
-        weekday_oncall_coverage: p.constraints.weekday_oncall_coverage,
       },
     } as unknown as Partial<SessionState>;
     save(patch);
