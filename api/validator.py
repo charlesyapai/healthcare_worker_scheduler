@@ -98,17 +98,47 @@ def validate(state: SessionState, assignments: list[AssignmentRow]) -> list[dict
                                  f"Unknown role: {a.role}"))
 
     # ---------- H1 station coverage ----------
+    # FULL_DAY stations are encoded in the CP-SAT model as paired AM+PM
+    # variables with an equality constraint (see scheduler/model.py). The
+    # solver therefore emits STATION_<name>_AM and STATION_<name>_PM rows
+    # for a FULL_DAY booking — never a STATION_<name>_FULL_DAY row. H1
+    # counts the AM side as the canonical pair count and then verifies
+    # the PM side has the same doctors; a mismatch means the pairing
+    # constraint was violated (a solver or assignment bug).
     for d in dates:
         we = is_weekend(d)
         for st in state.stations:
             if we and not state.constraints.weekend_am_pm:
                 continue
-            for sess in (st.sessions or []):
+            sessions = st.sessions or []
+            is_full_day = "FULL_DAY" in sessions
+            if is_full_day:
+                am_holders = by_slot.get((d, st.name, "AM"), [])
+                pm_holders = by_slot.get((d, st.name, "PM"), [])
+                count = len(am_holders)
+                if count != st.required_per_session:
+                    violations.append(_v(
+                        "H1", "error",
+                        f"{d.isoformat()} {st.name}/FULL_DAY",
+                        f"{count}/{st.required_per_session} people assigned.",
+                    ))
+                # Pairing check: AM and PM holders must be the same set.
+                if set(am_holders) != set(pm_holders):
+                    violations.append(_v(
+                        "H1", "error",
+                        f"{d.isoformat()} {st.name}/FULL_DAY",
+                        (
+                            f"FULL_DAY pairing broken: AM={sorted(am_holders)} "
+                            f"vs PM={sorted(pm_holders)}. Both halves must be "
+                            f"the same doctor."
+                        ),
+                    ))
+                continue
+            for sess in sessions:
                 count = len(by_slot.get((d, st.name, sess), []))
                 if count != st.required_per_session:
-                    severity = "error"
                     violations.append(_v(
-                        "H1", severity,
+                        "H1", "error",
                         f"{d.isoformat()} {st.name}/{sess}",
                         f"{count}/{st.required_per_session} people assigned.",
                     ))
