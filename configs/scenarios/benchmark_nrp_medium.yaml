@@ -1,4 +1,4 @@
-schema_version: 2
+schema_version: 3
 horizon:
   start_date: '2026-04-27'
   n_days: 28
@@ -7,101 +7,121 @@ doctors:
 - name: J01
   tier: junior
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: J02
   tier: junior
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: J03
   tier: junior
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: J04
   tier: junior
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: J05
   tier: junior
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: J06
   tier: junior
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: J07
   tier: junior
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: S01
   tier: senior
   eligible_stations: CT,MR,US,XR_REPORT,GEN_AM,GEN_PM
+  eligible_oncall_types: oncall_sr,weekend_ext_sr
   prev_workload: 0
   fte: 1.0
 - name: S02
   tier: senior
   eligible_stations: CT,MR,US,XR_REPORT,GEN_AM,GEN_PM
+  eligible_oncall_types: oncall_sr,weekend_ext_sr
   prev_workload: 0
   fte: 1.0
 - name: S03
   tier: senior
   eligible_stations: CT,MR,US,XR_REPORT,GEN_AM,GEN_PM
+  eligible_oncall_types: oncall_sr,weekend_ext_sr
   prev_workload: 0
   fte: 1.0
 - name: S04
   tier: senior
   eligible_stations: CT,MR,US,XR_REPORT,GEN_AM,GEN_PM
+  eligible_oncall_types: oncall_sr,weekend_ext_sr
   prev_workload: 0
   fte: 1.0
 - name: C01
   tier: consultant
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: C02
   tier: consultant
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: C03
   tier: consultant
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: C04
   tier: consultant
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: C05
   tier: consultant
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: C06
   tier: consultant
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: C07
   tier: consultant
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: C08
   tier: consultant
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: C09
   tier: consultant
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 stations:
@@ -164,6 +184,92 @@ stations:
 blocks: []
 overrides: []
 role_preferences: []
+on_call_types:
+- key: oncall_jr
+  label: Night call (junior)
+  start_hour: 20
+  end_hour: 8
+  days_active:
+  - Sat
+  - Sun
+  eligible_tiers:
+  - junior
+  daily_required: 1
+  post_shift_rest_hours: 11
+  next_day_off: true
+  frequency_cap_days: 3
+  counts_as_weekend_role: false
+  works_full_day: false
+  works_pm_only: true
+  legacy_role_alias: ONCALL
+- key: oncall_sr
+  label: Night call (senior)
+  start_hour: 20
+  end_hour: 8
+  days_active:
+  - Sat
+  - Sun
+  eligible_tiers:
+  - senior
+  daily_required: 1
+  post_shift_rest_hours: 11
+  next_day_off: true
+  frequency_cap_days: 3
+  counts_as_weekend_role: false
+  works_full_day: true
+  works_pm_only: false
+  legacy_role_alias: ONCALL
+- key: weekend_ext_jr
+  label: Weekend extended (junior)
+  start_hour: 8
+  end_hour: 20
+  days_active:
+  - Sat
+  - Sun
+  eligible_tiers:
+  - junior
+  daily_required: 1
+  post_shift_rest_hours: 11
+  next_day_off: false
+  frequency_cap_days: null
+  counts_as_weekend_role: true
+  works_full_day: false
+  works_pm_only: false
+  legacy_role_alias: WEEKEND_EXT
+- key: weekend_ext_sr
+  label: Weekend extended (senior)
+  start_hour: 8
+  end_hour: 20
+  days_active:
+  - Sat
+  - Sun
+  eligible_tiers:
+  - senior
+  daily_required: 1
+  post_shift_rest_hours: 11
+  next_day_off: false
+  frequency_cap_days: null
+  counts_as_weekend_role: true
+  works_full_day: false
+  works_pm_only: false
+  legacy_role_alias: WEEKEND_EXT
+- key: weekend_consult
+  label: Weekend consultant
+  start_hour: 8
+  end_hour: 17
+  days_active:
+  - Sat
+  - Sun
+  eligible_tiers:
+  - consultant
+  daily_required: 1
+  post_shift_rest_hours: 11
+  next_day_off: false
+  frequency_cap_days: null
+  counts_as_weekend_role: true
+  works_full_day: false
+  works_pm_only: false
+  legacy_role_alias: WEEKEND_CONSULT
 tier_labels:
   junior: Junior
   senior: Senior
@@ -200,16 +306,9 @@ hours:
   weekend_ext: 12.0
   weekend_consult: 8.0
 constraints:
-  h4_enabled: true
-  h4_gap: 3
   h5_enabled: true
-  h6_enabled: true
-  h7_enabled: true
-  h8_enabled: true
   h9_enabled: true
   h11_enabled: true
-  weekday_oncall_coverage: true
-  weekend_consultants_required: 1
 solver:
   time_limit: 30
   num_workers: 8

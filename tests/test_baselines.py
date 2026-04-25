@@ -24,8 +24,8 @@ def test_greedy_runs_and_returns_heuristic_status() -> None:
     result = greedy_baseline(inst)
     assert result.status == "HEURISTIC"
     assert result.objective is None
-    # SolveResult-compatible shape: all four assignment buckets exist.
-    assert set(result.assignments.keys()) == {"stations", "oncall", "ext", "wconsult"}
+    # SolveResult-compatible shape: stations + per-type bucket + legacy aggregates.
+    assert {"stations", "oncall_by_type", "oncall", "ext", "wconsult"} <= set(result.assignments.keys())
 
 
 def test_greedy_assigns_at_least_some_slots() -> None:

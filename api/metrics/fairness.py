@@ -32,14 +32,15 @@ def _is_weekend(d: date, holidays: set[date]) -> bool:
 
 def _role_kind(role: str) -> tuple[str, str | None]:
     """Map an AssignmentRow.role to (kind, session). `session` is only
-    non-None for station roles."""
+    non-None for station roles. Phase B: any `ONCALL_<key>` (user-
+    defined on-call type) is treated as `oncall` for fairness bucketing."""
     r = role.upper()
     if r.startswith("STATION_"):
         parts = r[len("STATION_"):].rsplit("_", 1)
         if len(parts) == 2 and parts[1] in ("AM", "PM"):
             return "station", parts[1]
         return "station", None
-    if r == "ONCALL":
+    if r == "ONCALL" or r.startswith("ONCALL_"):
         return "oncall", None
     if r in ("WEEKEND_EXT", "EXT"):
         return "ext", None

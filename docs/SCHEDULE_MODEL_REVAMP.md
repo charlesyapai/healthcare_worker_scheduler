@@ -860,6 +860,161 @@ picks up B:
   `OnCallType.works_pm_only` flags. Currently they're wired to
   literal `tier == "senior"` / `tier == "junior"` checks.
 
+### 11.10 Phase B1 landed — handoff for B2 + C
+
+**As of commit `<TBD>` on `react-ui`, Phase B1 is shipped.** Backend
+on-call rewrite is complete: solver, validator, persistence,
+diagnostics, baselines, metrics, scenarios, tests, schema migration
+(2 → 3) all use `OnCallType`s. The 5 default migrated types
+(`oncall_jr`, `oncall_sr`, `weekend_ext_jr`, `weekend_ext_sr`,
+`weekend_consult`) reproduce the legacy ConstraintConfig behaviour
+exactly when `legacy_role_alias` is set, so existing scenarios keep
+emitting `ONCALL` / `WEEKEND_EXT` / `WEEKEND_CONSULT` role strings
+unchanged.
+
+#### What still needs doing
+
+##### B2 — `/setup/oncall` UI editor
+
+The `/setup/constraints` page currently shows a placeholder card
+explaining that on-call rules moved to per-type config. We need a
+real editor at `/setup/oncall`:
+
+- **Route:** add to [ui/src/App.tsx](../ui/src/App.tsx) under the
+  Setup section. Sub-tab navigation in
+  [ui/src/routes/Setup/index.tsx](../ui/src/routes/Setup/index.tsx).
+- **Component:** new `ui/src/routes/Setup/OnCall.tsx`. Table editor
+  with one row per `OnCallType`. Columns + controls per type:
+  - **Key** (read-only after creation; snake_case constraint).
+  - **Label** (free text).
+  - **Days active** — Mon/Tue/.../Sun chip group (toggleable).
+  - **Daily required** — `<NumberInput>` (0..N, 0 disables the type).
+  - **Frequency cap (1-in-N)** — `<NumberInput>` with empty = no cap.
+  - **Next-day-off** toggle (per-type post-shift rest).
+  - **Works full day** / **Works PM only** — mutually exclusive
+    toggles (legacy H6/H7 patterns).
+  - **Counts as weekend role** toggle (drives S3 weekend bucketing
+    + H9 lieu day eligibility).
+  - **Legacy alias** dropdown — `ONCALL` / `WEEKEND_EXT` /
+    `WEEKEND_CONSULT` / `(none)`. Drives role-string emission.
+  - **Eligible tiers** — Jr/Sr/Cn chip group (advisory; see Phase A
+    decoupling).
+- **Hooks:** the typed `useSessionState` already exposes
+  `state.on_call_types` after the openapi/types regen. The
+  `useAutoSavePatch` PATCH endpoint takes `on_call_types: [...]`
+  in its merge dict (lists replace wholesale — see `deep_merge` in
+  [api/sessions.py](../api/sessions.py)).
+- **Per-doctor `eligible_oncall_types`:** the Doctors editor
+  ([ui/src/routes/Setup/Doctors.tsx](../ui/src/routes/Setup/Doctors.tsx))
+  currently doesn't expose this field. Add a chip group
+  ("Eligible on-call types") next to the existing eligible-stations
+  column, populated from the current `state.on_call_types` keys.
+- **CSV import:** `DoctorsCsvDrawer` accepts a CSV row with
+  `eligible_oncall_types` as a `|`-separated list of type keys.
+  Already wired on the backend (parser in
+  [scheduler/ui_state.py](../scheduler/ui_state.py); CSV editor needs
+  to surface the column).
+- **Acceptance:** every existing scenario loads correctly,
+  `/setup/oncall` shows the 5 migrated types, editing them
+  hot-reloads the solver. Removing the placeholder card from
+  [ui/src/routes/Rules/Constraints.tsx](../ui/src/routes/Rules/Constraints.tsx)
+  is also part of B2.
+
+##### Phase C — variable tier count
+
+`Doctor.tier` is still a `Literal["junior", "senior", "consultant"]`.
+Phase C makes this user-defined.
+
+- **Pydantic model.** New `Tier` model with `key`, `label`,
+  `classification: Literal["trainee", "specialist", "lead"]`. Add
+  `SessionState.tiers: list[Tier]`. `Doctor.tier` becomes a `str`
+  (key reference; validated against the tier list).
+- **Dataclass.** Mirror in
+  [scheduler/instance.py](../scheduler/instance.py).
+  `Instance.tiers: list[Tier]`.
+- **Solver.** Replace the literal `for tier in ("junior", "senior",
+  "consultant")` triple in
+  [scheduler/model.py](../scheduler/model.py) with `for tier in
+  inst.tiers`. Per-tier balance (S0–S3) iterates user tiers. The
+  `_doctor_signature` and `_apply_redundant_aggregates` helpers also
+  need an audit — they string-compare tier names today.
+- **Migration.** v3 → v4 in
+  [scheduler/persistence.py](../scheduler/persistence.py): synthesise
+  `[Tier(key="junior", classification="trainee"),
+   Tier(key="senior", classification="specialist"),
+   Tier(key="consultant", classification="lead")]` from any v3
+  session that lacks a `tiers` list. Schema bump 3 → 4. Existing
+  `Doctor.tier` strings remain valid (they're now keys into the
+  default tiers list).
+- **OnCallType.eligible_tiers / Station.eligible_tiers:** these
+  already accept arbitrary strings (just lower-cased + filtered to
+  the literal three). Drop the literal filter so user-defined tier
+  keys flow through.
+- **UI.** `/setup/teams` adds a Tiers card with "Add tier" button.
+  Each tier picks a classification from a dropdown. All chip groups
+  (eligible_tiers on stations, eligible_tiers on on-call types,
+  per-doctor tier dropdown) need to read the user-defined list.
+- **Tests.** Add `tests/test_variable_tiers.py` proving:
+  (a) a 4-tier department (e.g. junior / registrar / consultant /
+  lead) solves end-to-end; (b) classifications propagate correctly to
+  H6/H7-style patterns (multiple tiers can share a classification,
+  e.g. two "specialist" tiers both treated as senior-equivalent if
+  some on-call type's eligible_tiers includes both).
+
+##### Phase D — clock-time AM/PM with auto-hours
+
+Untouched after B1. Plan §6 sketches the data shape; nothing has
+shifted in B1 that affects D's design.
+
+#### Build / deploy / smoke checklist for B2 + C
+
+```
+[ ] python -m pytest tests/ -x -q --ignore=tests/test_stress.py
+[ ] python scripts/build_scenarios.py   ← all 17 solve
+[ ] python -m pytest tests/test_self_check.py -q   ← solver/validator parity
+[ ] python scripts/dump_openapi.py > ui/src/api/openapi.json
+[ ] (cd ui && pnpm run gen:types && pnpm build)
+[ ] grep -r "weekday_oncall_coverage\|weekend_consultants_required\|h4_gap" \
+        api/ scheduler/ ui/src/   ← empty after B2
+[ ] (Phase C) grep -r 'tier == "junior"\|tier == "senior"\|tier == "consultant"' \
+        scheduler/   ← empty after C
+[ ] CHANGELOG.md entry per commit
+[ ] bash scripts/deploy_hf.sh
+[ ] curl https://charlesyapai-healthcare-workforce-scheduler-v2.hf.space/api/health
+```
+
+#### Pitfalls B1 hit (so B2 / C can avoid them)
+
+1. **`pd.isna` on list values.** When `eligible_oncall_types` is a
+   list, `pd.isna(val)` raises "truth value ambiguous". Phase B1's
+   `_df_rows` in [api/sessions.py](../api/sessions.py) special-cases
+   lists — keep that pattern when adding more list-valued doctor /
+   station columns.
+2. **H9 lieu day + tight senior bench.** With weekday on-call ON
+   (default for v2 SessionState) and 3 seniors over a long horizon,
+   the per-type H4 1-in-3 cap + H5 next_day_off + H9 lieu day combo
+   becomes infeasible. Phase B1 bumped the seed default senior
+   fraction (0.15 → 0.20) and the ICU scenario's senior bench
+   (4 → 5). Watch for the same trap in any new test fixture or
+   scenario.
+3. **Solver var maps used as locals.** Phase A's solver had `oncall`,
+   `ext`, `wconsult` as named local dicts; the snapshot logic, warm
+   start, and SolveResult construction all referenced them by name.
+   Phase B's `oc_vars: dict[str, dict[...]]` is keyed by type key.
+   Phase B1's `_IntermediateLogger` snapshot uses
+   `f"oncall_by_type::{type_key}"` keys; the WS handler in
+   [api/routes/solve.py](../api/routes/solve.py) re-nests them. If
+   you add new top-level snapshot keys, follow the same pattern.
+4. **Validator reports `H6` / `H7` / `H9` now.** The validator-
+   tracked rules list in
+   [api/sessions.py](../api/sessions.py) `_VALIDATOR_RULES` lost
+   `weekday_oc` and gained `H6, H7, H9`. UI assertions / tests that
+   pattern-match `rules_failed` keys may need updating.
+5. **`assignments_to_rows` reads `oncall_by_type` first.** Pre-B
+   callers passed `oncall` / `ext` / `wconsult` directly. Post-B,
+   the canonical key is `oncall_by_type`. Legacy keys are a fallback.
+   Don't duplicate by passing both — the function picks one path.
+
 ---
 
 ## Appendix B — exact grep audit (for rapid file location)

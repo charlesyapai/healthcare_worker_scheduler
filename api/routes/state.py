@@ -9,7 +9,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.models.events import PrevWorkloadRequest
-from api.models.session import DoctorEntry, Horizon, SessionState, StationEntry
+from api.models.session import (
+    DoctorEntry,
+    Horizon,
+    OnCallType,
+    SessionState,
+    StationEntry,
+)
 from api.sessions import (
     ServerSession,
     deep_merge,
@@ -57,11 +63,17 @@ def seed_defaults(session: ServerSession = Depends(get_session)) -> SessionState
     """
     doctors_df = default_doctors_df(n=20, seed=0)
     stations_df = default_stations_df()
+    on_call_types = _default_oncall_types()
+    types_by_tier = {
+        tier: [t.key for t in on_call_types if tier in t.eligible_tiers]
+        for tier in ("junior", "senior", "consultant")
+    }
     doctors = [
         DoctorEntry.model_validate({
             "name": row["name"],
             "tier": row["tier"],
             "eligible_stations": row["eligible_stations"],
+            "eligible_oncall_types": types_by_tier.get(row["tier"], []),
             "prev_workload": int(row.get("prev_workload", 0) or 0),
             "fte": float(row.get("fte", 1.0) or 1.0),
             "max_oncalls": row.get("max_oncalls"),
@@ -84,8 +96,82 @@ def seed_defaults(session: ServerSession = Depends(get_session)) -> SessionState
         horizon=Horizon(start_date=date.today(), n_days=21),
         doctors=doctors,
         stations=stations,
+        on_call_types=on_call_types,
     )
     return session.state
+
+
+def _default_oncall_types() -> list[OnCallType]:
+    """Phase B default 5-type on-call config used by `/api/state/seed`.
+    Mirrors `scheduler.instance.default_on_call_types(weekday_oncall=True)`
+    so the seeded session matches the legacy weekday + weekend coverage
+    pattern."""
+    return [
+        OnCallType.model_validate({
+            "key": "oncall_jr",
+            "label": "Night call (junior)",
+            "start_hour": 20, "end_hour": 8,
+            "days_active": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+            "eligible_tiers": ["junior"],
+            "daily_required": 1,
+            "next_day_off": True,
+            "frequency_cap_days": 3,
+            "counts_as_weekend_role": False,
+            "works_full_day": False,
+            "works_pm_only": True,
+            "legacy_role_alias": "ONCALL",
+        }),
+        OnCallType.model_validate({
+            "key": "oncall_sr",
+            "label": "Night call (senior)",
+            "start_hour": 20, "end_hour": 8,
+            "days_active": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+            "eligible_tiers": ["senior"],
+            "daily_required": 1,
+            "next_day_off": True,
+            "frequency_cap_days": 3,
+            "counts_as_weekend_role": False,
+            "works_full_day": True,
+            "works_pm_only": False,
+            "legacy_role_alias": "ONCALL",
+        }),
+        OnCallType.model_validate({
+            "key": "weekend_ext_jr",
+            "label": "Weekend extended (junior)",
+            "start_hour": 8, "end_hour": 20,
+            "days_active": ["Sat", "Sun"],
+            "eligible_tiers": ["junior"],
+            "daily_required": 1,
+            "next_day_off": False,
+            "frequency_cap_days": None,
+            "counts_as_weekend_role": True,
+            "legacy_role_alias": "WEEKEND_EXT",
+        }),
+        OnCallType.model_validate({
+            "key": "weekend_ext_sr",
+            "label": "Weekend extended (senior)",
+            "start_hour": 8, "end_hour": 20,
+            "days_active": ["Sat", "Sun"],
+            "eligible_tiers": ["senior"],
+            "daily_required": 1,
+            "next_day_off": False,
+            "frequency_cap_days": None,
+            "counts_as_weekend_role": True,
+            "legacy_role_alias": "WEEKEND_EXT",
+        }),
+        OnCallType.model_validate({
+            "key": "weekend_consult",
+            "label": "Weekend consultant",
+            "start_hour": 8, "end_hour": 17,
+            "days_active": ["Sat", "Sun"],
+            "eligible_tiers": ["consultant"],
+            "daily_required": 1,
+            "next_day_off": False,
+            "frequency_cap_days": None,
+            "counts_as_weekend_role": True,
+            "legacy_role_alias": "WEEKEND_CONSULT",
+        }),
+    ]
 
 
 SCENARIOS_DIR = (

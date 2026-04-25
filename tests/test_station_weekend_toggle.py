@@ -48,13 +48,10 @@ def test_weekend_enabled_station_produces_weekend_bookings() -> None:
         doctors=_doctors(),
         stations=stations,
     )
-    # Disable H11 + weekday on-call coverage so the small bench isn't
-    # at the mercy of idle-weekday / weekday on-call pressure. The test
-    # focuses on station-level weekend_enabled gating, not on-call.
-    cfg = ConstraintConfig(
-        h11_mandatory_weekday_enabled=False,
-        weekday_oncall_coverage_enabled=False,
-    )
+    # Disable H11 (idle-weekday penalty) so the bench doesn't fight
+    # idle pressure. Phase B: no on_call_types on the Instance means
+    # there's no weekday on-call demand at all.
+    cfg = ConstraintConfig(h11_mandatory_weekday_enabled=False)
     result = solve(inst, time_limit_s=10, num_workers=1,
                    feasibility_only=True, constraints=cfg)
     assert result.status in ("OPTIMAL", "FEASIBLE"), result.status

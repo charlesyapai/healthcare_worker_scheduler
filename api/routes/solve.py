@@ -228,9 +228,20 @@ async def solve_ws(websocket: WebSocket) -> None:
 def _snapshot_to_rows(state, snapshot: dict) -> list[AssignmentRow]:
     """Convert a callback's `assignments` snapshot into API rows.
 
-    The callback uses the same tuple-keyed dict shape as SolveResult.
+    Phase B: the snapshot from `_IntermediateLogger` flattens per-OnCallType
+    var maps into keys of the form `oncall_by_type::<type_key>`. Re-nest
+    those into the canonical `oncall_by_type` dict before handing off.
     """
-    return assignments_to_rows(state, snapshot)
+    flat = snapshot or {}
+    canonical: dict = {"stations": flat.get("stations") or {}}
+    obt: dict[str, dict] = {}
+    for key, vmap in flat.items():
+        if key.startswith("oncall_by_type::"):
+            type_key = key[len("oncall_by_type::"):]
+            obt[type_key] = vmap
+    if obt:
+        canonical["oncall_by_type"] = obt
+    return assignments_to_rows(state, canonical)
 
 
 # --------------------------------------------------------------- REST fallback

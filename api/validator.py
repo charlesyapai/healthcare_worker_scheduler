@@ -8,6 +8,15 @@ solver. This module walks the assignments and flags violations per rule.
 Only hard constraints are checked. Soft penalties (fairness, idle weekdays,
 preferences) are shown through the ObjectiveBreakdown panel on the Solve
 page, not here.
+
+Phase B: on-call rules are user-defined per-OnCallType, not the legacy
+fixed `oncall` / `ext` / `wconsult` triple. This validator iterates
+`state.on_call_types` and checks each type's `daily_required`,
+`frequency_cap_days`, `next_day_off`, `works_full_day`, `works_pm_only`
+against the proposed roster. Legacy role strings (`ONCALL`, `WEEKEND_EXT`,
+`WEEKEND_CONSULT`) are accepted and resolved against any type whose
+`legacy_role_alias` matches and whose advisory `eligible_tiers` includes
+the doctor's tier.
 """
 
 from __future__ import annotations
@@ -16,7 +25,9 @@ from collections import defaultdict
 from datetime import date, timedelta
 
 from api.models.events import AssignmentRow
-from api.models.session import SessionState
+from api.models.session import OnCallType, SessionState
+
+WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
 def validate(state: SessionState, assignments: list[AssignmentRow]) -> list[dict]:
@@ -38,9 +49,19 @@ def validate(state: SessionState, assignments: list[AssignmentRow]) -> list[dict
     doctors_by_name = {d.name: d for d in state.doctors}
     stations_by_name = {s.name: s for s in state.stations}
     public_holidays = set(state.horizon.public_holidays)
+    on_call_types = list(state.on_call_types)
+    types_by_key = {t.key: t for t in on_call_types}
 
     def is_weekend(d: date) -> bool:
         return d.weekday() >= 5 or d in public_holidays
+
+    def day_active_for_type(d: date, t: OnCallType) -> bool:
+        wd = WEEKDAY_NAMES[d.weekday()]
+        if wd in t.days_active:
+            return True
+        if d in public_holidays and ("Sat" in t.days_active or "Sun" in t.days_active):
+            return True
+        return False
 
     # ---------- index blocks (leave / no-X) ----------
     leave_dates: dict[str, set[date]] = defaultdict(set)
@@ -63,10 +84,40 @@ def validate(state: SessionState, assignments: list[AssignmentRow]) -> list[dict
             cur += timedelta(days=1)
 
     # ---------- parse assignments ----------
-    # by_slot[(date, station, session)] = [doctor names]
     by_slot: dict[tuple[date, str, str], list[str]] = defaultdict(list)
-    # by_doc_date[(doctor, date)] = list of activity descriptors
     by_doc_date: dict[tuple[str, date], list[dict]] = defaultdict(list)
+
+    def _resolve_oncall_type(doc_name: str, alias: str) -> str | None:
+        """Map a legacy alias literal to a unique type key the doctor is
+        eligible for. Returns None on miss / ambiguous."""
+        person = doctors_by_name.get(doc_name)
+        if not person:
+            return None
+        candidates = [
+            t.key for t in on_call_types
+            if t.legacy_role_alias == alias
+            and (not person.eligible_oncall_types
+                 or t.key in person.eligible_oncall_types)
+        ]
+        if len(candidates) == 1:
+            return candidates[0]
+        # Fallback: filter further by advisory tier match.
+        tier_filtered = [
+            k for k in candidates
+            if person.tier in (types_by_key[k].eligible_tiers or [])
+        ]
+        if len(tier_filtered) == 1:
+            return tier_filtered[0]
+        # Couldn't disambiguate — return first candidate if any.
+        return candidates[0] if candidates else None
+
+    LEGACY_ALIASES = {
+        "ONCALL": "ONCALL",
+        "WEEKEND_EXT": "WEEKEND_EXT",
+        "EXT": "WEEKEND_EXT",
+        "WEEKEND_CONSULT": "WEEKEND_CONSULT",
+        "WCONSULT": "WEEKEND_CONSULT",
+    }
 
     for a in assignments:
         role = a.role.upper()
@@ -86,24 +137,35 @@ def validate(state: SessionState, assignments: list[AssignmentRow]) -> list[dict
             by_doc_date[(a.doctor, a.date)].append(
                 {"kind": "station", "station": station, "session": session}
             )
-        elif role == "ONCALL":
-            by_doc_date[(a.doctor, a.date)].append({"kind": "oncall"})
-        elif role in ("WEEKEND_EXT", "EXT"):
-            by_doc_date[(a.doctor, a.date)].append({"kind": "ext"})
-        elif role in ("WEEKEND_CONSULT", "WCONSULT"):
-            by_doc_date[(a.doctor, a.date)].append({"kind": "wconsult"})
-        else:
-            violations.append(_v("H3", "error", f"{a.doctor} {a.date}",
-                                 f"Unknown role: {a.role}"))
+            continue
+        if role.startswith("ONCALL_"):
+            type_key = role[len("ONCALL_"):]
+            if type_key not in types_by_key:
+                violations.append(_v("H3", "error", f"{a.doctor} {a.date}",
+                                     f"Unknown on-call type: {type_key}"))
+                continue
+            by_doc_date[(a.doctor, a.date)].append(
+                {"kind": "oncall", "type_key": type_key}
+            )
+            continue
+        alias = LEGACY_ALIASES.get(role)
+        if alias:
+            type_key = _resolve_oncall_type(a.doctor, alias)
+            if type_key is None:
+                violations.append(_v(
+                    "H3", "error", f"{a.doctor} {a.date}",
+                    f"Could not resolve {a.role} to a defined on-call type "
+                    f"for {a.doctor}.",
+                ))
+                continue
+            by_doc_date[(a.doctor, a.date)].append(
+                {"kind": "oncall", "type_key": type_key, "alias": alias}
+            )
+            continue
+        violations.append(_v("H3", "error", f"{a.doctor} {a.date}",
+                             f"Unknown role: {a.role}"))
 
     # ---------- H1 station coverage ----------
-    # FULL_DAY stations are encoded in the CP-SAT model as paired AM+PM
-    # variables with an equality constraint (see scheduler/model.py). The
-    # solver therefore emits STATION_<name>_AM and STATION_<name>_PM rows
-    # for a FULL_DAY booking — never a STATION_<name>_FULL_DAY row. H1
-    # counts the AM side as the canonical pair count and then verifies
-    # the PM side has the same doctors; a mismatch means the pairing
-    # constraint was violated (a solver or assignment bug).
     for d in dates:
         we = is_weekend(d)
         for st in state.stations:
@@ -123,7 +185,6 @@ def validate(state: SessionState, assignments: list[AssignmentRow]) -> list[dict
                         f"{d.isoformat()} {st.name}/FULL_DAY",
                         f"{count}/{st.required_per_session} people assigned.",
                     ))
-                # Pairing check: AM and PM holders must be the same set.
                 if set(am_holders) != set(pm_holders):
                     violations.append(_v(
                         "H1", "error",
@@ -154,8 +215,17 @@ def validate(state: SessionState, assignments: list[AssignmentRow]) -> list[dict
         if len(pm) > 1:
             violations.append(_v("H2", "error", f"{doc} {d.isoformat()}",
                                  f"{len(pm)} PM station assignments (max 1)."))
+        # Mutual exclusion: at most one on-call type per (doctor, day).
+        oncall_types_today = [a for a in acts if a.get("kind") == "oncall"]
+        if len(oncall_types_today) > 1:
+            keys = [a.get("type_key") for a in oncall_types_today]
+            violations.append(_v(
+                "H2", "error", f"{doc} {d.isoformat()}",
+                f"{len(oncall_types_today)} on-call types assigned "
+                f"({sorted(set(keys))}); a doctor may hold at most one per day.",
+            ))
 
-    # ---------- H3 eligibility ----------
+    # ---------- H3 station eligibility ----------
     for (doc, d), acts in by_doc_date.items():
         person = doctors_by_name.get(doc)
         if not person:
@@ -163,129 +233,154 @@ def validate(state: SessionState, assignments: list[AssignmentRow]) -> list[dict
                                  f"Unknown person '{doc}'."))
             continue
         for a in acts:
-            if a.get("kind") != "station":
-                continue
-            sn = str(a.get("station") or "")
-            stat = stations_by_name.get(sn)
-            if not stat:
-                violations.append(_v("H3", "error", f"{doc} {d.isoformat()}",
-                                     f"Unknown station '{sn}'."))
-                continue
-            if sn not in (person.eligible_stations or []):
-                violations.append(_v(
-                    "H3", "error", f"{doc} {d.isoformat()}",
-                    f"{doc} is not listed as eligible for {sn}.",
-                ))
-            # station.eligible_tiers is advisory metadata only — not a hard
-            # rule. Per-doctor `eligible_stations` (above) is the truth.
+            if a.get("kind") == "station":
+                sn = str(a.get("station") or "")
+                stat = stations_by_name.get(sn)
+                if not stat:
+                    violations.append(_v("H3", "error", f"{doc} {d.isoformat()}",
+                                         f"Unknown station '{sn}'."))
+                    continue
+                if sn not in (person.eligible_stations or []):
+                    violations.append(_v(
+                        "H3", "error", f"{doc} {d.isoformat()}",
+                        f"{doc} is not listed as eligible for {sn}.",
+                    ))
+            elif a.get("kind") == "oncall":
+                type_key = str(a.get("type_key") or "")
+                if (person.eligible_oncall_types
+                        and type_key not in person.eligible_oncall_types):
+                    violations.append(_v(
+                        "H3", "error", f"{doc} {d.isoformat()}",
+                        f"{doc} is not listed as eligible for on-call type {type_key}.",
+                    ))
 
-    # ---------- H4 1-in-N on-call cap ----------
-    if state.constraints.h4_enabled:
-        N = state.constraints.h4_gap
-        oncall_by_doc: dict[str, list[date]] = defaultdict(list)
+    # ---------- H4 per-OnCallType 1-in-N cap ----------
+    for t in on_call_types:
+        N = t.frequency_cap_days
+        if N is None or N < 2:
+            continue
+        type_dates_by_doc: dict[str, list[date]] = defaultdict(list)
         for (doc, d), acts in by_doc_date.items():
-            if any(a.get("kind") == "oncall" for a in acts):
-                oncall_by_doc[doc].append(d)
-        for doc, ds in oncall_by_doc.items():
+            for a in acts:
+                if a.get("kind") == "oncall" and a.get("type_key") == t.key:
+                    type_dates_by_doc[doc].append(d)
+        for doc, ds in type_dates_by_doc.items():
             ds_sorted = sorted(ds)
             for i in range(len(ds_sorted) - 1):
                 gap = (ds_sorted[i + 1] - ds_sorted[i]).days
                 if gap < N:
                     violations.append(_v(
                         "H4", "error", doc,
-                        f"On-call on {ds_sorted[i]} and {ds_sorted[i + 1]} — only {gap} day(s) apart (need ≥{N}).",
+                        f"On-call type {t.key} on {ds_sorted[i]} and "
+                        f"{ds_sorted[i + 1]} — only {gap} day(s) apart "
+                        f"(need ≥{N}).",
                     ))
 
-    # ---------- H5 post-call off ----------
+    # ---------- H5 per-OnCallType post-shift rest ----------
     if state.constraints.h5_enabled:
-        for (doc, d), acts in by_doc_date.items():
-            if not any(a.get("kind") == "oncall" for a in acts):
+        for t in on_call_types:
+            if not t.next_day_off:
                 continue
-            nxt = d + timedelta(days=1)
-            if nxt not in date_set:
-                continue
-            next_acts = by_doc_date.get((doc, nxt), [])
-            if next_acts:
-                violations.append(_v(
-                    "H5", "error", f"{doc} {nxt.isoformat()}",
-                    f"{doc} was on-call {d.isoformat()}; should be off the next day but has assignment(s).",
-                ))
+            for (doc, d), acts in by_doc_date.items():
+                if not any(a.get("kind") == "oncall" and a.get("type_key") == t.key
+                           for a in acts):
+                    continue
+                nxt = d + timedelta(days=1)
+                if nxt not in date_set:
+                    continue
+                next_acts = by_doc_date.get((doc, nxt), [])
+                if next_acts:
+                    violations.append(_v(
+                        "H5", "error", f"{doc} {nxt.isoformat()}",
+                        f"{doc} was on-call ({t.key}) {d.isoformat()}; "
+                        f"should be off the next day but has assignment(s).",
+                    ))
 
-    # ---------- H8 weekend coverage ----------
-    if state.constraints.h8_enabled:
-        required_consultants = max(
-            0, int(state.constraints.weekend_consultants_required),
-        )
-        for d in dates:
-            if not is_weekend(d):
+    # ---------- H6/H7 per-OnCallType day-of pattern ----------
+    for t in on_call_types:
+        if not (t.works_full_day or t.works_pm_only):
+            continue
+        for (doc, d), acts in by_doc_date.items():
+            if not any(a.get("kind") == "oncall" and a.get("type_key") == t.key
+                       for a in acts):
                 continue
-            j_oc = j_ext = s_oc = s_ext = 0
-            wc_total = 0
+            am = [a for a in acts if a.get("kind") == "station" and a.get("session") == "AM"]
+            pm = [a for a in acts if a.get("kind") == "station" and a.get("session") == "PM"]
+            if t.works_full_day:
+                if am or pm:
+                    violations.append(_v(
+                        "H6", "error", f"{doc} {d.isoformat()}",
+                        f"{doc} on {t.key} ({t.label or t.key}) must have "
+                        f"no AM/PM (works_full_day=True); got AM={len(am)}, PM={len(pm)}.",
+                    ))
+            elif t.works_pm_only:
+                if am:
+                    violations.append(_v(
+                        "H7", "error", f"{doc} {d.isoformat()}",
+                        f"{doc} on {t.key} must have no AM (works_pm_only); got {len(am)}.",
+                    ))
+                if not is_weekend(d) and len(pm) != 1:
+                    violations.append(_v(
+                        "H7", "error", f"{doc} {d.isoformat()}",
+                        f"{doc} on {t.key} must have exactly 1 PM "
+                        f"(works_pm_only, weekday); got {len(pm)}.",
+                    ))
+
+    # ---------- H8 per-OnCallType daily_required ----------
+    for t in on_call_types:
+        if t.daily_required <= 0:
+            continue
+        for d in dates:
+            if not day_active_for_type(d, t):
+                continue
+            count = 0
             for (doc, dd), acts in by_doc_date.items():
                 if dd != d:
-                    continue
-                person = doctors_by_name.get(doc)
-                if not person:
                     continue
                 for a in acts:
-                    if a.get("kind") == "oncall":
-                        if person.tier == "junior":
-                            j_oc += 1
-                        elif person.tier == "senior":
-                            s_oc += 1
-                    elif a.get("kind") == "ext":
-                        if person.tier == "junior":
-                            j_ext += 1
-                        elif person.tier == "senior":
-                            s_ext += 1
-                    elif a.get("kind") == "wconsult":
-                        if person.tier == "consultant":
-                            wc_total += 1
-            if j_oc != 1:
-                violations.append(_v("H8", "error", d.isoformat(),
-                                     f"{j_oc} junior on-call (need 1)."))
-            if s_oc != 1:
-                violations.append(_v("H8", "error", d.isoformat(),
-                                     f"{s_oc} senior on-call (need 1)."))
-            if j_ext != 1:
-                violations.append(_v("H8", "error", d.isoformat(),
-                                     f"{j_ext} junior EXT (need 1)."))
-            if s_ext != 1:
-                violations.append(_v("H8", "error", d.isoformat(),
-                                     f"{s_ext} senior EXT (need 1)."))
-            if wc_total != required_consultants:
+                    if a.get("kind") == "oncall" and a.get("type_key") == t.key:
+                        count += 1
+            if count != t.daily_required:
                 violations.append(_v(
-                    "H8", "error", d.isoformat(),
-                    f"{wc_total} weekend consultant(s) "
-                    f"(need {required_consultants}).",
+                    "H8", "error", f"{d.isoformat()} {t.key}",
+                    f"{count} doctor(s) on {t.key} (need {t.daily_required}).",
                 ))
 
-    # ---------- Weekday on-call coverage ----------
-    if state.constraints.weekday_oncall_coverage:
-        for d in dates:
-            if is_weekend(d):
+    # ---------- H9 lieu day (per-type, weekend-role types only) ----------
+    if state.constraints.h9_enabled:
+        for t in on_call_types:
+            if not t.counts_as_weekend_role:
                 continue
-            j_oc = s_oc = 0
-            for (doc, dd), acts in by_doc_date.items():
-                if dd != d:
+            if t.works_full_day or t.works_pm_only:
+                continue
+            for (doc, d), acts in by_doc_date.items():
+                if not any(a.get("kind") == "oncall" and a.get("type_key") == t.key
+                           for a in acts):
                     continue
-                person = doctors_by_name.get(doc)
-                if not person:
+                if not is_weekend(d):
                     continue
-                if any(a.get("kind") == "oncall" for a in acts):
-                    if person.tier == "junior":
-                        j_oc += 1
-                    elif person.tier == "senior":
-                        s_oc += 1
-            if j_oc != 1:
+                # Look for a no-work day at Fri-before or Mon-after.
+                fri_before = None
+                mon_after = None
+                for dx in range(1, 8):
+                    cand = d - timedelta(days=dx)
+                    if cand in date_set and cand.weekday() == 4:
+                        fri_before = cand
+                        break
+                for dx in range(1, 8):
+                    cand = d + timedelta(days=dx)
+                    if cand in date_set and cand.weekday() == 0:
+                        mon_after = cand
+                        break
+                candidates = [c for c in (fri_before, mon_after) if c is not None]
+                if not candidates:
+                    continue
+                if any(not by_doc_date.get((doc, c)) for c in candidates):
+                    continue  # got a free day
                 violations.append(_v(
-                    "weekday_oc", "error", d.isoformat(),
-                    f"{j_oc} junior on-call weekday (need 1).",
-                ))
-            if s_oc != 1:
-                violations.append(_v(
-                    "weekday_oc", "error", d.isoformat(),
-                    f"{s_oc} senior on-call weekday (need 1).",
+                    "H9", "error", f"{doc} {d.isoformat()}",
+                    f"{doc} did {t.key} on {d.isoformat()} but has no lieu "
+                    f"day in {[c.isoformat() for c in candidates]}.",
                 ))
 
     # ---------- H10 leave ----------

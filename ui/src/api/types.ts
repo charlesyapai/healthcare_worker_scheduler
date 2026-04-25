@@ -665,7 +665,15 @@ export interface components {
             /** Time Limit S */
             time_limit_s: number;
         };
-        /** ConstraintsConfig */
+        /**
+         * ConstraintsConfig
+         * @description Phase B: most legacy on-call toggles are now per-OnCallType. The
+         *     only global constraint flags that survive are statutory rest
+         *     (`h5_enabled` — master override of every type's `next_day_off`),
+         *     weekend lieu day (`h9_enabled`, applies to types with
+         *     `counts_as_weekend_role=True`), and the idle-weekday penalty
+         *     (`h11_enabled`, soft S5).
+         */
         ConstraintsConfig: {
             /**
              * H11 Enabled
@@ -673,53 +681,20 @@ export interface components {
              */
             h11_enabled: boolean;
             /**
-             * H4 Enabled
-             * @default true
-             */
-            h4_enabled: boolean;
-            /**
-             * H4 Gap
-             * @default 3
-             */
-            h4_gap: number;
-            /**
              * H5 Enabled
              * @default true
              */
             h5_enabled: boolean;
             /**
-             * H6 Enabled
-             * @default true
-             */
-            h6_enabled: boolean;
-            /**
-             * H7 Enabled
-             * @default true
-             */
-            h7_enabled: boolean;
-            /**
-             * H8 Enabled
-             * @default true
-             */
-            h8_enabled: boolean;
-            /**
              * H9 Enabled
              * @default true
              */
             h9_enabled: boolean;
-            /**
-             * Weekday Oncall Coverage
-             * @default true
-             */
-            weekday_oncall_coverage: boolean;
-            /**
-             * Weekend Consultants Required
-             * @default 1
-             */
-            weekend_consultants_required: number;
         };
         /** DoctorEntry */
         DoctorEntry: {
+            /** Eligible Oncall Types */
+            eligible_oncall_types?: string[];
             /** Eligible Stations */
             eligible_stations?: string[];
             /**
@@ -886,6 +861,97 @@ export interface components {
             tier: string;
             /** Weekend Duties */
             weekend_duties: number;
+        };
+        /**
+         * OnCallType
+         * @description User-defined on-call shift type.
+         *
+         *     Replaces the hard-baked `oncall` / `ext` / `wconsult` variable
+         *     families with a single generic family. The solver creates a
+         *     `oc_<key>[d, day]` indicator variable for each (doctor, active-day)
+         *     pair. Constraints apply per-type:
+         *
+         *     * **daily_required** — number of doctors required to fill this
+         *       on-call type each `days_active` day.
+         *     * **next_day_off** — if True, no station/on-call work the day
+         *       after a fill (post-shift rest). Generalises legacy H5.
+         *     * **frequency_cap_days** — sliding 1-in-N cap; None = uncapped.
+         *       Generalises legacy H4.
+         *     * **works_full_day** — if True, the on-call doctor does no
+         *       AM/PM station work that day (legacy H6 senior pattern).
+         *     * **works_pm_only** — if True, the on-call doctor must work the
+         *       PM session that day (legacy H7 junior pattern).
+         *     * **counts_as_weekend_role** — if True, every assignment is bucketed
+         *       as weekend work for fairness (S3). If False, only assignments on
+         *       calendar weekend days count as weekend.
+         *     * **legacy_role_alias** — when set, the emitted role string is the
+         *       alias literal (e.g. `ONCALL`) instead of `ONCALL_<key>`. Used by
+         *       migration so existing scenarios keep producing the same role
+         *       strings post-Phase-B.
+         *
+         *     `start_hour` / `end_hour` are advisory clock-time hints (cosmetic
+         *     until Phase D). Currently used by the UI for display + by the
+         *     fairness bucket if the type spans midnight.
+         */
+        OnCallType: {
+            /**
+             * Counts As Weekend Role
+             * @default false
+             */
+            counts_as_weekend_role: boolean;
+            /**
+             * Daily Required
+             * @default 1
+             */
+            daily_required: number;
+            /** Days Active */
+            days_active?: ("Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun")[];
+            /** Eligible Tiers */
+            eligible_tiers?: ("junior" | "senior" | "consultant")[];
+            /**
+             * End Hour
+             * @default 8
+             */
+            end_hour: number;
+            /**
+             * Frequency Cap Days
+             * @default 3
+             */
+            frequency_cap_days: number | null;
+            /** Key */
+            key: string;
+            /**
+             * Label
+             * @default
+             */
+            label: string;
+            /** Legacy Role Alias */
+            legacy_role_alias?: ("ONCALL" | "WEEKEND_EXT" | "WEEKEND_CONSULT") | null;
+            /**
+             * Next Day Off
+             * @default true
+             */
+            next_day_off: boolean;
+            /**
+             * Post Shift Rest Hours
+             * @default 11
+             */
+            post_shift_rest_hours: number;
+            /**
+             * Start Hour
+             * @default 20
+             */
+            start_hour: number;
+            /**
+             * Works Full Day
+             * @default false
+             */
+            works_full_day: boolean;
+            /**
+             * Works Pm Only
+             * @default false
+             */
+            works_pm_only: boolean;
         };
         /** OverrideEntry */
         OverrideEntry: {
@@ -1200,13 +1266,15 @@ export interface components {
             doctors?: components["schemas"]["DoctorEntry"][];
             horizon?: components["schemas"]["Horizon"];
             hours?: components["schemas"]["Hours"];
+            /** On Call Types */
+            on_call_types?: components["schemas"]["OnCallType"][];
             /** Overrides */
             overrides?: components["schemas"]["OverrideEntry"][];
             /** Role Preferences */
             role_preferences?: components["schemas"]["RolePreferenceEntry"][];
             /**
              * Schema Version
-             * @default 2
+             * @default 3
              */
             schema_version: number;
             shift_labels?: components["schemas"]["ShiftLabels"];

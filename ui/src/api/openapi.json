@@ -326,56 +326,22 @@
         "type": "object"
       },
       "ConstraintsConfig": {
+        "description": "Phase B: most legacy on-call toggles are now per-OnCallType. The\nonly global constraint flags that survive are statutory rest\n(`h5_enabled` \u2014 master override of every type's `next_day_off`),\nweekend lieu day (`h9_enabled`, applies to types with\n`counts_as_weekend_role=True`), and the idle-weekday penalty\n(`h11_enabled`, soft S5).",
         "properties": {
           "h11_enabled": {
             "default": true,
             "title": "H11 Enabled",
             "type": "boolean"
           },
-          "h4_enabled": {
-            "default": true,
-            "title": "H4 Enabled",
-            "type": "boolean"
-          },
-          "h4_gap": {
-            "default": 3,
-            "title": "H4 Gap",
-            "type": "integer"
-          },
           "h5_enabled": {
             "default": true,
             "title": "H5 Enabled",
-            "type": "boolean"
-          },
-          "h6_enabled": {
-            "default": true,
-            "title": "H6 Enabled",
-            "type": "boolean"
-          },
-          "h7_enabled": {
-            "default": true,
-            "title": "H7 Enabled",
-            "type": "boolean"
-          },
-          "h8_enabled": {
-            "default": true,
-            "title": "H8 Enabled",
             "type": "boolean"
           },
           "h9_enabled": {
             "default": true,
             "title": "H9 Enabled",
             "type": "boolean"
-          },
-          "weekday_oncall_coverage": {
-            "default": true,
-            "title": "Weekday Oncall Coverage",
-            "type": "boolean"
-          },
-          "weekend_consultants_required": {
-            "default": 1,
-            "title": "Weekend Consultants Required",
-            "type": "integer"
           }
         },
         "title": "ConstraintsConfig",
@@ -383,6 +349,13 @@
       },
       "DoctorEntry": {
         "properties": {
+          "eligible_oncall_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Eligible Oncall Types",
+            "type": "array"
+          },
           "eligible_stations": {
             "items": {
               "type": "string"
@@ -693,6 +666,127 @@
           "weekend_duties"
         ],
         "title": "HoursPerDoctor",
+        "type": "object"
+      },
+      "OnCallType": {
+        "description": "User-defined on-call shift type.\n\nReplaces the hard-baked `oncall` / `ext` / `wconsult` variable\nfamilies with a single generic family. The solver creates a\n`oc_<key>[d, day]` indicator variable for each (doctor, active-day)\npair. Constraints apply per-type:\n\n* **daily_required** \u2014 number of doctors required to fill this\n  on-call type each `days_active` day.\n* **next_day_off** \u2014 if True, no station/on-call work the day\n  after a fill (post-shift rest). Generalises legacy H5.\n* **frequency_cap_days** \u2014 sliding 1-in-N cap; None = uncapped.\n  Generalises legacy H4.\n* **works_full_day** \u2014 if True, the on-call doctor does no\n  AM/PM station work that day (legacy H6 senior pattern).\n* **works_pm_only** \u2014 if True, the on-call doctor must work the\n  PM session that day (legacy H7 junior pattern).\n* **counts_as_weekend_role** \u2014 if True, every assignment is bucketed\n  as weekend work for fairness (S3). If False, only assignments on\n  calendar weekend days count as weekend.\n* **legacy_role_alias** \u2014 when set, the emitted role string is the\n  alias literal (e.g. `ONCALL`) instead of `ONCALL_<key>`. Used by\n  migration so existing scenarios keep producing the same role\n  strings post-Phase-B.\n\n`start_hour` / `end_hour` are advisory clock-time hints (cosmetic\nuntil Phase D). Currently used by the UI for display + by the\nfairness bucket if the type spans midnight.",
+        "properties": {
+          "counts_as_weekend_role": {
+            "default": false,
+            "title": "Counts As Weekend Role",
+            "type": "boolean"
+          },
+          "daily_required": {
+            "default": 1,
+            "minimum": 0.0,
+            "title": "Daily Required",
+            "type": "integer"
+          },
+          "days_active": {
+            "items": {
+              "enum": [
+                "Mon",
+                "Tue",
+                "Wed",
+                "Thu",
+                "Fri",
+                "Sat",
+                "Sun"
+              ],
+              "type": "string"
+            },
+            "title": "Days Active",
+            "type": "array"
+          },
+          "eligible_tiers": {
+            "items": {
+              "enum": [
+                "junior",
+                "senior",
+                "consultant"
+              ],
+              "type": "string"
+            },
+            "title": "Eligible Tiers",
+            "type": "array"
+          },
+          "end_hour": {
+            "default": 8,
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "End Hour",
+            "type": "integer"
+          },
+          "frequency_cap_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 3,
+            "title": "Frequency Cap Days"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "default": "",
+            "title": "Label",
+            "type": "string"
+          },
+          "legacy_role_alias": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ONCALL",
+                  "WEEKEND_EXT",
+                  "WEEKEND_CONSULT"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legacy Role Alias"
+          },
+          "next_day_off": {
+            "default": true,
+            "title": "Next Day Off",
+            "type": "boolean"
+          },
+          "post_shift_rest_hours": {
+            "default": 11,
+            "minimum": 0.0,
+            "title": "Post Shift Rest Hours",
+            "type": "integer"
+          },
+          "start_hour": {
+            "default": 20,
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Start Hour",
+            "type": "integer"
+          },
+          "works_full_day": {
+            "default": false,
+            "title": "Works Full Day",
+            "type": "boolean"
+          },
+          "works_pm_only": {
+            "default": false,
+            "title": "Works Pm Only",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "OnCallType",
         "type": "object"
       },
       "OverrideEntry": {
@@ -1277,6 +1371,13 @@
           "hours": {
             "$ref": "#/components/schemas/Hours"
           },
+          "on_call_types": {
+            "items": {
+              "$ref": "#/components/schemas/OnCallType"
+            },
+            "title": "On Call Types",
+            "type": "array"
+          },
           "overrides": {
             "items": {
               "$ref": "#/components/schemas/OverrideEntry"
@@ -1292,7 +1393,7 @@
             "type": "array"
           },
           "schema_version": {
-            "default": 2,
+            "default": 3,
             "title": "Schema Version",
             "type": "integer"
           },

@@ -2,6 +2,122 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-27 — Schedule-model revamp Phase B1 (backend on-call rewrite)
+
+**What:** Backend half of Phase B. Replaces the hard-coded `oncall` /
+`ext` / `wconsult` variable families with a single generic
+`oc_vars[type_key]` family driven by user-defined `OnCallType` entries.
+B2 (UI editor + removal of the legacy /setup/constraints toggles) and
+Phase C (variable tier count) are still pending — see
+`docs/SCHEDULE_MODEL_REVAMP.md` §11.10 for the handoff brief.
+
+**Data model.**
+- New `OnCallType` Pydantic model + matching dataclass with fields:
+  `key`, `label`, `start_hour`/`end_hour`, `days_active` (subset of
+  Mon..Sun), `daily_required`, `frequency_cap_days`, `next_day_off`,
+  `post_shift_rest_hours`, `counts_as_weekend_role`, `works_full_day`,
+  `works_pm_only`, `legacy_role_alias`.
+- `Doctor.eligible_oncall_types` (per-doctor eligibility, mirrors
+  `eligible_stations`). Per-doctor only — `OnCallType.eligible_tiers`
+  is advisory metadata, just like `Station.eligible_tiers` after Phase A.
+- `SessionState.on_call_types: list[OnCallType]`. `schema_version` 2 → 3.
+- `ConstraintsConfig` lost `h4_enabled`, `h4_gap`, `h6_enabled`,
+  `h7_enabled`, `h8_enabled`, `weekday_oncall_coverage`,
+  `weekend_consultants_required` — all subsumed by per-type fields.
+  Kept: `h5_enabled` (master next-day-off override), `h9_enabled`
+  (lieu day for weekend-role types), `h11_enabled` (idle-weekday penalty).
+
+**Solver rewrite.**
+- Var creation: per-type `oc_vars[type_key][(doctor, day)]`. Created
+  only on (doctor, day, type) triples where the doctor is type-eligible,
+  the day matches `days_active` (PH-as-weekend handled), and the doctor
+  isn't on leave.
+- H4: per-type frequency cap. Each type's `frequency_cap_days` controls
+  its own 1-in-N cap. None means uncapped. Per-doctor sliding-window
+  constraints.
+- H5: per-type `next_day_off`. The global `cfg.h5_post_call_off_enabled`
+  is a master switch (when False, no post-shift rest fires).
+- H6/H7: per-type `works_full_day` / `works_pm_only` flags carry the
+  legacy senior-no-station and junior-PM-only patterns. Default migration
+  sets them to match.
+- H8: per-type `daily_required`. Sum of vars on each active day equals
+  `daily_required`. Replaces the legacy weekday on-call coverage + per-
+  tier weekend exact-1 rules.
+- Mutual exclusion: at most one on-call type per (doctor, day).
+- H9 lieu: applies to types with `counts_as_weekend_role=True` AND not
+  `works_full_day` / `works_pm_only` (legacy weekend EXT pattern).
+- H14: max_oncalls cap sums across ALL types per doctor.
+- H15: overrides accept `ONCALL_<type_key>` plus legacy literals
+  (resolved via `legacy_role_alias`).
+- S2 / S3: per-tier on-call + weekend balance now span all types.
+- S7 role-prefs: accept `ONCALL_<type_key>` + legacy `ONCALL` /
+  `WEEKEND_EXT` / `WEEKEND_CONSULT`.
+- `SolveResult.assignments` adds canonical `oncall_by_type:
+  {type_key: {(d, day): 1, ...}}`. Legacy aggregate views `oncall` /
+  `ext` / `wconsult` populated from types whose `legacy_role_alias`
+  matches, so downstream consumers (assignments_to_rows, fairness,
+  coverage, baselines, metrics) keep working unchanged.
+
+**Validator parity.** [api/validator.py](../api/validator.py) iterates
+`state.on_call_types` and re-checks each per-type rule. Role-string
+parser handles `ONCALL_<key>`, the legacy three literals, and STATION_
+roles. Mutual exclusion + H9 lieu day are validated post-solve.
+
+**Persistence + migration.**
+- `dump_state` writes the on_call_types list and the slimmer
+  ConstraintsConfig (h5/h9/h11 only). schema_version stamped 3.
+- v2 → v3 migration in `load_state`: synthesises the 5 default on-call
+  types (`oncall_jr`, `oncall_sr`, `weekend_ext_jr`, `weekend_ext_sr`,
+  `weekend_consult`) from the legacy h4/h5/h6/h7/h8 + weekday_oncall
+  + weekend_consultants_required toggles. Each migrated type carries
+  the matching `legacy_role_alias`, so existing scenarios produce
+  identical role strings on first solve.
+- Per-doctor `eligible_oncall_types` populated from tier on first load.
+
+**Plumbing + scenarios.**
+- `api/sessions.py`: drop the legacy ConstraintsConfig wiring; add
+  `_state_to_oncall_dataclasses` to translate Pydantic → dataclass
+  (mapping Mon..Sun strings → 0..6 ints). `assignments_to_rows` emits
+  the legacy literal when a type carries `legacy_role_alias`, otherwise
+  `ONCALL_<key>`. `rows_to_assignments_dict` symmetric.
+- `scheduler/baselines.py`: greedy + random_repair iterate
+  `inst.on_call_types`; greedy uses per-type fields for H4/H5
+  approximations.
+- `scheduler/diagnostics.py`: presolve checks per-type
+  `daily_required` and capacity under leave + frequency cap. L3
+  explainer rebuilds the per-type model with slacks on H1 station
+  coverage + per-type daily_required.
+- `scheduler/metrics.py`: `oncall_type_capacity` per-type summary
+  replaces legacy junior/senior on-call capacity.
+- `api/routes/state.py`: `/api/state/seed` now emits the 5 default
+  types and pre-fills per-doctor `eligible_oncall_types` from tier.
+  Default senior fraction in `default_doctors_df` bumped 0.15 → 0.20
+  so the 20-doctor seed has 4 seniors (3 was infeasible under the
+  per-type H4 1-in-3 cap + H9 lieu day combination).
+- `scripts/build_scenarios.py`: `_apply_preset` synthesises the 5
+  default types from the preset's `weekday_oncall_coverage` flag and
+  pre-fills per-doctor `eligible_oncall_types`. ICU bumped to 5
+  seniors (was 4 — now infeasible under H4+H9 with weekday on-call).
+  All 17 scenarios re-built.
+
+**Validation.**
+- 91 tests pass (`pytest -x -q --ignore=tests/test_stress.py
+  --ignore=tests/test_self_check.py`); 8 self-check tests pass on
+  the 7 covered scenarios. `pnpm build` clean.
+- All 17 scenarios solve via `python scripts/build_scenarios.py`.
+
+**Out of scope for this commit (handoff for next agent).**
+- **B2 (UI):** new `/setup/oncall` route — table editor for on-call
+  types (key, label, days_active chips, daily_required, frequency cap,
+  next_day_off / works_full_day / works_pm_only, legacy_role_alias).
+  Plus removing the placeholder card from `/setup/constraints` once the
+  type editor is live.
+- **Phase C (variable tier count):** Tier as a user-defined entry with
+  classification mapping. Doctor.tier becomes a key reference. Solver
+  iterates `inst.tiers` instead of the literal `("junior", "senior",
+  "consultant")` triple. schema_version 3 → 4.
+- **Phase D (clock-time AM/PM with auto-hours):** unchanged.
+
 ## 2026-04-26 — Schedule-model revamp Phase A
 
 **What:** Foundation pass of the four-phase schedule-model rework

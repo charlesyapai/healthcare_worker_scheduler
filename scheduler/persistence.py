@@ -18,7 +18,7 @@ from typing import Any
 import pandas as pd
 import yaml
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def _df_to_records(df: pd.DataFrame) -> list[dict]:
@@ -93,6 +93,7 @@ def dump_state(ss) -> str:
         "role_preferences": _df_to_records(
             get("role_prefs_df", pd.DataFrame())
         ),
+        "on_call_types": list(get("on_call_types") or []),
         "tier_labels": get("tier_labels") or {
             "junior": "Junior", "senior": "Senior", "consultant": "Consultant",
         },
@@ -132,16 +133,9 @@ def dump_state(ss) -> str:
             "weekend_consult": float(get("h_weekend_consult", 8.0)),
         },
         "constraints": {
-            "h4_enabled": bool(get("h4_enabled", True)),
-            "h4_gap": int(get("h4_gap", 3)),
             "h5_enabled": bool(get("h5_enabled", True)),
-            "h6_enabled": bool(get("h6_enabled", True)),
-            "h7_enabled": bool(get("h7_enabled", True)),
-            "h8_enabled": bool(get("h8_enabled", True)),
             "h9_enabled": bool(get("h9_enabled", True)),
             "h11_enabled": bool(get("h11_enabled", True)),
-            "weekday_oncall_coverage": bool(get("weekday_oncall_coverage", True)),
-            "weekend_consultants_required": int(get("weekend_consultants_required", 1)),
         },
         "solver": {
             "time_limit": int(get("time_limit", 60)),
@@ -153,6 +147,7 @@ def dump_state(ss) -> str:
 
 
 DOCTOR_COLS = ["name", "tier", "eligible_stations",
+               "eligible_oncall_types",
                "prev_workload", "fte", "max_oncalls"]
 STATION_COLS = ["name", "sessions", "required_per_session",
                 "eligible_tiers", "is_reporting",
@@ -160,6 +155,118 @@ STATION_COLS = ["name", "sessions", "required_per_session",
 BLOCK_COLS = ["doctor", "date", "end_date", "type"]
 OVERRIDE_COLS = ["doctor", "date", "role"]
 ROLE_PREF_COLS = ["doctor", "role", "min_allocations", "priority"]
+
+
+def _v2_to_v3_oncall_migration(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build the 5-type default on_call_types from v2's legacy constraint
+    toggles. Mirrors `scheduler.instance.default_on_call_types` exactly so
+    the first solve post-Phase-B reproduces legacy behaviour."""
+    constraints = data.get("constraints") or {}
+    weekday_oncall = bool(constraints.get("weekday_oncall_coverage", True))
+    h8_on = bool(constraints.get("h8_enabled", True))
+    weekend_consultants = int(constraints.get("weekend_consultants_required", 1))
+    h4_gap_raw = constraints.get("h4_gap", 3)
+    try:
+        h4_gap = int(h4_gap_raw)
+    except (TypeError, ValueError):
+        h4_gap = 3
+    h4_enabled = bool(constraints.get("h4_enabled", True))
+    h5_enabled = bool(constraints.get("h5_enabled", True))
+    h6_enabled = bool(constraints.get("h6_enabled", True))
+    h7_enabled = bool(constraints.get("h7_enabled", True))
+
+    night_days: list[str] = []
+    if weekday_oncall:
+        night_days.extend(["Mon", "Tue", "Wed", "Thu", "Fri"])
+    if h8_on:
+        night_days.extend(["Sat", "Sun"])
+    weekend_days = ["Sat", "Sun"] if h8_on else []
+
+    types: list[dict[str, Any]] = []
+    cap = h4_gap if h4_enabled else None
+    if night_days:
+        types.append({
+            "key": "oncall_jr",
+            "label": "Night call (junior)",
+            "start_hour": 20, "end_hour": 8,
+            "days_active": night_days,
+            "eligible_tiers": ["junior"],
+            "daily_required": 1,
+            "post_shift_rest_hours": 11,
+            "next_day_off": h5_enabled,
+            "frequency_cap_days": cap,
+            "counts_as_weekend_role": False,
+            "works_full_day": False,
+            "works_pm_only": h7_enabled,
+            "legacy_role_alias": "ONCALL",
+        })
+        types.append({
+            "key": "oncall_sr",
+            "label": "Night call (senior)",
+            "start_hour": 20, "end_hour": 8,
+            "days_active": night_days,
+            "eligible_tiers": ["senior"],
+            "daily_required": 1,
+            "post_shift_rest_hours": 11,
+            "next_day_off": h5_enabled,
+            "frequency_cap_days": cap,
+            "counts_as_weekend_role": False,
+            "works_full_day": h6_enabled,
+            "works_pm_only": False,
+            "legacy_role_alias": "ONCALL",
+        })
+    if weekend_days:
+        types.append({
+            "key": "weekend_ext_jr",
+            "label": "Weekend extended (junior)",
+            "start_hour": 8, "end_hour": 20,
+            "days_active": weekend_days,
+            "eligible_tiers": ["junior"],
+            "daily_required": 1,
+            "post_shift_rest_hours": 0,
+            "next_day_off": False,
+            "frequency_cap_days": None,
+            "counts_as_weekend_role": True,
+            "works_full_day": False,
+            "works_pm_only": False,
+            "legacy_role_alias": "WEEKEND_EXT",
+        })
+        types.append({
+            "key": "weekend_ext_sr",
+            "label": "Weekend extended (senior)",
+            "start_hour": 8, "end_hour": 20,
+            "days_active": weekend_days,
+            "eligible_tiers": ["senior"],
+            "daily_required": 1,
+            "post_shift_rest_hours": 0,
+            "next_day_off": False,
+            "frequency_cap_days": None,
+            "counts_as_weekend_role": True,
+            "works_full_day": False,
+            "works_pm_only": False,
+            "legacy_role_alias": "WEEKEND_EXT",
+        })
+        if weekend_consultants > 0:
+            types.append({
+                "key": "weekend_consult",
+                "label": "Weekend consultant",
+                "start_hour": 8, "end_hour": 17,
+                "days_active": weekend_days,
+                "eligible_tiers": ["consultant"],
+                "daily_required": int(weekend_consultants),
+                "post_shift_rest_hours": 0,
+                "next_day_off": False,
+                "frequency_cap_days": None,
+                "counts_as_weekend_role": True,
+                "works_full_day": False,
+                "works_pm_only": False,
+                "legacy_role_alias": "WEEKEND_CONSULT",
+            })
+    return types
+
+
+def _eligible_types_for_tier(tier: str, types: list[dict]) -> list[str]:
+    return [t["key"] for t in types if tier in (t.get("eligible_tiers") or [])]
 
 
 def load_state(yaml_text: str) -> dict[str, Any]:
@@ -173,6 +280,10 @@ def load_state(yaml_text: str) -> dict[str, Any]:
         `weekend_enabled` inherits from the legacy
         `constraints.weekend_am_pm` flag once. The legacy flag itself is
         dropped from the returned update dict.
+      * v2 → v3: synthesises the 5 default on_call_types from the legacy
+        h4/h5/h6/h7/h8 + weekday_oncall_coverage + weekend_consultants_required
+        constraint flags, populates each doctor's `eligible_oncall_types`
+        from their tier, and drops the now-redundant constraint flags.
     """
     data = yaml.safe_load(yaml_text) or {}
     out: dict[str, Any] = {}
@@ -190,6 +301,20 @@ def load_state(yaml_text: str) -> dict[str, Any]:
             if isinstance(st, dict):
                 st.setdefault("weekday_enabled", True)
                 st.setdefault("weekend_enabled", legacy_weekend_am_pm)
+
+    # Migrate v2 records: build on_call_types from legacy toggles + derive
+    # per-doctor eligible_oncall_types from tier.
+    if schema_in < 3 and "on_call_types" not in data:
+        types = _v2_to_v3_oncall_migration(data)
+        data["on_call_types"] = types
+        # Populate per-doctor eligible_oncall_types from tier if not present.
+        for d in (data.get("doctors") or []):
+            if not isinstance(d, dict):
+                continue
+            if d.get("eligible_oncall_types"):
+                continue
+            tier = str(d.get("tier", "")).lower()
+            d["eligible_oncall_types"] = _eligible_types_for_tier(tier, types)
 
     horizon = data.get("horizon", {}) or {}
     if horizon.get("start_date"):
@@ -220,6 +345,9 @@ def load_state(yaml_text: str) -> dict[str, Any]:
         out["role_prefs_df"] = _records_to_df(
             data["role_preferences"] or [], ROLE_PREF_COLS,
         )
+
+    if "on_call_types" in data and isinstance(data["on_call_types"], list):
+        out["on_call_types"] = list(data["on_call_types"])
 
     if "tier_labels" in data and isinstance(data["tier_labels"], dict):
         out["tier_labels"] = {
@@ -258,12 +386,9 @@ def load_state(yaml_text: str) -> dict[str, Any]:
             "weekend_ext": "h_weekend_ext", "weekend_consult": "h_weekend_consult",
         }),
         ("constraints", {
-            "h4_enabled": "h4_enabled", "h4_gap": "h4_gap",
-            "h5_enabled": "h5_enabled", "h6_enabled": "h6_enabled",
-            "h7_enabled": "h7_enabled", "h8_enabled": "h8_enabled",
-            "h9_enabled": "h9_enabled", "h11_enabled": "h11_enabled",
-            "weekday_oncall_coverage": "weekday_oncall_coverage",
-            "weekend_consultants_required": "weekend_consultants_required",
+            "h5_enabled": "h5_enabled",
+            "h9_enabled": "h9_enabled",
+            "h11_enabled": "h11_enabled",
         }),
         ("solver", {
             "time_limit": "time_limit", "num_workers": "num_workers",
@@ -321,7 +446,10 @@ def prev_workload_from_roster_json(
             key = f"{'weekend' if is_weekend else 'weekday'}_session"
             # Session-specific weights — AM and PM share a single weight today.
             inc = int(w.get(key, 10))
-        elif role == "ONCALL":
+        elif role == "ONCALL" or role.startswith("ONCALL_"):
+            # Phase B: user-defined on-call types use the weekday/weekend
+            # on-call weights as a fallback (matches `model._oncall_weight`
+            # for types without a legacy alias).
             key = f"{'weekend' if is_weekend else 'weekday'}_oncall"
             inc = int(w.get(key, 20))
         elif role == "WEEKEND_EXT":

@@ -1,4 +1,4 @@
-schema_version: 2
+schema_version: 3
 horizon:
   start_date: '2026-04-27'
   n_days: 7
@@ -7,91 +7,109 @@ doctors:
 - name: Reg1
   tier: junior
   eligible_stations: WARD,CLINIC,ECG_READ
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: Reg2
   tier: junior
   eligible_stations: WARD,CLINIC,ECG_READ
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: Reg3
   tier: junior
   eligible_stations: WARD,CLINIC,ECG_READ
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: Reg4
   tier: junior
   eligible_stations: WARD,CLINIC,ECG_READ
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: Reg5
   tier: junior
   eligible_stations: WARD,CLINIC,ECG_READ
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: Reg6
   tier: junior
   eligible_stations: WARD,CLINIC,ECG_READ
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: Fel1
   tier: senior
   eligible_stations: WARD,CLINIC,ECHO,ECG_READ
+  eligible_oncall_types: oncall_sr,weekend_ext_sr
   prev_workload: 0
   fte: 1.0
 - name: Fel2
   tier: senior
   eligible_stations: WARD,CLINIC,ECHO,ECG_READ
+  eligible_oncall_types: oncall_sr,weekend_ext_sr
   prev_workload: 0
   fte: 1.0
 - name: Fel3
   tier: senior
   eligible_stations: WARD,CLINIC,ECHO,ECG_READ
+  eligible_oncall_types: oncall_sr,weekend_ext_sr
   prev_workload: 0
   fte: 1.0
 - name: Fel4
   tier: senior
   eligible_stations: WARD,CLINIC,ECHO,ECG_READ
+  eligible_oncall_types: oncall_sr,weekend_ext_sr
   prev_workload: 0
   fte: 1.0
 - name: Dr Hart
   tier: consultant
   eligible_stations: CATH_LAB,ECHO,CLINIC,WARD,ECG_READ
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: Dr Stent
   tier: consultant
   eligible_stations: CATH_LAB,ECHO,CLINIC,WARD,ECG_READ
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: Dr Beat
   tier: consultant
   eligible_stations: CATH_LAB,ECHO,CLINIC,WARD,ECG_READ
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: Dr Echo
   tier: consultant
   eligible_stations: CATH_LAB,ECHO,CLINIC,WARD,ECG_READ
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: Dr Arrhy
   tier: consultant
   eligible_stations: CATH_LAB,ECHO,CLINIC,WARD,ECG_READ
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: Dr Pace
   tier: consultant
   eligible_stations: CATH_LAB,ECHO,CLINIC,WARD,ECG_READ
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: Dr Cor
   tier: consultant
   eligible_stations: CATH_LAB,ECHO,CLINIC,WARD,ECG_READ
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: Dr Valve
   tier: consultant
   eligible_stations: CATH_LAB,ECHO,CLINIC,WARD,ECG_READ
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 stations:
@@ -133,6 +151,92 @@ stations:
 blocks: []
 overrides: []
 role_preferences: []
+on_call_types:
+- key: oncall_jr
+  label: Night call (junior)
+  start_hour: 20
+  end_hour: 8
+  days_active:
+  - Sat
+  - Sun
+  eligible_tiers:
+  - junior
+  daily_required: 1
+  post_shift_rest_hours: 11
+  next_day_off: true
+  frequency_cap_days: 3
+  counts_as_weekend_role: false
+  works_full_day: false
+  works_pm_only: true
+  legacy_role_alias: ONCALL
+- key: oncall_sr
+  label: Night call (senior)
+  start_hour: 20
+  end_hour: 8
+  days_active:
+  - Sat
+  - Sun
+  eligible_tiers:
+  - senior
+  daily_required: 1
+  post_shift_rest_hours: 11
+  next_day_off: true
+  frequency_cap_days: 3
+  counts_as_weekend_role: false
+  works_full_day: true
+  works_pm_only: false
+  legacy_role_alias: ONCALL
+- key: weekend_ext_jr
+  label: Weekend extended (junior)
+  start_hour: 8
+  end_hour: 20
+  days_active:
+  - Sat
+  - Sun
+  eligible_tiers:
+  - junior
+  daily_required: 1
+  post_shift_rest_hours: 11
+  next_day_off: false
+  frequency_cap_days: null
+  counts_as_weekend_role: true
+  works_full_day: false
+  works_pm_only: false
+  legacy_role_alias: WEEKEND_EXT
+- key: weekend_ext_sr
+  label: Weekend extended (senior)
+  start_hour: 8
+  end_hour: 20
+  days_active:
+  - Sat
+  - Sun
+  eligible_tiers:
+  - senior
+  daily_required: 1
+  post_shift_rest_hours: 11
+  next_day_off: false
+  frequency_cap_days: null
+  counts_as_weekend_role: true
+  works_full_day: false
+  works_pm_only: false
+  legacy_role_alias: WEEKEND_EXT
+- key: weekend_consult
+  label: Weekend consultant
+  start_hour: 8
+  end_hour: 17
+  days_active:
+  - Sat
+  - Sun
+  eligible_tiers:
+  - consultant
+  daily_required: 1
+  post_shift_rest_hours: 11
+  next_day_off: false
+  frequency_cap_days: null
+  counts_as_weekend_role: true
+  works_full_day: false
+  works_pm_only: false
+  legacy_role_alias: WEEKEND_CONSULT
 tier_labels:
   junior: Junior
   senior: Senior
@@ -169,16 +273,9 @@ hours:
   weekend_ext: 12.0
   weekend_consult: 8.0
 constraints:
-  h4_enabled: true
-  h4_gap: 3
   h5_enabled: true
-  h6_enabled: true
-  h7_enabled: true
-  h8_enabled: true
   h9_enabled: true
   h11_enabled: true
-  weekday_oncall_coverage: true
-  weekend_consultants_required: 1
 solver:
   time_limit: 30
   num_workers: 8

@@ -74,18 +74,39 @@ def problem_metrics(inst: Instance) -> dict[str, Any]:
 
     slack_min = round(min(slack_by_day.values()), 3) if slack_by_day else None
 
-    # Oncall capacity under 1-in-3 cap, ignoring leave.
-    oncall_cap_per_doc_max = (inst.n_days + 2) // 3   # ceil(n_days/3)
-    oncall_required_junior = inst.n_days              # 1/night over horizon
-    oncall_required_senior = inst.n_days
-    avail_oncall_junior = tier_counts["junior"] * oncall_cap_per_doc_max
-    avail_oncall_senior = tier_counts["senior"] * oncall_cap_per_doc_max
+    # Phase B: per-on-call-type capacity summary replaces the single
+    # junior/senior on-call capacity numbers.
+    oncall_type_capacity: dict[str, dict[str, int]] = {}
+    for t in inst.on_call_types:
+        if t.daily_required <= 0:
+            continue
+        active_days = sum(
+            1 for day in range(inst.n_days)
+            if (inst.weekday_of(day) in t.days_active
+                or (day in inst.public_holidays
+                    and (5 in t.days_active or 6 in t.days_active)))
+        )
+        N = t.frequency_cap_days or 0
+        cap = 0
+        for d in inst.doctors:
+            if t.key not in d.eligible_oncall_types:
+                continue
+            avail = inst.n_days - len(inst.leave.get(d.id, set()))
+            if N >= 2:
+                cap += max(0, (avail + N - 1) // N)
+            else:
+                cap += avail
+        oncall_type_capacity[t.key] = {
+            "available": cap,
+            "required": active_days * t.daily_required,
+        }
 
     return {
         "n_doctors": n,
         "n_days": inst.n_days,
         "tier_counts": dict(tier_counts),
         "n_stations": len(inst.stations),
+        "n_on_call_types": len(inst.on_call_types),
         "weekend_days": weekend_days,
         "weekday_days": weekday_days,
         "public_holidays": sorted(inst.public_holidays),
@@ -94,13 +115,7 @@ def problem_metrics(inst: Instance) -> dict[str, Any]:
         "eligibility_density": eligibility,
         "coverage_slack_min": slack_min,
         "coverage_slack_by_day": slack_by_day,
-        "oncall_capacity": {
-            "junior_available": avail_oncall_junior,
-            "junior_required":  oncall_required_junior,
-            "senior_available": avail_oncall_senior,
-            "senior_required":  oncall_required_senior,
-        },
-        "weekend_consultants_required": int(inst.weekend_consultants_required),
+        "oncall_type_capacity": oncall_type_capacity,
     }
 
 

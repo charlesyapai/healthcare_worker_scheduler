@@ -17,6 +17,9 @@ TIERS = ("junior", "senior", "consultant")
 # working — FULL_DAY is a UX shorthand for "book both halves of the day".
 SESSIONS = ("AM", "PM")
 FULL_DAY = "FULL_DAY"
+# Calendar-day labels for OnCallType.days_active. Indices match Python's
+# date.weekday() convention (Mon=0 .. Sun=6).
+WEEKDAY_NAMES: tuple[str, ...] = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
 @dataclass(frozen=True)
@@ -34,11 +37,43 @@ class Station:
     weekend_enabled: bool = False
 
 
+@dataclass(frozen=True)
+class OnCallType:
+    """Solver-side mirror of the Pydantic `OnCallType` model.
+
+    Generic on-call shift type. Replaces the hard-coded `oncall` /
+    `ext` / `wconsult` variable families: the solver creates a
+    `oc_<key>[d, day]` indicator var for every (doctor, active-day)
+    pair and applies per-type constraints (daily_required,
+    next_day_off, frequency_cap, works_full_day, works_pm_only).
+    """
+
+    key: str
+    label: str = ""
+    start_hour: int = 20
+    end_hour: int = 8
+    days_active: frozenset[int] = field(default_factory=lambda: frozenset(range(7)))
+    eligible_tiers: frozenset[str] = field(default_factory=frozenset)
+    daily_required: int = 1
+    post_shift_rest_hours: int = 11
+    next_day_off: bool = True
+    frequency_cap_days: int | None = 3
+    counts_as_weekend_role: bool = False
+    works_full_day: bool = False
+    works_pm_only: bool = False
+    legacy_role_alias: str | None = None
+
+
 @dataclass
 class Doctor:
     id: int
     tier: str
     eligible_stations: frozenset[str]
+    # Per-doctor on-call eligibility, keyed by OnCallType.key. Empty means
+    # the doctor is not eligible for any on-call type. Phase B: the only
+    # enforced eligibility (advisory `OnCallType.eligible_tiers` is a UI
+    # hint, mirroring Phase A's tier/station decoupling).
+    eligible_oncall_types: frozenset[str] = field(default_factory=frozenset)
     # FTE = full-time equivalent, 0.0–1.0. 0.5 means the doctor is half-time
     # and should carry roughly half the workload of a full-timer.
     fte: float = 1.0
@@ -56,9 +91,9 @@ class Instance:
     leave: dict[int, set[int]] = field(default_factory=dict)
     public_holidays: set[int] = field(default_factory=set)
     prev_oncall: set[int] = field(default_factory=set)
-    # H8 weekend consultant headcount. Replaces the old "1 consultant per
-    # subspec" rule with a flat configurable count.
-    weekend_consultants_required: int = 1
+    # User-defined on-call shift types. Drives every on-call-related
+    # solver variable family + constraint after Phase B.
+    on_call_types: list[OnCallType] = field(default_factory=list)
     # Prior-period carry-in: weighted workload score each doctor brought into
     # this horizon. The solver adds this to its own weighted workload when
     # balancing fairness (higher = did more last period → gets less this one).
@@ -73,15 +108,17 @@ class Instance:
     prefer_session: dict[int, dict[int, set[str]]] = field(default_factory=dict)
     # Per-doctor role preferences: "Dr A wants ≥ N allocations of role X
     # this period". Role is either a station name (sums AM + PM hits on
-    # that station) or one of the literal non-station roles
-    # (ONCALL, WEEKEND_EXT, WEEKEND_CONSULT). Stored as
+    # that station), one of the legacy non-station roles
+    # (ONCALL, WEEKEND_EXT, WEEKEND_CONSULT — back-compat), or any
+    # user-defined OnCallType key. Stored as
     # {doctor_id: {role: (min_allocations, priority)}}. The solver emits
     # a soft shortfall penalty per unmet preference (see model.py S7).
     role_preferences: dict[int, dict[str, tuple[int, int]]] = field(
         default_factory=dict)
     # Manual overrides: force a specific assignment. Treated as hard constraints.
     # Each item is (doctor_id, day, station_name_or_None, session_or_None, role)
-    # where role is one of "STATION" / "ONCALL" / "EXT" / "WCONSULT".
+    # where role is one of "STATION" / "ONCALL_<type_key>" (post-Phase-B) or
+    # the legacy three "ONCALL" / "EXT" / "WCONSULT" (mapped on parse).
     overrides: list[tuple[int, int, str | None, str | None, str]] = field(
         default_factory=list)
 
@@ -108,6 +145,126 @@ DEFAULT_STATIONS: tuple[Station, ...] = (
     Station("GEN_AM", ("AM",), 1, frozenset({"junior", "senior", "consultant"})),
     Station("GEN_PM", ("PM",), 1, frozenset({"junior", "senior", "consultant"})),
 )
+
+ALL_DAYS: frozenset[int] = frozenset(range(7))
+WEEKEND_DAYS: frozenset[int] = frozenset({5, 6})
+
+
+def default_on_call_types(
+    *,
+    weekday_oncall: bool = True,
+    weekend_h8: bool = True,
+    weekend_consultants_required: int = 1,
+    h4_gap: int = 3,
+    h5_post_call_off: bool = True,
+    h6_senior_full_day: bool = True,
+    h7_junior_pm: bool = True,
+) -> list[OnCallType]:
+    """Five-type on-call configuration that mirrors the legacy
+    `oncall`/`ext`/`wconsult` variable families exactly.
+
+    Used by both the v2→v3 migration (`scheduler.persistence.load_state`)
+    and the synthetic generator below. Splitting night-call into a
+    junior-only and senior-only type preserves the legacy
+    "1 junior + 1 senior on-call per night" behaviour — a single
+    `night_full` with `daily_required=2` would lose that.
+    """
+    types: list[OnCallType] = []
+    night_days_idx: set[int] = set()
+    if weekday_oncall:
+        night_days_idx.update({0, 1, 2, 3, 4})
+    if weekend_h8:
+        night_days_idx.update({5, 6})
+    night_days = frozenset(night_days_idx)
+    weekend_days = WEEKEND_DAYS if weekend_h8 else frozenset()
+
+    if night_days:
+        types.append(OnCallType(
+            key="oncall_jr",
+            label="Night call (junior)",
+            start_hour=20,
+            end_hour=8,
+            days_active=night_days,
+            eligible_tiers=frozenset({"junior"}),
+            daily_required=1,
+            post_shift_rest_hours=11,
+            next_day_off=h5_post_call_off,
+            frequency_cap_days=h4_gap,
+            counts_as_weekend_role=False,
+            works_full_day=False,
+            works_pm_only=h7_junior_pm,
+            legacy_role_alias="ONCALL",
+        ))
+        types.append(OnCallType(
+            key="oncall_sr",
+            label="Night call (senior)",
+            start_hour=20,
+            end_hour=8,
+            days_active=night_days,
+            eligible_tiers=frozenset({"senior"}),
+            daily_required=1,
+            post_shift_rest_hours=11,
+            next_day_off=h5_post_call_off,
+            frequency_cap_days=h4_gap,
+            counts_as_weekend_role=False,
+            works_full_day=h6_senior_full_day,
+            works_pm_only=False,
+            legacy_role_alias="ONCALL",
+        ))
+    if weekend_days:
+        types.append(OnCallType(
+            key="weekend_ext_jr",
+            label="Weekend extended (junior)",
+            start_hour=8,
+            end_hour=20,
+            days_active=weekend_days,
+            eligible_tiers=frozenset({"junior"}),
+            daily_required=1,
+            post_shift_rest_hours=0,
+            next_day_off=False,
+            frequency_cap_days=None,
+            counts_as_weekend_role=True,
+            legacy_role_alias="WEEKEND_EXT",
+        ))
+        types.append(OnCallType(
+            key="weekend_ext_sr",
+            label="Weekend extended (senior)",
+            start_hour=8,
+            end_hour=20,
+            days_active=weekend_days,
+            eligible_tiers=frozenset({"senior"}),
+            daily_required=1,
+            post_shift_rest_hours=0,
+            next_day_off=False,
+            frequency_cap_days=None,
+            counts_as_weekend_role=True,
+            legacy_role_alias="WEEKEND_EXT",
+        ))
+        if weekend_consultants_required > 0:
+            types.append(OnCallType(
+                key="weekend_consult",
+                label="Weekend consultant",
+                start_hour=8,
+                end_hour=17,
+                days_active=weekend_days,
+                eligible_tiers=frozenset({"consultant"}),
+                daily_required=int(weekend_consultants_required),
+                post_shift_rest_hours=0,
+                next_day_off=False,
+                frequency_cap_days=None,
+                counts_as_weekend_role=True,
+                legacy_role_alias="WEEKEND_CONSULT",
+            ))
+    return types
+
+
+def eligible_types_for_tier(
+    tier: str, types: list[OnCallType]
+) -> frozenset[str]:
+    """Map a tier string to the set of OnCallType keys whose advisory
+    `eligible_tiers` includes that tier. Used by `make_synthetic` and
+    the v2→v3 migration to populate `Doctor.eligible_oncall_types`."""
+    return frozenset(t.key for t in types if tier in t.eligible_tiers)
 
 
 def _tier_split(n: int) -> tuple[int, int, int]:
@@ -149,19 +306,31 @@ def make_synthetic(
     rng = random.Random(seed)
     n_j, n_s, n_c = _tier_split(n_doctors)
 
+    # Synth defaults match the legacy `ConstraintConfig` shape:
+    # weekday on-call OFF (weekday nights need explicit opt-in), H8
+    # weekend coverage ON. Tests that need weekday on-call set the
+    # synth's `inst.on_call_types` explicitly.
+    on_call_types = default_on_call_types(weekday_oncall=False)
+    elig_jr = eligible_types_for_tier("junior", on_call_types)
+    elig_sr = eligible_types_for_tier("senior", on_call_types)
+    elig_co = eligible_types_for_tier("consultant", on_call_types)
+
     doctors: list[Doctor] = []
     did = 0
     for _ in range(n_j):
         doctors.append(Doctor(did, "junior",
-                              _eligible_for_tier("junior", stations, rng)))
+                              _eligible_for_tier("junior", stations, rng),
+                              eligible_oncall_types=elig_jr))
         did += 1
     for _ in range(n_s):
         doctors.append(Doctor(did, "senior",
-                              _eligible_for_tier("senior", stations, rng)))
+                              _eligible_for_tier("senior", stations, rng),
+                              eligible_oncall_types=elig_sr))
         did += 1
     for _ in range(n_c):
         doctors.append(Doctor(did, "consultant",
-                              _eligible_for_tier("consultant", stations, rng)))
+                              _eligible_for_tier("consultant", stations, rng),
+                              eligible_oncall_types=elig_co))
         did += 1
 
     leave: dict[int, set[int]] = {}
@@ -176,6 +345,7 @@ def make_synthetic(
         doctors=doctors,
         stations=list(stations),
         leave=leave,
+        on_call_types=on_call_types,
     )
 
 

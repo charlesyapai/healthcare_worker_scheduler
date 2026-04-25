@@ -107,20 +107,30 @@ branch to HF main.
 ### What's in flight (active forward plan)
 
 **Read [`docs/SCHEDULE_MODEL_REVAMP.md`](SCHEDULE_MODEL_REVAMP.md)
-end-to-end before starting any solver / model work.** The revamp
-is a four-phase rework that:
+end-to-end before starting any solver / model work.** §11.10 is the
+live handoff brief for the next agent.
 
-1. **Phase A** — decouples tier from station eligibility, drops
-   the consultant-only sub-spec system, adds per-station weekend
-   toggles, fixes the backspace-cursor bug. (Foundation, atomic.)
-2. **Phase B** — replaces hard-coded `oncall` / `ext` / `wconsult`
-   variable families with user-defined `OnCallType`s (clock-time,
-   eligibility, post-shift rules per type).
-3. **Phase C** — variable tier count with classification mapping.
-4. **Phase D** — clock-time AM/PM with auto-computed hours.
+1. **Phase A — DONE (2026-04-26).** Decoupled tier from station
+   eligibility, dropped subspec, per-station weekend toggles,
+   `<NumberInput>` primitive. Schema 1 → 2.
+2. **Phase B1 — DONE (2026-04-27).** Backend on-call rewrite. The
+   solver now drives every on-call constraint off user-defined
+   `OnCallType` entries; H4/H6/H7/H8/weekday_oncall_coverage/
+   weekend_consultants_required are all per-type fields. Schema 2 → 3.
+   Migration creates 5 default types (`oncall_jr`, `oncall_sr`,
+   `weekend_ext_jr`, `weekend_ext_sr`, `weekend_consult`) so existing
+   scenarios keep producing identical role strings.
+3. **Phase B2 — TODO.** UI editor at `/setup/oncall` for on-call
+   types + per-doctor `eligible_oncall_types` chip group on the
+   Doctors page. Removes the placeholder card from
+   `/setup/constraints`. See revamp doc §11.10.
+4. **Phase C — TODO.** Variable tier count: replace the literal
+   `("junior", "senior", "consultant")` triple with a user-defined
+   `Tier` list (key + classification). Schema 3 → 4.
+5. **Phase D — TODO.** Clock-time AM/PM with auto-computed hours.
 
-All four phases bump `schema_version` (currently 1, will be 5 by
-Phase D). Loaders accept any older version and migrate forward.
+Current `schema_version`: **3**. Loaders accept any older version
+and migrate forward; saves always write the current version.
 
 ### What was once on the roadmap and is no longer
 
@@ -259,24 +269,30 @@ Phase D). Loaders accept any older version and migrate forward.
   `docs/`, then force-pushes to HF main. Canonical history
   lives on GitHub.
 
-## 7. Decisions that are CHANGING in the active revamp
+## 7. Decisions that have CHANGED across the active revamp
 
-These were "decisions made so far" historically, but Phase A of
-the revamp is rewriting them. **If you're working in this window,
-verify which side of Phase A you're on:**
+State of play after Phase B1 (commit on `react-ui`, 2026-04-27):
 
-- **3 hard-coded tiers (junior / senior / consultant).** Stays in
-  Phase A. Phase C makes this user-defined.
+- **3 hard-coded tiers (junior / senior / consultant).** **Still
+  hard-coded.** Phase C makes this user-defined (next phase).
 - **`station.eligible_tiers` is a hard rule.** **Removed in Phase
-  A.** Becomes advisory metadata; only `doctor.eligible_stations`
-  drives solver eligibility.
+  A.** Now advisory metadata; only `doctor.eligible_stations` drives
+  solver eligibility.
 - **`Doctor.subspec` exists; H8 needs 1 consultant per subspec.**
-  **Removed in Phase A.** Replaced by a configurable consultant
-  count.
+  **Removed in Phase A.** Originally replaced by a configurable
+  consultant count; now (Phase B1) lives as `daily_required` on the
+  `weekend_consult` on-call type.
 - **Single global `weekend_am_pm` toggle.** **Removed in Phase A.**
-  Per-station `weekday_enabled` / `weekend_enabled` flags take over.
+  Per-station `weekday_enabled` / `weekend_enabled` flags took over.
 - **Hard-coded on-call / ext / wconsult variable families.**
-  **Removed in Phase B.** User-defined `OnCallType`s replace them.
+  **Removed in Phase B1.** Generic `OnCallType` family driven by
+  `Instance.on_call_types`. Legacy role strings preserved via
+  `legacy_role_alias` field on each migrated type.
+- **`ConstraintsConfig` H4/H6/H7/H8/weekday_oncall_coverage/
+  weekend_consultants_required toggles.** **Removed in Phase B1.**
+  All per-OnCallType now. Survivors on ConstraintsConfig: `h5_enabled`
+  (master next-day-off override), `h9_enabled` (lieu day for
+  weekend-role types), `h11_enabled` (idle-weekday penalty).
 
 ## 8. Known risks + watch-items
 

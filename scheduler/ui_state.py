@@ -19,6 +19,7 @@ from scheduler.instance import (
     DEFAULT_STATIONS,
     Doctor,
     Instance,
+    OnCallType,
     Station,
 )
 
@@ -37,7 +38,12 @@ def default_doctors_df(n: int = 20, seed: int = 0) -> pd.DataFrame:
     import random
     rng = random.Random(seed)
     n_j = max(4, int(round(n * 0.35)))
-    n_s = max(3, int(round(n * 0.15)))
+    # Phase B seed bump: 0.20 senior fraction (was 0.15) so the default
+    # 20-doctor seed has 4 seniors, enough to cover weekday + weekend
+    # on-call (oncall_sr daily_required=1 every day) under H4 1-in-3 +
+    # H9 weekend lieu day. With 3 seniors, the 21-day pattern is
+    # over-constrained.
+    n_s = max(3, int(round(n * 0.20)))
     n_c = max(6, n - n_j - n_s)
     total = n_j + n_s + n_c
     if total != n:
@@ -132,7 +138,7 @@ def build_instance(
     block_entries: Iterable[tuple[str, date, date | None, str]] = (),
     override_entries: Iterable[tuple[str, date, str]] = (),
     role_preference_entries: Iterable[tuple[str, str, int, int]] = (),
-    weekend_consultants_required: int = 1,
+    on_call_types: Iterable[OnCallType] = (),
 ) -> Instance:
     """Assemble an Instance from editable tables.
 
@@ -224,6 +230,16 @@ def build_instance(
         if not elig:
             raise BuildError(
                 f"Doctor {name}: eligible_stations is empty — pick at least one.")
+        # Phase B: per-doctor on-call eligibility. CSV string from
+        # `session_to_v1_dict` or list of strings either way.
+        oncall_raw = row.get("eligible_oncall_types", "")
+        if isinstance(oncall_raw, list):
+            elig_oc = frozenset(str(x).strip() for x in oncall_raw if str(x).strip())
+        else:
+            elig_oc_str = str(oncall_raw).strip()
+            elig_oc = frozenset(
+                s.strip() for s in elig_oc_str.split(",") if s.strip()
+            )
 
         # FTE (0.0–1.0) and max_oncalls (optional int).
         try:
@@ -242,6 +258,7 @@ def build_instance(
 
         new_id = len(doctors)
         doctors.append(Doctor(new_id, tier, elig,
+                              eligible_oncall_types=elig_oc,
                               fte=fte, max_oncalls=max_oncalls))
         name_to_id[name] = new_id
         try:
@@ -346,6 +363,11 @@ def build_instance(
             if sess not in ("AM", "PM"):
                 raise BuildError(f"Override for {name}: session must be AM or PM.")
             overrides.append((did, idx, st_match, sess, "STATION"))
+        elif r.startswith("ONCALL_"):
+            # Phase B: per-OnCallType override. The role string carries the
+            # type's key verbatim. The solver maps this to the matching
+            # `oc_vars[type_key]` variable.
+            overrides.append((did, idx, None, None, r))
         elif r in ("ONCALL", "OC"):
             overrides.append((did, idx, None, None, "ONCALL"))
         elif r in ("EXT", "WEEKEND_EXT", "EXTENDED"):
@@ -355,11 +377,13 @@ def build_instance(
         else:
             raise BuildError(
                 f"Override for {name}: unknown role '{role}'. Use one of: "
-                "STATION_<name>_AM, STATION_<name>_PM, ONCALL, EXT, WCONSULT.")
+                "STATION_<name>_AM, STATION_<name>_PM, ONCALL_<type_key>, "
+                "ONCALL (legacy), EXT, WCONSULT.")
 
     # Role preferences: (doctor_name, role, min_allocations, priority).
     # Role is either a station name (case-insensitive match against the
-    # station set) or one of the non-station role literals.
+    # station set), one of the legacy non-station literals, or any
+    # `ONCALL_<type_key>` for a Phase B user-defined on-call type.
     role_preferences: dict[int, dict[str, tuple[int, int]]] = {}
     non_station_roles = {"ONCALL", "WEEKEND_EXT", "WEEKEND_CONSULT"}
     for entry in role_preference_entries or ():
@@ -391,11 +415,14 @@ def build_instance(
             resolved_role = st_match
         elif role_clean.upper() in non_station_roles:
             resolved_role = role_clean.upper()
+        elif role_clean.upper().startswith("ONCALL_"):
+            # Phase B: ONCALL_<type_key> resolves to a per-OnCallType target.
+            resolved_role = role_clean.upper()
         else:
             raise BuildError(
                 f"Role preference for {name}: unknown role '{role_clean}'. "
-                f"Use a station name or one of ONCALL / WEEKEND_EXT / "
-                f"WEEKEND_CONSULT."
+                f"Use a station name, ONCALL_<type_key>, or one of "
+                f"ONCALL / WEEKEND_EXT / WEEKEND_CONSULT."
             )
         try:
             m = max(0, int(min_alloc))
@@ -429,7 +456,7 @@ def build_instance(
         leave=leave,
         public_holidays=ph_idx,
         prev_oncall=prev_oncall_ids,
-        weekend_consultants_required=int(weekend_consultants_required),
+        on_call_types=list(on_call_types),
         prev_workload=prev_workload_map,
         no_oncall=no_oncall,
         no_session=no_session,

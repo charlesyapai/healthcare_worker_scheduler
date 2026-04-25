@@ -80,14 +80,12 @@ def test_senior_assignable_to_junior_only_station() -> None:
             ),
         ],
     )
+    # Phase B: per-type on-call rules replace the legacy global flags.
+    # The fixture has no on_call_types, so H4/H5/H6/H7/H8 are all no-ops
+    # — only H11/H9/H5 master toggles remain on ConstraintConfig.
     cfg2 = ConstraintConfig(
         h11_mandatory_weekday_enabled=False,
-        h8_weekend_coverage_enabled=False,  # 1-day horizon, no weekend role infra
-        h7_junior_oncall_pm_enabled=False,
-        weekday_oncall_coverage_enabled=False,
-        h6_senior_oncall_full_off_enabled=False,
         h5_post_call_off_enabled=False,
-        h4_oncall_cap_enabled=False,
     )
     res2 = solve(inst_only_senior, time_limit_s=5, num_workers=1,
                  feasibility_only=True, constraints=cfg2)

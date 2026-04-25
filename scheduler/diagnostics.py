@@ -53,6 +53,15 @@ class InfeasibilityReport:
 
 # --------------------------------------------------------------- L1: pre-solve
 
+def _day_active_for_type(day: int, t, inst: Instance) -> bool:
+    wd = inst.weekday_of(day)
+    if wd in t.days_active:
+        return True
+    if day in inst.public_holidays and (5 in t.days_active or 6 in t.days_active):
+        return True
+    return False
+
+
 def presolve_feasibility(inst: Instance) -> list[FeasibilityIssue]:
     """Fast necessary-condition checks. Non-exhaustive but catches ~80% of
     real-world infeasibility with specific, actionable error messages."""
@@ -62,28 +71,22 @@ def presolve_feasibility(inst: Instance) -> list[FeasibilityIssue]:
         tier_counts[d.tier] += 1
 
     weekend_days = [t for t in range(inst.n_days) if inst.is_weekend(t)]
-    consultants_required = max(0, int(inst.weekend_consultants_required))
 
-    # Check 1: minimum tier counts.
-    if weekend_days:
-        if tier_counts["junior"] < 1:
+    # Check 1: per-OnCallType eligibility — at least one eligible doctor
+    # must exist for every type with daily_required > 0.
+    for t in inst.on_call_types:
+        if t.daily_required <= 0:
+            continue
+        eligible_pool = sum(
+            1 for d in inst.doctors if t.key in d.eligible_oncall_types
+        )
+        if eligible_pool < t.daily_required:
             issues.append(FeasibilityIssue(
-                "error", "no_juniors",
-                "Weekend days require junior on-call and junior extended duty, "
-                "but there are no junior doctors in the instance.",
-                {"weekend_days": weekend_days}))
-        if tier_counts["senior"] < 1:
-            issues.append(FeasibilityIssue(
-                "error", "no_seniors",
-                "Weekend days require senior on-call and senior extended duty, "
-                "but there are no senior doctors."))
-        if consultants_required > 0 and tier_counts["consultant"] < consultants_required:
-            issues.append(FeasibilityIssue(
-                "error", "no_weekend_consultants",
-                f"Weekend coverage needs {consultants_required} consultant(s), "
-                f"but only {tier_counts['consultant']} are present.",
-                {"required": consultants_required,
-                 "available": tier_counts["consultant"]}))
+                "error", "oncall_type_unstaffable",
+                f"On-call type '{t.key}': only {eligible_pool} eligible "
+                f"doctor(s), but {t.daily_required} required per active day.",
+                {"type": t.key, "available": eligible_pool,
+                 "required": t.daily_required}))
 
     # Check 2: per-day per-station eligibility (per-doctor only).
     # For each day, each station-session, count eligible doctors not on leave.
@@ -112,45 +115,40 @@ def presolve_feasibility(inst: Instance) -> list[FeasibilityIssue]:
                         {"day": day, "station": st.name, "session": sess,
                          "required": st.required_per_session, "available": eligible}))
 
-    # Check 3: weekend-consultant headcount per weekend day.
-    if consultants_required > 0:
-        for day in weekend_days:
-            available = sum(1 for d in inst.doctors
-                            if d.tier == "consultant"
-                            and day not in inst.leave.get(d.id, set()))
-            if available < consultants_required:
-                issues.append(FeasibilityIssue(
-                    "error", "weekend_consultants_short",
-                    f"Day {day} (weekend): {available} consultant(s) available "
-                    f"but {consultants_required} required.",
-                    {"day": day, "available": available,
-                     "required": consultants_required}))
-
-    # Check 4: on-call capacity under 1-in-3 cap.
-    # Per doctor max oncall-days ~= ceil(avail_days / 3) where avail_days =
-    # n_days minus leave days for that doctor.
-    for tier in ("junior", "senior"):
+    # Check 3: per-OnCallType per-day staffability under leave + frequency cap.
+    for t in inst.on_call_types:
+        if t.daily_required <= 0:
+            continue
+        active_days = [d for d in range(inst.n_days)
+                       if _day_active_for_type(d, t, inst)]
+        if not active_days:
+            continue
+        # Capacity per eligible doctor under H4 cap and leave: avail_days / N
+        # (where N = frequency_cap_days; uncapped → avail_days).
+        N = t.frequency_cap_days or 0
         total_cap = 0
         for d in inst.doctors:
-            if d.tier != tier:
+            if t.key not in d.eligible_oncall_types:
                 continue
-            avail = inst.n_days - len(inst.leave.get(d.id, set()))
-            total_cap += max(0, (avail + 2) // 3)
-        required = inst.n_days  # 1 oncall per night
+            avail = sum(1 for day in active_days
+                        if day not in inst.leave.get(d.id, set()))
+            if N >= 2:
+                total_cap += max(0, (avail + N - 1) // N)
+            else:
+                total_cap += avail
+        required = len(active_days) * t.daily_required
         if total_cap < required:
             issues.append(FeasibilityIssue(
-                "error", "oncall_capacity",
-                f"{tier.capitalize()} on-call capacity: {total_cap} doctor-days "
-                f"available (under 1-in-3 cap) vs {required} required over "
-                f"{inst.n_days}-day horizon.",
-                {"tier": tier, "available": total_cap, "required": required}))
+                "error", "oncall_type_capacity",
+                f"On-call type '{t.key}': {total_cap} doctor-day(s) "
+                f"available (under H4 cap {N or '∞'}) vs {required} required.",
+                {"type": t.key, "available": total_cap, "required": required}))
         elif total_cap < required * 1.25:
             issues.append(FeasibilityIssue(
-                "warning", "oncall_capacity_tight",
-                f"{tier.capitalize()} on-call capacity is tight "
-                f"({total_cap} available vs {required} required). "
-                f"Leave or eligibility changes could push this infeasible.",
-                {"tier": tier, "available": total_cap, "required": required}))
+                "warning", "oncall_type_capacity_tight",
+                f"On-call type '{t.key}' capacity is tight "
+                f"({total_cap} available vs {required} required).",
+                {"type": t.key, "available": total_cap, "required": required}))
 
     # Check 5: coverage slack per day. Counts only stations enabled on the
     # day's kind (weekday vs weekend) — disabled stations contribute no demand.
@@ -219,35 +217,23 @@ def explain_infeasibility(inst: Instance, *, time_limit_s: float = 30.0,
                     assign[(d.id, day, st_name, sess)] = v
                     assign_by_dday[(d.id, day)].append(v)
 
-    oncall: dict[tuple[int, int], cp_model.IntVar] = {}
-    for d in inst.doctors:
-        if d.tier == "consultant":
-            continue
-        leave_days = inst.leave.get(d.id, set())
-        for day in range(inst.n_days):
-            if day in leave_days:
+    # Phase B: generic per-OnCallType vars (mirroring the primary model).
+    oc_vars: dict[str, dict[tuple[int, int], cp_model.IntVar]] = {
+        t.key: {} for t in inst.on_call_types
+    }
+    for t in inst.on_call_types:
+        for d in inst.doctors:
+            if t.key not in d.eligible_oncall_types:
                 continue
-            oncall[(d.id, day)] = model.NewBoolVar(f"oc_{d.id}_{day}")
-
-    ext: dict[tuple[int, int], cp_model.IntVar] = {}
-    for d in inst.doctors:
-        if d.tier == "consultant":
-            continue
-        leave_days = inst.leave.get(d.id, set())
-        for day in range(inst.n_days):
-            if not inst.is_weekend(day) or day in leave_days:
-                continue
-            ext[(d.id, day)] = model.NewBoolVar(f"ext_{d.id}_{day}")
-
-    wconsult: dict[tuple[int, int], cp_model.IntVar] = {}
-    for d in inst.doctors:
-        if d.tier != "consultant":
-            continue
-        leave_days = inst.leave.get(d.id, set())
-        for day in range(inst.n_days):
-            if not inst.is_weekend(day) or day in leave_days:
-                continue
-            wconsult[(d.id, day)] = model.NewBoolVar(f"wc_{d.id}_{day}")
+            leave_days = inst.leave.get(d.id, set())
+            for day in range(inst.n_days):
+                if day in leave_days:
+                    continue
+                if not _day_active_for_type(day, t, inst):
+                    continue
+                oc_vars[t.key][(d.id, day)] = model.NewBoolVar(
+                    f"oc_{t.key}_{d.id}_{day}"
+                )
 
     # Slack variables — each constraint we relax gets slack_up + slack_down.
     slacks: list[tuple[str, str, cp_model.IntVar]] = []
@@ -273,7 +259,6 @@ def explain_infeasibility(inst: Instance, *, time_limit_s: float = 30.0,
                 lhs = sum(vars_for) if vars_for else 0
                 model.Add(lhs + up - dn == st.required_per_session)
                 loc = f"day {day} {st.name}/{sess}"
-                # lhs + up - dn == req  ⇒  up compensates under-coverage, dn over.
                 slacks.append(("H1_coverage_under", loc, up))
                 slacks.append(("H1_coverage_over",  loc, dn))
 
@@ -289,94 +274,79 @@ def explain_infeasibility(inst: Instance, *, time_limit_s: float = 30.0,
                 if vars_for:
                     model.Add(sum(vars_for) <= 1)
 
-    # H4 oncall 1-in-3 — keep hard (relaxing creates noise).
-    for d in inst.doctors:
-        if d.tier == "consultant":
+    # H4 per-OnCallType frequency cap — keep hard.
+    for t in inst.on_call_types:
+        N = t.frequency_cap_days
+        if N is None or N < 2:
             continue
-        for start in range(inst.n_days - 2):
-            window = [oncall[(d.id, day)]
-                      for day in range(start, start + 3)
-                      if (d.id, day) in oncall]
-            if len(window) >= 2:
-                model.Add(sum(window) <= 1)
-
-    # H5 post-call off — keep hard.
-    for d in inst.doctors:
-        if d.tier == "consultant":
-            continue
-        for day in range(inst.n_days - 1):
-            if (d.id, day) not in oncall:
+        type_vars = oc_vars[t.key]
+        for d in inst.doctors:
+            if t.key not in d.eligible_oncall_types:
                 continue
-            oc = oncall[(d.id, day)]
-            for v in list(assign_by_dday.get((d.id, day + 1), [])):
+            for start in range(inst.n_days - (N - 1)):
+                window = [type_vars[(d.id, day)]
+                          for day in range(start, start + N)
+                          if (d.id, day) in type_vars]
+                if len(window) >= 2:
+                    model.Add(sum(window) <= 1)
+
+    # H5 post-call (per-type next_day_off) — keep hard.
+    for t in inst.on_call_types:
+        if not t.next_day_off:
+            continue
+        for (did, day), oc in oc_vars[t.key].items():
+            if day + 1 >= inst.n_days:
+                continue
+            for v in list(assign_by_dday.get((did, day + 1), [])):
                 model.AddImplication(oc, v.Not())
-            if (d.id, day + 1) in oncall:
-                model.AddImplication(oc, oncall[(d.id, day + 1)].Not())
-            if (d.id, day + 1) in ext:
-                model.AddImplication(oc, ext[(d.id, day + 1)].Not())
-            if (d.id, day + 1) in wconsult:
-                model.AddImplication(oc, wconsult[(d.id, day + 1)].Not())
+            for other in inst.on_call_types:
+                ov = oc_vars[other.key].get((did, day + 1))
+                if ov is not None:
+                    model.AddImplication(oc, ov.Not())
 
-    # H6 / H7 oncall-day AM/PM pattern — keep hard.
-    for d in inst.doctors:
-        if d.tier == "consultant":
+    # H6 / H7 per-type day-of pattern — keep hard.
+    for t in inst.on_call_types:
+        if not (t.works_full_day or t.works_pm_only):
             continue
-        for day in range(inst.n_days):
-            if (d.id, day) not in oncall:
-                continue
-            oc = oncall[(d.id, day)]
-            am_vars = [assign[(d.id, day, st.name, "AM")] for st in inst.stations
-                       if (d.id, day, st.name, "AM") in assign]
-            pm_vars = [assign[(d.id, day, st.name, "PM")] for st in inst.stations
-                       if (d.id, day, st.name, "PM") in assign]
-            if d.tier == "senior":
+        for (did, day), oc in oc_vars[t.key].items():
+            am_vars = [assign[(did, day, st.name, "AM")] for st in inst.stations
+                       if (did, day, st.name, "AM") in assign]
+            pm_vars = [assign[(did, day, st.name, "PM")] for st in inst.stations
+                       if (did, day, st.name, "PM") in assign]
+            if t.works_full_day:
                 if am_vars: model.Add(sum(am_vars) == 0).OnlyEnforceIf(oc)
                 if pm_vars: model.Add(sum(pm_vars) == 0).OnlyEnforceIf(oc)
-            else:
+            elif t.works_pm_only:
                 if am_vars: model.Add(sum(am_vars) == 0).OnlyEnforceIf(oc)
                 if pm_vars and not inst.is_weekend(day):
                     model.Add(sum(pm_vars) == 1).OnlyEnforceIf(oc)
 
-    # H8 weekend coverage — relaxed with slack.
-    for day in range(inst.n_days):
-        if not inst.is_weekend(day):
+    # Per-type daily_required — relaxed with slack.
+    for t in inst.on_call_types:
+        if t.daily_required <= 0:
             continue
-        for label, tier, var_map in (
-            ("H8_jr_ext",    "junior",    ext),
-            ("H8_sr_ext",    "senior",    ext),
-            ("H8_jr_oncall", "junior",    oncall),
-            ("H8_sr_oncall", "senior",    oncall),
-        ):
-            vars_for = [var_map[(d.id, day)] for d in inst.doctors
-                        if d.tier == tier and (d.id, day) in var_map]
-            up = model.NewIntVar(0, 10, f"sl_up_{label}_{day}")
-            dn = model.NewIntVar(0, 10, f"sl_dn_{label}_{day}")
-            lhs = sum(vars_for) if vars_for else 0
-            model.Add(lhs + up - dn == 1)
-            loc = f"day {day} {label}"
-            slacks.append((f"{label}_under", loc, up))
-            slacks.append((f"{label}_over",  loc, dn))
-        consultants_required = max(0, int(inst.weekend_consultants_required))
-        if consultants_required > 0:
-            vars_for = [wconsult[(d.id, day)] for d in inst.doctors
-                        if d.tier == "consultant" and (d.id, day) in wconsult]
-            up = model.NewIntVar(0, 10, f"sl_up_H8_wc_{day}")
-            dn = model.NewIntVar(0, 10, f"sl_dn_H8_wc_{day}")
-            lhs = sum(vars_for) if vars_for else 0
-            model.Add(lhs + up - dn == consultants_required)
-            loc = f"day {day} weekend consultants"
-            slacks.append(("H8_wconsult_under", loc, up))
-            slacks.append(("H8_wconsult_over",  loc, dn))
-
-        # one-role-per-doctor cap on weekend days.
-        for d in inst.doctors:
-            if d.tier == "consultant":
+        for day in range(inst.n_days):
+            if not _day_active_for_type(day, t, inst):
                 continue
-            roles = []
-            if (d.id, day) in ext: roles.append(ext[(d.id, day)])
-            if (d.id, day) in oncall: roles.append(oncall[(d.id, day)])
-            if len(roles) >= 2:
-                model.Add(sum(roles) <= 1)
+            day_vars = [v for (_did, dd), v in oc_vars[t.key].items() if dd == day]
+            up = model.NewIntVar(0, max(1, len(inst.doctors)),
+                                 f"sl_up_{t.key}_{day}")
+            dn = model.NewIntVar(0, max(1, len(inst.doctors)),
+                                 f"sl_dn_{t.key}_{day}")
+            lhs = sum(day_vars) if day_vars else 0
+            model.Add(lhs + up - dn == t.daily_required)
+            loc = f"day {day} oncall_type={t.key}"
+            slacks.append((f"oncall_{t.key}_under", loc, up))
+            slacks.append((f"oncall_{t.key}_over",  loc, dn))
+
+    # Mutual exclusion: at most one on-call type per (doctor, day).
+    by_dday: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
+    for type_map in oc_vars.values():
+        for key, v in type_map.items():
+            by_dday[key].append(v)
+    for vars_ in by_dday.values():
+        if len(vars_) >= 2:
+            model.Add(sum(vars_) <= 1)
 
     # Objective: minimize total slack.
     model.Minimize(sum(v for _, _, v in slacks))
@@ -429,6 +399,10 @@ def _explain(code: str, loc: str, amount: int) -> str:
         return f"{loc}: {amount} short — needed {amount} more eligible doctor(s)."
     if code == "H1_coverage_over":
         return f"{loc}: {amount} over — unable to reduce headcount below requirement."
+    if code.startswith("oncall_") and code.endswith("_under"):
+        return f"{loc}: {amount} short — type couldn't reach `daily_required`."
+    if code.startswith("oncall_") and code.endswith("_over"):
+        return f"{loc}: {amount} over — too many doctors on this type."
     if code.startswith("H8_") and code.endswith("_under"):
         return f"{loc}: 1 short — required weekend role could not be filled."
     if code.startswith("H8_") and code.endswith("_over"):

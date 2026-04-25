@@ -50,11 +50,11 @@ def test_patch_merges_partial(client) -> None:
     client.post("/api/state/seed")
     r = client.patch("/api/state",
                      json={"horizon": {"n_days": 30},
-                           "constraints": {"h4_gap": 4}})
+                           "constraints": {"h11_enabled": False}})
     assert r.status_code == 200, r.text
     state = r.json()
     assert state["horizon"]["n_days"] == 30
-    assert state["constraints"]["h4_gap"] == 4
+    assert state["constraints"]["h11_enabled"] is False
     # Other fields preserved.
     assert len(state["doctors"]) == 20
 

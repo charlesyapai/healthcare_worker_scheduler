@@ -17,9 +17,9 @@
       "4 stations",
       "7-day horizon"
     ],
-    "solve_status": "OPTIMAL",
-    "solve_time_s": 1.14,
-    "difficulty": "easy"
+    "solve_status": "FEASIBLE",
+    "solve_time_s": 30.01,
+    "difficulty": "hard"
   },
   {
     "id": "radiology_small",
@@ -40,7 +40,7 @@
       "7-day horizon"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.0,
+    "solve_time_s": 30.01,
     "difficulty": "hard"
   },
   {
@@ -63,7 +63,7 @@
       "7-day horizon"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.01,
+    "solve_time_s": 30.04,
     "difficulty": "hard"
   },
   {
@@ -100,16 +100,16 @@
       "max_oncalls"
     ],
     "preset": "day_night_12h",
-    "n_doctors": 16,
+    "n_doctors": 17,
     "n_stations": 4,
     "n_days": 14,
     "highlights": [
-      "16 doctors (6/4/6)",
+      "17 doctors (6/5/6)",
       "4 stations",
       "14-day horizon"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.01,
+    "solve_time_s": 30.03,
     "difficulty": "hard"
   },
   {
@@ -154,7 +154,7 @@
       "14-day horizon"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.01,
+    "solve_time_s": 30.04,
     "difficulty": "hard"
   },
   {
@@ -177,7 +177,7 @@
       "7-day horizon"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.01,
+    "solve_time_s": 30.0,
     "difficulty": "hard"
   },
   {
@@ -225,7 +225,7 @@
       "4 leave / block entries"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.01,
+    "solve_time_s": 30.02,
     "difficulty": "hard"
   },
   {
@@ -366,9 +366,9 @@
       "6 stations",
       "28-day horizon"
     ],
-    "solve_status": "OPTIMAL",
-    "solve_time_s": 21.11,
-    "difficulty": "easy"
+    "solve_status": "FEASIBLE",
+    "solve_time_s": 30.01,
+    "difficulty": "hard"
   },
   {
     "id": "stress_dense_leave",

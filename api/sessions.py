@@ -41,9 +41,13 @@ from api.models.session import (
     SessionState,
     StationEntry,
 )
-from scheduler.instance import Instance
+from scheduler.instance import Instance, OnCallType
 from scheduler.model import ConstraintConfig, SolveResult, Weights, WorkloadWeights
 from scheduler.ui_state import build_instance
+
+WEEKDAY_NAME_TO_INT = {
+    "Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 6,
+}
 
 SESSION_COOKIE = "session_id"
 SESSION_HEADER = "x-session-id"
@@ -121,6 +125,7 @@ def session_to_v1_dict(state: SessionState) -> dict[str, Any]:
             "name": d.name,
             "tier": d.tier,
             "eligible_stations": ",".join(d.eligible_stations),
+            "eligible_oncall_types": ",".join(d.eligible_oncall_types),
             "prev_workload": d.prev_workload,
             "fte": d.fte,
             "max_oncalls": d.max_oncalls,
@@ -175,6 +180,7 @@ def session_to_v1_dict(state: SessionState) -> dict[str, Any]:
         "blocks_df": blocks_df,
         "overrides_df": overrides_df,
         "role_prefs_df": role_prefs_df,
+        "on_call_types": [t.model_dump() for t in state.on_call_types],
         "tier_labels": state.tier_labels.model_dump(),
         "shift_labels": state.shift_labels.model_dump(),
         # Flat soft weights — keys match what dump_state reads.
@@ -202,16 +208,9 @@ def session_to_v1_dict(state: SessionState) -> dict[str, Any]:
         "h_weekend_ext": state.hours.weekend_ext,
         "h_weekend_consult": state.hours.weekend_consult,
         # Constraints.
-        "h4_enabled": state.constraints.h4_enabled,
-        "h4_gap": state.constraints.h4_gap,
         "h5_enabled": state.constraints.h5_enabled,
-        "h6_enabled": state.constraints.h6_enabled,
-        "h7_enabled": state.constraints.h7_enabled,
-        "h8_enabled": state.constraints.h8_enabled,
         "h9_enabled": state.constraints.h9_enabled,
         "h11_enabled": state.constraints.h11_enabled,
-        "weekday_oncall_coverage": state.constraints.weekday_oncall_coverage,
-        "weekend_consultants_required": state.constraints.weekend_consultants_required,
         # Solver.
         "time_limit": state.solver.time_limit,
         "num_workers": state.solver.num_workers,
@@ -244,8 +243,16 @@ def v1_dict_to_session(update: dict[str, Any], base: SessionState | None = None)
         for _, row in df.iterrows():
             rec: dict = {}
             for col, val in row.items():
-                if pd.isna(val):
+                # `pd.isna` on a list/array raises "truth value ambiguous";
+                # only consult it for scalars. Lists pass through verbatim.
+                if isinstance(val, list):
+                    rec[col] = val
                     continue
+                try:
+                    if pd.isna(val):
+                        continue
+                except (TypeError, ValueError):
+                    pass
                 if isinstance(val, date):
                     rec[col] = val.isoformat()
                 else:
@@ -254,7 +261,16 @@ def v1_dict_to_session(update: dict[str, Any], base: SessionState | None = None)
         return rows
 
     if "doctors_df" in update:
-        data["doctors"] = _df_rows("doctors_df")
+        rows = _df_rows("doctors_df")
+        # eligible_oncall_types may arrive as a CSV string from
+        # `session_to_v1_dict`. Normalise to a list before Pydantic sees it.
+        for r in rows:
+            v = r.get("eligible_oncall_types")
+            if isinstance(v, str):
+                r["eligible_oncall_types"] = [
+                    s.strip() for s in v.split(",") if s.strip()
+                ]
+        data["doctors"] = rows
     if "stations_df" in update:
         data["stations"] = _df_rows("stations_df")
     if "blocks_df" in update:
@@ -263,6 +279,8 @@ def v1_dict_to_session(update: dict[str, Any], base: SessionState | None = None)
         data["overrides"] = _df_rows("overrides_df")
     if "role_prefs_df" in update:
         data["role_preferences"] = _df_rows("role_prefs_df")
+    if "on_call_types" in update and isinstance(update["on_call_types"], list):
+        data["on_call_types"] = list(update["on_call_types"])
     if "tier_labels" in update and isinstance(update["tier_labels"], dict):
         data["tier_labels"].update(update["tier_labels"])
     if "shift_labels" in update and isinstance(update["shift_labels"], dict):
@@ -290,16 +308,9 @@ def v1_dict_to_session(update: dict[str, Any], base: SessionState | None = None)
         "h_weekend_oncall": ("hours", "weekend_oncall"),
         "h_weekend_ext": ("hours", "weekend_ext"),
         "h_weekend_consult": ("hours", "weekend_consult"),
-        "h4_enabled": ("constraints", "h4_enabled"),
-        "h4_gap": ("constraints", "h4_gap"),
         "h5_enabled": ("constraints", "h5_enabled"),
-        "h6_enabled": ("constraints", "h6_enabled"),
-        "h7_enabled": ("constraints", "h7_enabled"),
-        "h8_enabled": ("constraints", "h8_enabled"),
         "h9_enabled": ("constraints", "h9_enabled"),
         "h11_enabled": ("constraints", "h11_enabled"),
-        "weekday_oncall_coverage": ("constraints", "weekday_oncall_coverage"),
-        "weekend_consultants_required": ("constraints", "weekend_consultants_required"),
         "time_limit": ("solver", "time_limit"),
         "num_workers": ("solver", "num_workers"),
         "feasibility_only": ("solver", "feasibility_only"),
@@ -321,6 +332,36 @@ _BLOCK_TYPE_ALIAS = {
 }
 
 
+def _state_to_oncall_dataclasses(state: SessionState) -> list[OnCallType]:
+    """Translate the Pydantic OnCallType list to the solver-side dataclass
+    list, mapping `days_active` from weekday names ("Mon".."Sun") to int
+    indices (0..6) and freezing list fields."""
+    out: list[OnCallType] = []
+    for t in state.on_call_types:
+        days_idx = frozenset(
+            WEEKDAY_NAME_TO_INT[d]
+            for d in t.days_active
+            if d in WEEKDAY_NAME_TO_INT
+        )
+        out.append(OnCallType(
+            key=t.key,
+            label=t.label,
+            start_hour=t.start_hour,
+            end_hour=t.end_hour,
+            days_active=days_idx,
+            eligible_tiers=frozenset(t.eligible_tiers),
+            daily_required=t.daily_required,
+            post_shift_rest_hours=t.post_shift_rest_hours,
+            next_day_off=t.next_day_off,
+            frequency_cap_days=t.frequency_cap_days,
+            counts_as_weekend_role=t.counts_as_weekend_role,
+            works_full_day=t.works_full_day,
+            works_pm_only=t.works_pm_only,
+            legacy_role_alias=t.legacy_role_alias,
+        ))
+    return out
+
+
 def session_to_instance(state: SessionState) -> Instance:
     """Build a solver `Instance` from the current session state.
 
@@ -340,6 +381,7 @@ def session_to_instance(state: SessionState) -> Instance:
         (p.doctor, p.role, p.min_allocations, p.priority)
         for p in state.role_preferences
     ]
+    on_call_types = _state_to_oncall_dataclasses(state)
     return build_instance(
         start_date=state.horizon.start_date,
         n_days=state.horizon.n_days,
@@ -349,7 +391,7 @@ def session_to_instance(state: SessionState) -> Instance:
         block_entries=block_entries,
         override_entries=override_entries,
         role_preference_entries=role_preference_entries,
-        weekend_consultants_required=state.constraints.weekend_consultants_required,
+        on_call_types=on_call_types,
     )
 
 
@@ -375,15 +417,9 @@ def session_to_solver_configs(
         weekend_consult=state.workload_weights.weekend_consult,
     )
     cfg = ConstraintConfig(
-        h4_oncall_cap_enabled=state.constraints.h4_enabled,
-        h4_oncall_gap_days=state.constraints.h4_gap,
         h5_post_call_off_enabled=state.constraints.h5_enabled,
-        h6_senior_oncall_full_off_enabled=state.constraints.h6_enabled,
-        h7_junior_oncall_pm_enabled=state.constraints.h7_enabled,
-        h8_weekend_coverage_enabled=state.constraints.h8_enabled,
         h9_lieu_day_enabled=state.constraints.h9_enabled,
         h11_mandatory_weekday_enabled=state.constraints.h11_enabled,
-        weekday_oncall_coverage_enabled=state.constraints.weekday_oncall_coverage,
     )
     return weights, wl, cfg
 
@@ -399,14 +435,20 @@ def assignments_to_rows(
 ) -> list[AssignmentRow]:
     """Flatten a SolveResult.assignments dict into a list of AssignmentRow.
 
-    `assignments` is the solver's {"stations": {(d,day,st,sess): 1, ...},
-    "oncall": {(d,day): 1, ...}, "ext": ..., "wconsult": ...}.
+    Phase B: canonical key is `oncall_by_type` (dict[type_key, dict[(d,day),
+    1]]). Each on-call type emits either its `legacy_role_alias` literal
+    (`ONCALL` / `WEEKEND_EXT` / `WEEKEND_CONSULT`) when set, or the
+    explicit `ONCALL_<type_key>` form for user-defined types. Legacy
+    top-level keys (`oncall` / `ext` / `wconsult`) are ignored when
+    `oncall_by_type` is present; they only act as a fallback for callers
+    that haven't been updated yet.
     """
     if not assignments or state.horizon.start_date is None:
         return []
     names = _doctor_name_map(state)
     start = state.horizon.start_date
     rows: list[AssignmentRow] = []
+
     for (did, day, station, sess), v in (assignments.get("stations") or {}).items():
         if not v:
             continue
@@ -415,30 +457,48 @@ def assignments_to_rows(
             date=start + timedelta(days=day),
             role=f"STATION_{station}_{sess}",
         ))
-    for (did, day), v in (assignments.get("oncall") or {}).items():
-        if not v:
-            continue
-        rows.append(AssignmentRow(
-            doctor=names.get(did, f"#{did}"),
-            date=start + timedelta(days=day),
-            role="ONCALL",
-        ))
-    for (did, day), v in (assignments.get("ext") or {}).items():
-        if not v:
-            continue
-        rows.append(AssignmentRow(
-            doctor=names.get(did, f"#{did}"),
-            date=start + timedelta(days=day),
-            role="WEEKEND_EXT",
-        ))
-    for (did, day), v in (assignments.get("wconsult") or {}).items():
-        if not v:
-            continue
-        rows.append(AssignmentRow(
-            doctor=names.get(did, f"#{did}"),
-            date=start + timedelta(days=day),
-            role="WEEKEND_CONSULT",
-        ))
+
+    types_by_key = {t.key: t for t in state.on_call_types}
+    obt = assignments.get("oncall_by_type")
+    if obt is not None:
+        for type_key, var_map in obt.items():
+            t = types_by_key.get(type_key)
+            role_str = (t.legacy_role_alias if (t and t.legacy_role_alias)
+                        else f"ONCALL_{type_key}")
+            for (did, day), v in var_map.items():
+                if not v:
+                    continue
+                rows.append(AssignmentRow(
+                    doctor=names.get(did, f"#{did}"),
+                    date=start + timedelta(days=day),
+                    role=role_str,
+                ))
+    else:
+        # Fallback: caller passed the legacy aggregate views only.
+        for (did, day), v in (assignments.get("oncall") or {}).items():
+            if not v:
+                continue
+            rows.append(AssignmentRow(
+                doctor=names.get(did, f"#{did}"),
+                date=start + timedelta(days=day),
+                role="ONCALL",
+            ))
+        for (did, day), v in (assignments.get("ext") or {}).items():
+            if not v:
+                continue
+            rows.append(AssignmentRow(
+                doctor=names.get(did, f"#{did}"),
+                date=start + timedelta(days=day),
+                role="WEEKEND_EXT",
+            ))
+        for (did, day), v in (assignments.get("wconsult") or {}).items():
+            if not v:
+                continue
+            rows.append(AssignmentRow(
+                doctor=names.get(did, f"#{did}"),
+                date=start + timedelta(days=day),
+                role="WEEKEND_CONSULT",
+            ))
     rows.sort(key=lambda r: (r.date, r.role, r.doctor))
     return rows
 
@@ -449,12 +509,41 @@ def rows_to_assignments_dict(
 ) -> dict[str, dict]:
     """Inverse of assignments_to_rows — convert list[AssignmentRow] back to
     the tuple-keyed shape the solver uses internally. Used for warm-start
-    hints on Continue solving."""
+    hints on Continue solving.
+
+    Phase B: emits the canonical `oncall_by_type` dict (keyed by type_key)
+    plus the legacy back-compat `oncall` / `ext` / `wconsult` aggregates so
+    older warm-start consumers keep working.
+    """
     if state.horizon.start_date is None:
         return {}
     name_to_id: dict[str, int] = {d.name: i for i, d in enumerate(state.doctors)}
     start = state.horizon.start_date
-    out: dict[str, dict] = {"stations": {}, "oncall": {}, "ext": {}, "wconsult": {}}
+    types_by_key = {t.key: t for t in state.on_call_types}
+    types_by_alias: dict[str, list[str]] = {}
+    for t in state.on_call_types:
+        if t.legacy_role_alias:
+            types_by_alias.setdefault(t.legacy_role_alias, []).append(t.key)
+    doctors_by_name = {d.name: d for d in state.doctors}
+
+    def _resolve_legacy(doc_name: str, alias: str) -> str | None:
+        person = doctors_by_name.get(doc_name)
+        if not person:
+            return None
+        candidates = [
+            k for k in types_by_alias.get(alias, [])
+            if not person.eligible_oncall_types
+            or k in person.eligible_oncall_types
+        ]
+        return candidates[0] if candidates else None
+
+    out: dict[str, dict] = {
+        "stations": {},
+        "oncall_by_type": {t.key: {} for t in state.on_call_types},
+        "oncall": {},
+        "ext": {},
+        "wconsult": {},
+    }
     for r in rows:
         did = name_to_id.get(r.doctor)
         if did is None:
@@ -472,11 +561,28 @@ def rows_to_assignments_dict(
             if sess not in ("AM", "PM"):
                 continue
             out["stations"][(did, day, station, sess)] = 1
-        elif role == "ONCALL":
+            continue
+        if role.startswith("ONCALL_"):
+            type_key = role[len("ONCALL_"):]
+            if type_key in types_by_key:
+                out["oncall_by_type"].setdefault(type_key, {})[(did, day)] = 1
+            continue
+        alias = {
+            "ONCALL": "ONCALL",
+            "EXT": "WEEKEND_EXT", "WEEKEND_EXT": "WEEKEND_EXT",
+            "WCONSULT": "WEEKEND_CONSULT", "WEEKEND_CONSULT": "WEEKEND_CONSULT",
+        }.get(role)
+        if alias is None:
+            continue
+        type_key = _resolve_legacy(r.doctor, alias)
+        if type_key:
+            out["oncall_by_type"].setdefault(type_key, {})[(did, day)] = 1
+        # Populate legacy aggregate views for back-compat consumers.
+        if alias == "ONCALL":
             out["oncall"][(did, day)] = 1
-        elif role in ("WEEKEND_EXT", "EXT"):
+        elif alias == "WEEKEND_EXT":
             out["ext"][(did, day)] = 1
-        elif role in ("WEEKEND_CONSULT", "WCONSULT"):
+        elif alias == "WEEKEND_CONSULT":
             out["wconsult"][(did, day)] = 1
     return out
 
@@ -485,7 +591,8 @@ def rows_to_assignments_dict(
 # `api.validator.validate` — any rule the validator can report must appear
 # here so the self-check shows it as passed when the solver respects it.
 _VALIDATOR_RULES = (
-    "H1", "H2", "H3", "H4", "H5", "H8", "H10", "H12", "H13", "weekday_oc",
+    "H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9",
+    "H10", "H12", "H13",
 )
 
 

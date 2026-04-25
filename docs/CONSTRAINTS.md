@@ -1,9 +1,11 @@
 # Scheduling Constraints — Single Source of Truth
 
-Status: **v0.6** — Phase A revamp landed (subspec system removed, tier
-no longer locks station eligibility, per-station weekday/weekend toggles,
-configurable weekend-consultant count).
-Last updated: 2026-04-26.
+Status: **v0.7** — Phase B1 landed (on-call shift types are now
+user-defined; H4/H6/H7/H8/weekday_oncall_coverage replaced by per-type
+fields). Phase B2 (UI editor for /setup/oncall) and Phase C (variable
+tier count) still pending — see `docs/SCHEDULE_MODEL_REVAMP.md` §11.10
+for the handoff brief.
+Last updated: 2026-04-27.
 
 This document is the authoritative specification for the CP-SAT model. If the
 model and this doc disagree, this doc is wrong — file a changelog entry and
@@ -14,11 +16,11 @@ update it.
 | Concept | Definition |
 |---|---|
 | Horizon | 28–31 consecutive days. Day 0 is a known weekday (Mon=0 … Sun=6). |
-| Doctor tier | `junior`, `senior`, `consultant`. Each doctor has exactly one tier. |
-| Station | Named workstation (e.g. `CT`, `MR`, `US`, `XR_REPORT`, `IR`, `FLUORO`, `GEN_AM`, `GEN_PM`). Each station has a session mask (AM, PM, or FULL_DAY), a required headcount per active session, and per-station `weekday_enabled` / `weekend_enabled` flags. |
-| Session | `AM`, `PM`, `NIGHT`, `FULL_DAY` (paired AM+PM encoding). |
-| On-call roles | `JUNIOR_ONCALL`, `SENIOR_ONCALL` (both attend at night; see H6/H7 for their day-side patterns). |
-| Weekend-only roles | `JUNIOR_EXTENDED`, `SENIOR_EXTENDED`, `CONSULT_WEEKEND` (configurable headcount via `weekend_consultants_required`, default 1). |
+| Doctor tier | `junior`, `senior`, `consultant` — still hard-coded in Phase B; Phase C makes this user-defined. |
+| Station | Named workstation. Each station has a session mask (AM, PM, or FULL_DAY), a required headcount per active session, advisory `eligible_tiers`, and per-station `weekday_enabled` / `weekend_enabled` flags. |
+| Session | `AM`, `PM`, `FULL_DAY` (paired AM+PM encoding). |
+| **OnCallType** | User-defined on-call shift. Fields: `key`, `label`, `start_hour` / `end_hour`, `days_active` (subset of Mon..Sun), `daily_required` (headcount per active day), `frequency_cap_days` (1-in-N cap, None = uncapped), `next_day_off` (post-shift rest), `works_full_day` (legacy H6 senior pattern), `works_pm_only` (legacy H7 junior pattern), `counts_as_weekend_role` (fairness bucketing), `legacy_role_alias` (`ONCALL` / `WEEKEND_EXT` / `WEEKEND_CONSULT` for back-compat role-string emission). |
+| Migration default | `oncall_jr`, `oncall_sr` (all 7 days, daily_required=1, freq_cap=3, next_day_off=True, works_pm_only/works_full_day per tier), plus `weekend_ext_jr`, `weekend_ext_sr`, `weekend_consult` (Sat+Sun, daily_required=1, no cap, no post-call). All five carry the matching `legacy_role_alias` so existing scenarios produce identical role strings. |
 
 ## 2. Hard constraints (must hold in any feasible roster)
 
@@ -26,34 +28,38 @@ update it.
   is active in that session AND enabled on that day's kind (weekday or weekend
   per `weekday_enabled` / `weekend_enabled`), the number of assigned doctors
   equals the station's required headcount for that session.
-- **H2 — One station per session.** A doctor fills at most one station in AM,
-  and at most one in PM, on any given day.
-- **H3 — Station eligibility.** A doctor can only be assigned to a station if
-  the station is in that doctor's `eligible_stations` set. `station.eligible_tiers`
-  is **advisory metadata only** — it pre-fills new doctors' eligibility lists
-  in the UI but is not enforced by the solver.
-- **H4 — On-call cap (1-in-3).** For every doctor and every 3 consecutive days,
-  at most one of those days has that doctor on on-call (junior or senior).
-- **H5 — Post-call off.** The day after any on-call: no AM, no PM, no on-call.
-- **H6 — Senior on-call pattern.** On the senior's on-call day: no AM, no PM
-  (full day off); the night shift is worked implicitly by the on-call role.
-- **H7 — Junior on-call pattern.** On the junior's on-call day: PM session is
-  worked, AM is off; the night shift is worked implicitly by the on-call role.
-- **H8 — Weekend coverage (Sat & Sun, and public holidays that are not
-  adjacent-weekday-treated).** Each weekend day requires:
-  - 1 `JUNIOR_EXTENDED`
-  - 1 `SENIOR_EXTENDED`
-  - 1 `JUNIOR_ONCALL`
-  - 1 `SENIOR_ONCALL`
-  - `weekend_consultants_required` consultants on `CONSULT_WEEKEND`
-    (default 1; configurable via `ConstraintsConfig.weekend_consultants_required`).
-  A single doctor fills at most one of these weekend roles on a given day.
-  Whether a station's AM/PM slots also run on the weekend is per-station
-  (see `Station.weekend_enabled`).
-- **H9 — Day in lieu for weekend extended.** For every doctor assigned
-  `*_EXTENDED` on a Sat or Sun, they receive a full day off (no AM, no PM, no
-  on-call) on either the Friday before **or** the Monday after, whichever
-  falls inside the horizon. If both fall inside, exactly one is chosen.
+- **H2 — One station per session + one on-call type per day.** A doctor fills
+  at most one station in AM, one in PM, and at most one on-call type on any
+  given day (mutual exclusion across user-defined types).
+- **H3 — Eligibility.** A doctor can only be assigned to a station if the
+  station is in that doctor's `eligible_stations`, and to an on-call type
+  only if the type's key is in `eligible_oncall_types`. Advisory tier metadata
+  on `Station` and `OnCallType` is **not** enforced.
+- **H4 — Per-OnCallType frequency cap.** For each type with
+  `frequency_cap_days = N >= 2`: in any window of N consecutive days, each
+  doctor holds that type at most once. Per-type, not per-doctor-overall.
+- **H5 — Post-shift rest.** For each type with `next_day_off = True`: a
+  doctor on that type today does no station / on-call work the following
+  day. Master override: `ConstraintsConfig.h5_enabled` (when False, every
+  type's `next_day_off` is silently ignored).
+- **H6 — Full-day-off on-call pattern.** For each type with
+  `works_full_day = True`: doctors on this type that day take no AM or PM
+  station. Generalises the legacy "senior on-call gets the day off".
+- **H7 — PM-only on-call pattern.** For each type with `works_pm_only = True`:
+  doctors on this type that day take AM=0 and PM=1 (weekdays only; on
+  weekends, PM stations may not exist depending on station weekend_enabled
+  flags). Generalises the legacy "junior on-call works PM".
+- **H8 — Per-OnCallType daily required.** For each type with
+  `daily_required = D > 0`, on each calendar day that's in the type's
+  `days_active` (or a public holiday with Sat/Sun in days_active), exactly
+  D doctors hold that type. Subsumes the legacy weekend H8 + weekday on-call
+  coverage rules.
+- **H9 — Day in lieu for weekend roles.** For every doctor assigned an
+  on-call type with `counts_as_weekend_role=True` AND no `works_full_day`
+  / `works_pm_only` flag set on a Sat or Sun, they receive a full day off
+  (no AM, no PM, no on-call) on either the Friday before **or** the Monday
+  after, whichever falls inside the horizon. If both fall inside, exactly
+  one is chosen. Master toggle: `ConstraintsConfig.h9_enabled`.
 - **H10 — Leave.** Leave days (input) force: no AM, no PM, no on-call, no
   weekend role on that day.
 - **H11 — Mandatory weekday assignment (soft).** On every weekday, every
@@ -71,14 +77,15 @@ update it.
   Unlike leave, other sessions and on-call remain available. Input via
   `Instance.no_session[doctor_id][day_idx] → {"AM" | "PM"}`.
 - **H14 — Per-doctor on-call cap.** Optional hard upper bound on the
-  number of on-call nights a given doctor may receive in the horizon.
-  `Doctor.max_oncalls: int | None` (None = no cap). Policy-driven —
-  e.g., part-timers or doctors with medical restrictions.
+  total on-call nights (across all types) a given doctor may receive
+  in the horizon. `Doctor.max_oncalls: int | None` (None = no cap).
 - **H15 — Manual overrides.** Per-assignment hard constraint that forces
-  a specific (doctor, day, role) combination. Used by the "lock this and
-  re-solve" workflow. Input via
-  `Instance.overrides: list[(doctor_id, day, station_or_None, session_or_None, role)]`
-  where role ∈ {"STATION", "ONCALL", "EXT", "WCONSULT"}.
+  a specific (doctor, day, role) combination. Phase B accepts:
+  - `STATION` (with station + session args),
+  - `ONCALL_<type_key>` for any user-defined type,
+  - legacy `ONCALL` / `EXT` / `WCONSULT` literals — resolved against any
+    type whose `legacy_role_alias` matches and that the doctor is
+    eligible for.
 
 ## 3. Soft constraints (objective terms, weights configurable)
 
@@ -133,16 +140,28 @@ Instance(
     prev_oncall: set[doctor_id] = (),# for H5 continuity at day 0
 )
 
-Doctor(id, tier, eligible_stations: set[str])
+Doctor(id, tier, eligible_stations: frozenset[str],
+       eligible_oncall_types: frozenset[str] = frozenset())
 Station(name, sessions: tuple[str, ...], required_per_session: int,
-        eligible_tiers: set[str],          # advisory only — not enforced
+        eligible_tiers: frozenset[str],    # advisory only — not enforced
         is_reporting: bool = False,
         weekday_enabled: bool = True,
         weekend_enabled: bool = False)
+OnCallType(key, label, start_hour, end_hour,
+           days_active: frozenset[int],     # 0=Mon..6=Sun
+           eligible_tiers: frozenset[str],  # advisory only
+           daily_required: int,
+           post_shift_rest_hours: int,
+           next_day_off: bool,
+           frequency_cap_days: int | None,
+           counts_as_weekend_role: bool,
+           works_full_day: bool,
+           works_pm_only: bool,
+           legacy_role_alias: str | None)
 ```
 
 Additional inputs on `Instance`:
-- `weekend_consultants_required: int = 1` — H8 weekend consultant headcount.
+- `on_call_types: list[OnCallType]` — drives every on-call var family + constraint.
 - `prev_workload: dict[doctor_id, int]` — carry-in from prior period for S0.
 - `no_oncall: dict[doctor_id, set[day_idx]]` — H12 call blocks.
 - `no_session: dict[doctor_id, dict[day_idx, set[session]]]` — H13 session blocks.

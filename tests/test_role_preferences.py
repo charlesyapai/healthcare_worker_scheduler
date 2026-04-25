@@ -13,8 +13,22 @@ the objective for each (doctor, role) preference. These tests verify:
 
 from __future__ import annotations
 
-from scheduler.instance import Doctor, Instance, Station
+from scheduler.instance import (
+    Doctor,
+    Instance,
+    OnCallType,
+    Station,
+    default_on_call_types,
+    eligible_types_for_tier,
+)
 from scheduler.model import solve
+
+# Default on-call types for the role-preferences fixture so legacy ONCALL
+# preferences resolve to actual solver vars.
+_TYPES = default_on_call_types(weekday_oncall=False)
+_ELIG_JR = eligible_types_for_tier("junior", _TYPES)
+_ELIG_SR = eligible_types_for_tier("senior", _TYPES)
+_ELIG_CN = eligible_types_for_tier("consultant", _TYPES)
 
 
 def _base_doctors_stations() -> tuple[list[Doctor], list[Station]]:
@@ -23,17 +37,23 @@ def _base_doctors_stations() -> tuple[list[Doctor], list[Station]]:
     Juniors are eligible for US + XR_REPORT; seniors + CT + MR on top."""
     doctors = [
         Doctor(id=0, tier="junior",
-               eligible_stations=frozenset({"US", "XR_REPORT"})),
+               eligible_stations=frozenset({"US", "XR_REPORT"}),
+               eligible_oncall_types=_ELIG_JR),
         Doctor(id=1, tier="junior",
-               eligible_stations=frozenset({"US", "XR_REPORT"})),
+               eligible_stations=frozenset({"US", "XR_REPORT"}),
+               eligible_oncall_types=_ELIG_JR),
         Doctor(id=2, tier="senior",
-               eligible_stations=frozenset({"CT", "MR", "US", "XR_REPORT"})),
+               eligible_stations=frozenset({"CT", "MR", "US", "XR_REPORT"}),
+               eligible_oncall_types=_ELIG_SR),
         Doctor(id=3, tier="senior",
-               eligible_stations=frozenset({"CT", "MR", "US", "XR_REPORT"})),
+               eligible_stations=frozenset({"CT", "MR", "US", "XR_REPORT"}),
+               eligible_oncall_types=_ELIG_SR),
         Doctor(id=4, tier="consultant",
-               eligible_stations=frozenset({"CT", "MR", "US", "XR_REPORT"})),
+               eligible_stations=frozenset({"CT", "MR", "US", "XR_REPORT"}),
+               eligible_oncall_types=_ELIG_CN),
         Doctor(id=5, tier="consultant",
-               eligible_stations=frozenset({"CT", "MR", "US", "XR_REPORT"})),
+               eligible_stations=frozenset({"CT", "MR", "US", "XR_REPORT"}),
+               eligible_oncall_types=_ELIG_CN),
     ]
     stations = [
         Station(name="CT", sessions=("AM", "PM"), required_per_session=1,
@@ -66,6 +86,7 @@ def _short_instance(
     return Instance(
         n_days=n_days, start_weekday=0,
         doctors=doctors, stations=stations,
+        on_call_types=_TYPES,
         role_preferences=role_preferences or {},
     )
 
@@ -125,15 +146,43 @@ def test_ineligible_role_produces_constant_shortfall_no_crash() -> None:
 
 
 def test_oncall_role_preference_counts_oncall_vars() -> None:
-    """Role preferences accept 'ONCALL' as a non-station role. Verify
-    the solver resolves it to the oncall variable set (not a station).
-    Use a small preference so it doesn't clash with H4 (1-in-N cap)."""
-    inst = _short_instance(role_preferences={2: {"ONCALL": (1, 5)}})
-    result = solve(inst, time_limit_s=5, num_workers=1)
-    assert result.status in ("OPTIMAL", "FEASIBLE")
-    # Senior 2 should have at least one on-call in the 5-day window.
-    oc_count = sum(
-        1 for (d, _day), v in result.assignments.get("oncall", {}).items()
-        if d == 2 and v
+    """Role preferences accept 'ONCALL' (legacy) and 'ONCALL_<type_key>'
+    (Phase B). The solver resolves the legacy alias to any type whose
+    `legacy_role_alias=='ONCALL'` and that the doctor is eligible for.
+    With weekday on-call enabled the senior MUST do at least one
+    oncall_sr night under H8 daily_required, and the preference biases
+    the solver to pick this senior over others in the tier."""
+    types = default_on_call_types(weekday_oncall=True)
+    elig_sr = eligible_types_for_tier("senior", types)
+    elig_jr = eligible_types_for_tier("junior", types)
+    elig_cn = eligible_types_for_tier("consultant", types)
+    # Bench: 4 sr (so 5 weekday on-calls + 2 weekend on-calls fit under
+    # H4 1-in-3 cap), 4 jr, 2 cn.
+    doctors = [
+        Doctor(id=i, tier="junior",
+               eligible_stations=frozenset({"US", "XR_REPORT"}),
+               eligible_oncall_types=elig_jr) for i in range(4)
+    ]
+    doctors += [
+        Doctor(id=4 + i, tier="senior",
+               eligible_stations=frozenset({"CT", "MR", "US", "XR_REPORT"}),
+               eligible_oncall_types=elig_sr) for i in range(4)
+    ]
+    doctors += [
+        Doctor(id=8 + i, tier="consultant",
+               eligible_stations=frozenset({"CT", "MR", "US", "XR_REPORT"}),
+               eligible_oncall_types=elig_cn) for i in range(2)
+    ]
+    _, stations = _base_doctors_stations()
+    inst = Instance(
+        n_days=7, start_weekday=0,
+        doctors=doctors, stations=stations, on_call_types=types,
+        # Senior id=4 gets a preference for ONCALL.
+        role_preferences={4: {"ONCALL": (2, 5)}},
     )
-    assert oc_count >= 1
+    result = solve(inst, time_limit_s=10, num_workers=1)
+    assert result.status in ("OPTIMAL", "FEASIBLE")
+    # Senior id=4 should have at least one oncall_sr in the horizon.
+    obt = result.assignments.get("oncall_by_type", {})
+    sr_oncall = sum(1 for (d, _day) in obt.get("oncall_sr", {}) if d == 4)
+    assert sr_oncall >= 1

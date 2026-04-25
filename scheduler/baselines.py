@@ -13,6 +13,11 @@ them identically to a CP-SAT solve. `status="HEURISTIC"`, `objective=None`
 guaranteed — the point of the baseline is to measure how often naïve
 approaches fail, and by how much.
 
+Phase B: greedy iterates `inst.on_call_types` instead of the hard-coded
+oncall/ext/wconsult triple. Each type's `daily_required` worth of slots
+is filled per active day with the lowest-loaded eligible doctor,
+respecting per-type frequency_cap_days and next_day_off as best-effort.
+
 See `docs/VALIDATION_PLAN.md §1.2` and `docs/INDUSTRY_CONTEXT.md §6`
 for the role these baselines play in publication-grade reporting.
 """
@@ -24,14 +29,22 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from scheduler.instance import Instance
+from scheduler.instance import Instance, OnCallType
 from scheduler.model import SolveResult
 
 
 # ------------------------------------------------------------- result shape
 
-def _empty_assignments() -> dict[str, dict]:
-    return {"stations": {}, "oncall": {}, "ext": {}, "wconsult": {}}
+def _empty_assignments(types: list[OnCallType]) -> dict[str, dict]:
+    out: dict[str, Any] = {
+        "stations": {},
+        "oncall_by_type": {t.key: {} for t in types},
+        # Back-compat aggregate views — populated as we book per-type.
+        "oncall": {},
+        "ext": {},
+        "wconsult": {},
+    }
+    return out
 
 
 def _build_result(
@@ -42,18 +55,15 @@ def _build_result(
     """Shape a heuristic outcome as a SolveResult so existing
     payload/self-check/fairness plumbing accepts it unchanged."""
     n_station = sum(1 for _ in assignments.get("stations", {}))
-    n_other = sum(
-        len(assignments.get(k, {})) for k in ("oncall", "ext", "wconsult")
+    n_oc = sum(
+        len(v) for v in (assignments.get("oncall_by_type") or {}).values()
     )
     return SolveResult(
         status=status,
-        # 6 dp so sub-ms heuristics don't collapse to "0.000" downstream —
-        # greedy + random_repair finish in ~0.4 ms on small instances and
-        # the UI was showing that as "0.000 s", reading as "didn't run".
         wall_time_s=round(wall_s, 6),
         objective=None,
         best_bound=None,
-        n_vars=n_station + n_other,   # cheap proxy; used only for display
+        n_vars=n_station + n_oc,
         n_constraints=0,
         first_feasible_s=None,
         penalty_components={},
@@ -66,104 +76,121 @@ def _build_result(
 @dataclass
 class _BusyIndex:
     """Tracks 'already used' flags so the greedy / random heuristics don't
-    double-book a doctor. Updated in place by the baselines."""
-    # (doctor_id, day) → "am"/"pm"/"oncall"/"ext"/"wconsult" busy flags
+    double-book a doctor."""
     station_busy: dict[tuple[int, int, str], bool] = field(default_factory=dict)
-    oncall_busy: dict[tuple[int, int], bool] = field(default_factory=dict)
-    ext_busy: dict[tuple[int, int], bool] = field(default_factory=dict)
-    wconsult_busy: dict[tuple[int, int], bool] = field(default_factory=dict)
-    # Rolling on-call window: for H4 (1-in-N), ban doctors for N-1 days
-    # after each on-call.
-    oncall_days_per_doc: dict[int, list[int]] = field(
-        default_factory=lambda: {}
+    # (doctor, day) → set of on-call type keys booked.
+    oncall_types_busy: dict[tuple[int, int], set[str]] = field(default_factory=dict)
+    # Per (doctor, type) → list of days the doctor was on that type.
+    oncall_days_per_doc_type: dict[tuple[int, str], list[int]] = field(
+        default_factory=dict
     )
 
     def session_free(self, did: int, day: int, sess: str) -> bool:
         return not self.station_busy.get((did, day, sess), False)
 
-    def oncall_free(self, did: int, day: int) -> bool:
-        return not self.oncall_busy.get((did, day), False)
+    def has_oncall(self, did: int, day: int) -> bool:
+        return bool(self.oncall_types_busy.get((did, day)))
+
+
+def _day_active_for_type(day: int, t: OnCallType, inst: Instance) -> bool:
+    wd = inst.weekday_of(day)
+    if wd in t.days_active:
+        return True
+    if day in inst.public_holidays and (5 in t.days_active or 6 in t.days_active):
+        return True
+    return False
 
 
 # ------------------------------------------------------------- greedy
 
 def greedy_baseline(inst: Instance) -> SolveResult:
-    """Fill weekend H8 roles → weekday on-call → station coverage, in that
-    order, picking the lowest-workload eligible doctor at each step. This
-    is the 'sanity floor' baseline every NRP paper reports against.
-
-    Does not attempt to minimise any objective. May leave slots empty if
-    no eligible doctor is available under the narrow local rules — those
-    gaps show up as H1 coverage shortfall, which is exactly the signal
-    a reviewer wants to compare against the CP-SAT solver's output."""
+    """Fill on-call types (heaviest first) → station coverage. Picks the
+    lowest-workload eligible doctor at each step. May leave slots empty
+    if no eligible doctor is available; gaps surface as H1 / per-type
+    coverage shortfall in the post-solve audit, which is the point of the
+    baseline."""
     start = time.perf_counter()
-    ass = _empty_assignments()
+    ass = _empty_assignments(inst.on_call_types)
     busy = _BusyIndex()
 
-    # Quick lookups.
-    leave = inst.leave  # dict[did, set[day]]
-    no_oncall = inst.no_oncall
+    leave = inst.leave
     no_session = inst.no_session
+    no_oncall = inst.no_oncall
     prev_oncall = inst.prev_oncall
 
-    # Doctors by tier / eligibility — precomputed for O(1) filtering.
-    by_tier: dict[str, list] = {"junior": [], "senior": [], "consultant": []}
-    for d in inst.doctors:
-        by_tier.setdefault(d.tier, []).append(d)
-    consultants_required = max(0, int(inst.weekend_consultants_required))
+    load: dict[int, int] = {
+        d.id: int(inst.prev_workload.get(d.id, 0)) for d in inst.doctors
+    }
 
-    # Running workload per doctor, used as the ranking key so greedy picks
-    # the least-loaded eligible doctor. Seed with prev_workload so carry-in
-    # from last period influences this-period picks too.
-    load: dict[int, int] = {d.id: int(inst.prev_workload.get(d.id, 0)) for d in inst.doctors}
+    def _pick_lowest_load(candidates: list) -> Any:
+        if not candidates:
+            return None
+        return min(candidates, key=lambda d: load[d.id])
 
-    def _can_oncall(did: int, day: int) -> bool:
-        """Approximate H4 + H5 + H12 checks. Not as tight as the CP-SAT
-        model (H4's 1-in-N is enforced only backwards, not forwards) — that's
-        intentional: the greedy doesn't plan ahead."""
-        if did in leave.get(did, set()):
-            pass  # leave dict is keyed by did, not a bug; checked next
+    def _can_oncall_for(t: OnCallType, did: int, day: int) -> bool:
         if day in leave.get(did, set()):
             return False
         if day in no_oncall.get(did, set()):
             return False
-        if not busy.oncall_free(did, day):
-            return False
-        # H5: if the doctor was on-call on day-1, they must be off today.
-        prior_days = busy.oncall_days_per_doc.get(did, [])
-        if day - 1 in prior_days:
-            return False
-        if day == 0 and did in prev_oncall:
-            return False
-        # H4: 1-in-N.
-        N = 3  # default; can be parameterised via inst if needed
-        for prev_day in prior_days:
-            if 0 < day - prev_day < N:
+        if (did, day) in busy.oncall_types_busy:
+            return False  # mutual exclusion: 1 type per (doctor, day)
+        # Approximate H5 (next-day-off): if any prior type with next_day_off
+        # was on yesterday, doctor is post-call today.
+        for other in inst.on_call_types:
+            if not other.next_day_off:
+                continue
+            prior = busy.oncall_days_per_doc_type.get((did, other.key), [])
+            if day - 1 in prior:
                 return False
-        # Post-oncall can't work AM/PM either; surface that by not picking
-        # a doctor who already has AM/PM on the same day.
-        if busy.station_busy.get((did, day, "AM")) or busy.station_busy.get((did, day, "PM")):
+        if day == 0 and did in prev_oncall and t.next_day_off:
             return False
+        # Approximate H4 (frequency cap).
+        N = t.frequency_cap_days
+        if N is not None and N >= 2:
+            prior = busy.oncall_days_per_doc_type.get((did, t.key), [])
+            for prev_day in prior:
+                if 0 < day - prev_day < N:
+                    return False
+        # Don't pick a doctor already booked for AM/PM that day if the
+        # type's `works_full_day` (no station work) or `works_pm_only`
+        # (AM=0). Simple guard: if any session today is busy, skip.
+        if t.works_full_day or t.works_pm_only:
+            if (busy.station_busy.get((did, day, "AM"))
+                    or busy.station_busy.get((did, day, "PM"))):
+                return False
         return True
 
-    def _book_oncall(did: int, day: int) -> None:
-        busy.oncall_busy[(did, day)] = True
-        busy.oncall_days_per_doc.setdefault(did, []).append(day)
-        # Block AM/PM same day and next day (H5).
-        busy.station_busy[(did, day, "AM")] = True
-        busy.station_busy[(did, day, "PM")] = True
-        if day + 1 < inst.n_days:
+    def _book_oncall(t: OnCallType, did: int, day: int) -> None:
+        ass["oncall_by_type"].setdefault(t.key, {})[(did, day)] = 1
+        # Back-compat aggregate views.
+        if t.legacy_role_alias == "ONCALL":
+            ass["oncall"][(did, day)] = 1
+        elif t.legacy_role_alias == "WEEKEND_EXT":
+            ass["ext"][(did, day)] = 1
+        elif t.legacy_role_alias == "WEEKEND_CONSULT":
+            ass["wconsult"][(did, day)] = 1
+        busy.oncall_types_busy.setdefault((did, day), set()).add(t.key)
+        busy.oncall_days_per_doc_type.setdefault((did, t.key), []).append(day)
+        if t.works_full_day:
+            busy.station_busy[(did, day, "AM")] = True
+            busy.station_busy[(did, day, "PM")] = True
+        elif t.works_pm_only:
+            busy.station_busy[(did, day, "AM")] = True
+        if t.next_day_off and day + 1 < inst.n_days:
             busy.station_busy[(did, day + 1, "AM")] = True
             busy.station_busy[(did, day + 1, "PM")] = True
-            busy.oncall_busy[(did, day + 1)] = True
         is_we = inst.is_weekend(day)
-        load[did] += 35 if is_we else 20
+        if t.legacy_role_alias == "WEEKEND_EXT":
+            inc = 20
+        elif t.legacy_role_alias == "WEEKEND_CONSULT":
+            inc = 25
+        else:
+            inc = 35 if is_we else 20
+        load[did] += inc
 
     def _can_station(did: int, day: int, station_name: str, sess: str, doc) -> bool:
         if day in leave.get(did, set()):
             return False
-        # Per-doctor eligibility is the truth; station.eligible_tiers is
-        # advisory metadata only (Phase A).
         if station_name not in doc.eligible_stations:
             return False
         if not busy.session_free(did, day, sess):
@@ -179,70 +206,34 @@ def greedy_baseline(inst: Instance) -> SolveResult:
         is_we = inst.is_weekend(day)
         load[did] += 15 if is_we else 10
 
-    def _pick_lowest_load(candidates: list) -> Any:
-        if not candidates:
-            return None
-        return min(candidates, key=lambda d: load[d.id])
-
-    # ---- Phase 1: weekend H8 roles (scarcest) ----
-    for day in range(inst.n_days):
-        if not inst.is_weekend(day):
+    # ---- Phase 1: weekend-role types first (scarcest), then nights, then
+    # any remaining user-defined types. Within each phase, fill in
+    # daily_required order (heaviest demand first) so headcount-tight
+    # types don't get starved by lower-priority ones.
+    weekend_first = sorted(
+        inst.on_call_types,
+        key=lambda t: (
+            0 if t.counts_as_weekend_role else 1,
+            -t.daily_required,
+        ),
+    )
+    for t in weekend_first:
+        if t.daily_required <= 0:
             continue
-        # 1 junior EXT
-        cands = [d for d in by_tier["junior"]
-                 if day not in leave.get(d.id, set())
-                 and not busy.ext_busy.get((d.id, day))
-                 and not busy.oncall_free(d.id, day) is False]
-        pick = _pick_lowest_load(cands)
-        if pick:
-            ass["ext"][(pick.id, day)] = 1
-            busy.ext_busy[(pick.id, day)] = True
-            load[pick.id] += 20
-        # 1 senior EXT
-        cands = [d for d in by_tier["senior"]
-                 if day not in leave.get(d.id, set())
-                 and not busy.ext_busy.get((d.id, day))
-                 and busy.oncall_free(d.id, day)]
-        pick = _pick_lowest_load(cands)
-        if pick:
-            ass["ext"][(pick.id, day)] = 1
-            busy.ext_busy[(pick.id, day)] = True
-            load[pick.id] += 20
-        # 1 junior on-call
-        cands = [d for d in by_tier["junior"] if _can_oncall(d.id, day)
-                 and not busy.ext_busy.get((d.id, day))]
-        pick = _pick_lowest_load(cands)
-        if pick:
-            _book_oncall(pick.id, day)
-        # 1 senior on-call
-        cands = [d for d in by_tier["senior"] if _can_oncall(d.id, day)
-                 and not busy.ext_busy.get((d.id, day))]
-        pick = _pick_lowest_load(cands)
-        if pick:
-            _book_oncall(pick.id, day)
-        # N consultants on weekend duty (configurable count, replaces the
-        # old per-subspec rule).
-        for _slot in range(consultants_required):
-            cands = [d for d in by_tier["consultant"]
-                     if day not in leave.get(d.id, set())
-                     and not busy.wconsult_busy.get((d.id, day))]
-            pick = _pick_lowest_load(cands)
-            if pick:
-                ass["wconsult"][(pick.id, day)] = 1
-                busy.wconsult_busy[(pick.id, day)] = True
-                load[pick.id] += 25
+        for day in range(inst.n_days):
+            if not _day_active_for_type(day, t, inst):
+                continue
+            for _slot in range(t.daily_required):
+                cands = [
+                    d for d in inst.doctors
+                    if t.key in d.eligible_oncall_types
+                    and _can_oncall_for(t, d.id, day)
+                ]
+                pick = _pick_lowest_load(cands)
+                if pick:
+                    _book_oncall(t, pick.id, day)
 
-    # ---- Phase 2: weekday on-call (1 junior + 1 senior per night) ----
-    for day in range(inst.n_days):
-        if inst.is_weekend(day):
-            continue
-        for tier in ("junior", "senior"):
-            cands = [d for d in by_tier[tier] if _can_oncall(d.id, day)]
-            pick = _pick_lowest_load(cands)
-            if pick:
-                _book_oncall(pick.id, day)
-
-    # ---- Phase 3: station coverage ----
+    # ---- Phase 2: station coverage.
     for day in range(inst.n_days):
         is_we = inst.is_weekend(day)
         for st in inst.stations:
@@ -276,18 +267,18 @@ def random_repair_baseline(
     no improvement is made for a full pass or `max_iterations` hit.
 
     The repair phase only tries to satisfy H1 + H3 + H10. Higher-level
-    structure (H4, H5, H8) is left broken — which is the point: this
-    baseline is meant to look bad in the Lab's comparison table and
-    justify the CP-SAT approach quantitatively."""
+    structure (H4, H5, per-type daily_required) is left broken — which is
+    the point: this baseline is meant to look bad in the Lab's comparison
+    table and justify the CP-SAT approach quantitatively."""
     rng = random.Random(seed)
     start = time.perf_counter()
-    ass = _empty_assignments()
-    used_session: set[tuple[int, int, str]] = set()  # (did, day, sess) occupied
+    ass = _empty_assignments(inst.on_call_types)
+    used_session: set[tuple[int, int, str]] = set()
 
     leave = inst.leave
     no_session = inst.no_session
 
-    for it in range(max_iterations):
+    for _it in range(max_iterations):
         improved = False
         for day in range(inst.n_days):
             is_we = inst.is_weekend(day)
@@ -297,14 +288,12 @@ def random_repair_baseline(
                 if not is_we and not st.weekday_enabled:
                     continue
                 for sess in st.sessions:
-                    # Current assigned count for this slot.
                     cur = sum(
                         1 for k in ass["stations"]
                         if k[1] == day and k[2] == st.name and k[3] == sess
                     )
                     if cur >= st.required_per_session:
                         continue
-                    # Pick a random eligible doctor (per-doctor only).
                     pool = [
                         d for d in inst.doctors
                         if st.name in d.eligible_stations

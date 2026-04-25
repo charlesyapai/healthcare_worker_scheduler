@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 from ortools.sat.python import cp_model
 
-from scheduler.instance import SESSIONS, Instance
+from scheduler.instance import SESSIONS, Instance, OnCallType
 
 
 @dataclass
@@ -31,10 +31,13 @@ class SolveResult:
     # "S1_balance_sessions_junior"). Value is the weighted contribution.
     penalty_components: dict[str, int] = field(default_factory=dict)
     assignments: dict[str, Any] = field(default_factory=dict)
-    # assignments["stations"] = {(d, day, station, sess): 1, ...}
-    # assignments["oncall"]   = {(d, day): 1, ...}
-    # assignments["ext"]      = {(d, day): 1, ...}
-    # assignments["wconsult"] = {(d, day): 1, ...}
+    # assignments["stations"]       = {(d, day, station, sess): 1, ...}
+    # assignments["oncall_by_type"] = {type_key: {(d, day): 1, ...}, ...}
+    # Back-compat aggregate views (populated from types whose
+    # legacy_role_alias matches):
+    #   assignments["oncall"]   = {(d, day): 1, ...}  (ONCALL alias)
+    #   assignments["ext"]      = {(d, day): 1, ...}  (WEEKEND_EXT alias)
+    #   assignments["wconsult"] = {(d, day): 1, ...}  (WEEKEND_CONSULT alias)
 
 
 @dataclass
@@ -58,22 +61,18 @@ class WorkloadWeights:
 
 @dataclass
 class ConstraintConfig:
-    """Toggles + parameters for the hard constraints. All default on."""
-    h4_oncall_cap_enabled: bool = True
-    h4_oncall_gap_days: int = 3      # "1-in-N" — 1 on-call per N consecutive days
+    """Toggles + parameters for the hard constraints. Phase B: most legacy
+    on-call toggles are now per-OnCallType (frequency cap, post-shift rest,
+    works-full-day / works-pm-only, daily required headcount). Only the
+    statutory rest master override (`h5_post_call_off_enabled`), the lieu
+    day rule (`h9_lieu_day_enabled`), and the idle-weekday penalty
+    (`h11_mandatory_weekday_enabled`) remain global."""
+    # Master override — when False, every type's `next_day_off=True`
+    # is silently ignored. Useful for stress fixtures that need to
+    # bypass post-shift rest entirely.
     h5_post_call_off_enabled: bool = True
-    h6_senior_oncall_full_off_enabled: bool = True
-    h7_junior_oncall_pm_enabled: bool = True
-    h8_weekend_coverage_enabled: bool = True
     h9_lieu_day_enabled: bool = True
     h11_mandatory_weekday_enabled: bool = True   # Soft: penalty per idle doc-day
-    # Gap #4 from CONSTRAINTS.md §5: "1 junior + 1 senior every night
-    # (weekday and weekend)". Weekends are handled by H8; weekdays need
-    # their own constraint. Default OFF here so legacy callers (direct
-    # scheduler.solve invocations, existing tests) are unaffected. The
-    # v2 API layer defaults this to True in `ConstraintsConfig` so SPA
-    # users get weekday coverage unless they explicitly opt out.
-    weekday_oncall_coverage_enabled: bool = False
 
 
 @dataclass
@@ -287,73 +286,86 @@ def solve(
                     # surgeon takes the OR list, they're on it both halves.
                     model.Add(created_vars[0] == created_vars[1])
 
-    # oncall[d, day] — juniors + seniors only.
-    oncall: dict[tuple[int, int], cp_model.IntVar] = {}
-    for d in inst.doctors:
-        if d.tier == "consultant":
-            continue
-        leave_days = inst.leave.get(d.id, set())
-        for day in range(inst.n_days):
-            if day in leave_days:
-                continue
-            oncall[(d.id, day)] = model.NewBoolVar(f"oc_{d.id}_{day}")
+    # ---------------- Generic on-call type variables (Phase B) -----------
+    # `oc_vars[type_key][(doctor_id, day)]` is the indicator that a doctor
+    # holds that on-call type on that calendar day. Vars exist only on
+    # (doctor, day, type) triples where:
+    #   * doctor's `eligible_oncall_types` includes the type's key,
+    #   * the day matches the type's `days_active` (with PH treated as
+    #     weekend-day-equivalent for activation purposes), and
+    #   * the doctor is not on leave that day.
+    types_by_key = {t.key: t for t in inst.on_call_types}
 
-    # ext[d, day] — juniors + seniors, weekend days only.
-    ext: dict[tuple[int, int], cp_model.IntVar] = {}
-    for d in inst.doctors:
-        if d.tier == "consultant":
-            continue
-        leave_days = inst.leave.get(d.id, set())
-        for day in range(inst.n_days):
-            if not inst.is_weekend(day):
-                continue
-            if day in leave_days:
-                continue
-            ext[(d.id, day)] = model.NewBoolVar(f"ext_{d.id}_{day}")
+    def _day_active_for_type(day: int, t: OnCallType) -> bool:
+        wd = inst.weekday_of(day)
+        if wd in t.days_active:
+            return True
+        if day in inst.public_holidays and (5 in t.days_active or 6 in t.days_active):
+            return True
+        return False
 
-    # wconsult[d, day] — consultants on weekends, one per subspec.
-    wconsult: dict[tuple[int, int], cp_model.IntVar] = {}
-    for d in inst.doctors:
-        if d.tier != "consultant":
-            continue
-        leave_days = inst.leave.get(d.id, set())
-        for day in range(inst.n_days):
-            if not inst.is_weekend(day):
+    oc_vars: dict[str, dict[tuple[int, int], cp_model.IntVar]] = {
+        t.key: {} for t in inst.on_call_types
+    }
+    for t in inst.on_call_types:
+        for d in inst.doctors:
+            if t.key not in d.eligible_oncall_types:
                 continue
-            if day in leave_days:
-                continue
-            wconsult[(d.id, day)] = model.NewBoolVar(f"wc_{d.id}_{day}")
-
-    # lieu_choice[d, w, side] — per weekend-ext assignment, two bools (fri / mon).
-    lieu_choice: dict[tuple[int, int, str], cp_model.IntVar] = {}
-    lieu_uses: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
-    for d in inst.doctors:
-        if d.tier == "consultant":
-            continue
-        leave_days = inst.leave.get(d.id, set())
-        for w in range(inst.n_days):
-            if not inst.is_weekend(w):
-                continue
-            if (d.id, w) not in ext:
-                continue
-            for side, weekday_target in (("FRI", 4), ("MON", 0)):
-                delta = range(1, 8)
-                target_day = None
-                for dx in delta:
-                    t = w - dx if side == "FRI" else w + dx
-                    if t < 0 or t >= inst.n_days:
-                        break
-                    if inst.weekday_of(t) == weekday_target:
-                        target_day = t
-                        break
-                if target_day is None or target_day in leave_days:
+            leave_days = inst.leave.get(d.id, set())
+            for day in range(inst.n_days):
+                if day in leave_days:
                     continue
-                lv = model.NewBoolVar(f"lieu_{d.id}_{w}_{side}")
-                lieu_choice[(d.id, w, side)] = lv
-                lieu_uses[(d.id, target_day)].append(lv)
+                if not _day_active_for_type(day, t):
+                    continue
+                v = model.NewBoolVar(f"oc_{t.key}_{d.id}_{day}")
+                oc_vars[t.key][(d.id, day)] = v
 
-    # lieu_taken[d, day] — OR of lieu choices pointing at (d, day). Used by
-    # H5/H9 (force no activity) AND H11 (counts as an "excused" weekday).
+    # Mutual exclusion: each (doctor, day) holds at most one on-call type.
+    by_dday_oncall: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
+    for type_map in oc_vars.values():
+        for key, v in type_map.items():
+            by_dday_oncall[key].append(v)
+    for vars_ in by_dday_oncall.values():
+        if len(vars_) >= 2:
+            model.Add(sum(vars_) <= 1)
+
+    # ---------------- Lieu-day machinery (H9) -----------------------------
+    # Applies to any on-call type with `counts_as_weekend_role=True` and
+    # neither `works_full_day` nor `works_pm_only` (those types already
+    # carry their own day-of pattern, like the legacy senior on-call).
+    lieu_choice: dict[tuple[int, int, str, str], cp_model.IntVar] = {}
+    lieu_uses: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
+    for t in inst.on_call_types:
+        if not t.counts_as_weekend_role:
+            continue
+        if t.works_full_day or t.works_pm_only:
+            continue
+        for d in inst.doctors:
+            if t.key not in d.eligible_oncall_types:
+                continue
+            leave_days = inst.leave.get(d.id, set())
+            for w in range(inst.n_days):
+                if (d.id, w) not in oc_vars[t.key]:
+                    continue
+                if not inst.is_weekend(w):
+                    # Lieu mechanic only meaningful when the assignment
+                    # falls on a calendar weekend day.
+                    continue
+                for side, weekday_target in (("FRI", 4), ("MON", 0)):
+                    target_day = None
+                    for dx in range(1, 8):
+                        cand = w - dx if side == "FRI" else w + dx
+                        if cand < 0 or cand >= inst.n_days:
+                            break
+                        if inst.weekday_of(cand) == weekday_target:
+                            target_day = cand
+                            break
+                    if target_day is None or target_day in leave_days:
+                        continue
+                    lv = model.NewBoolVar(f"lieu_{t.key}_{d.id}_{w}_{side}")
+                    lieu_choice[(d.id, w, t.key, side)] = lv
+                    lieu_uses[(d.id, target_day)].append(lv)
+
     lieu_taken: dict[tuple[int, int], cp_model.IntVar] = {}
     for (did, day), choice_vars in lieu_uses.items():
         if not choice_vars:
@@ -404,151 +416,129 @@ def solve(
                 if vars_for:
                     model.Add(sum(vars_for) <= 1)
 
-    # H4 — On-call cap (1-in-N rolling window).
-    if cfg.h4_oncall_cap_enabled and cfg.h4_oncall_gap_days >= 2:
-        N = cfg.h4_oncall_gap_days
+    # H4 — Per-OnCallType frequency cap (1-in-N rolling window).
+    # Each type's `frequency_cap_days` controls the cap for that type
+    # only; None means uncapped (e.g. weekend EXT in legacy semantics).
+    for t in inst.on_call_types:
+        N = t.frequency_cap_days
+        if N is None or N < 2:
+            continue
+        type_vars = oc_vars[t.key]
         for d in inst.doctors:
-            if d.tier == "consultant":
+            if t.key not in d.eligible_oncall_types:
                 continue
             for start in range(inst.n_days - (N - 1)):
                 window = [
-                    oncall[(d.id, day)]
+                    type_vars[(d.id, day)]
                     for day in range(start, start + N)
-                    if (d.id, day) in oncall
+                    if (d.id, day) in type_vars
                 ]
                 if len(window) >= 2:
                     model.Add(sum(window) <= 1)
-
-        # prev_oncall seed: days 0..N-2 can't have on-call if prior-period ended on-call.
+        # prev_oncall seed: days 0..N-2 can't have on-call of any type
+        # with frequency_cap_days >= 2 if doctor ended prior period on-call.
         for did in inst.prev_oncall:
             for day in range(min(N - 1, inst.n_days)):
-                if (did, day) in oncall:
-                    model.Add(oncall[(did, day)] == 0)
+                if (did, day) in type_vars:
+                    model.Add(type_vars[(did, day)] == 0)
 
-    # H5 — Post-call off: oncall[d, t] == 1 ⇒ no activity on t+1.
+    # H5 — Post-shift rest. Per-OnCallType: types with `next_day_off=True`
+    # force no activity on day+1. The global cfg.h5_post_call_off_enabled
+    # is a master override (matches legacy shape).
     post_call: dict[tuple[int, int], cp_model.IntVar] = {}
     if cfg.h5_post_call_off_enabled:
-        for d in inst.doctors:
-            if d.tier == "consultant":
+        oc_yesterday: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
+        for t in inst.on_call_types:
+            if not t.next_day_off:
                 continue
-            for day in range(inst.n_days - 1):
-                if (d.id, day) not in oncall:
-                    continue
-                oc = oncall[(d.id, day)]
-                for v in _activities_on(d.id, day + 1, assign_by_dday, oncall, ext, wconsult):
-                    model.AddImplication(oc, v.Not())
-                # post_call[d, day+1] mirrors oncall[d, day] for H11's "excused" check.
-                pc = model.NewBoolVar(f"pc_{d.id}_{day+1}")
-                model.Add(pc == oc)
-                post_call[(d.id, day + 1)] = pc
-
+            for (did, day), oc in oc_vars[t.key].items():
+                if day + 1 < inst.n_days:
+                    oc_yesterday[(did, day + 1)].append(oc)
+                    for v in _activities_on(did, day + 1, assign_by_dday, oc_vars):
+                        model.AddImplication(oc, v.Not())
+        # post_call indicator for H11: OR across types that opted in.
+        for key, vars_ in oc_yesterday.items():
+            if not vars_:
+                continue
+            pc = model.NewBoolVar(f"pc_{key[0]}_{key[1]}")
+            model.AddMaxEquality(pc, vars_)
+            post_call[key] = pc
         # Seed continuity: day 0 is post-call if doctor was on-call on day -1.
         for did in inst.prev_oncall:
-            for v in _activities_on(did, 0, assign_by_dday, oncall, ext, wconsult):
+            for v in _activities_on(did, 0, assign_by_dday, oc_vars):
                 model.Add(v == 0)
-            # Record as post-call day 0 for H11.
             pc = model.NewBoolVar(f"pc_{did}_0_seed")
             model.Add(pc == 1)
             post_call[(did, 0)] = pc
 
-    # H6 (senior) / H7 (junior) — on-call day activity pattern.
-    for d in inst.doctors:
-        if d.tier == "consultant":
+    # H6 / H7 — Per-OnCallType day-of activity pattern.
+    # `works_full_day=True` (legacy H6 senior) ⇒ no AM/PM that day.
+    # `works_pm_only=True`  (legacy H7 junior) ⇒ AM=0, PM=1 (weekdays).
+    for t in inst.on_call_types:
+        if not (t.works_full_day or t.works_pm_only):
             continue
-        for day in range(inst.n_days):
-            if (d.id, day) not in oncall:
-                continue
-            oc = oncall[(d.id, day)]
-            am_vars = assign_by_dday_am.get((d.id, day), [])
-            pm_vars = assign_by_dday_pm.get((d.id, day), [])
-            if d.tier == "senior" and cfg.h6_senior_oncall_full_off_enabled:
+        for (did, day), oc in oc_vars[t.key].items():
+            am_vars = assign_by_dday_am.get((did, day), [])
+            pm_vars = assign_by_dday_pm.get((did, day), [])
+            if t.works_full_day:
                 if am_vars:
                     model.Add(sum(am_vars) == 0).OnlyEnforceIf(oc)
                 if pm_vars:
                     model.Add(sum(pm_vars) == 0).OnlyEnforceIf(oc)
-            elif d.tier == "junior" and cfg.h7_junior_oncall_pm_enabled:
+            elif t.works_pm_only:
                 if am_vars:
                     model.Add(sum(am_vars) == 0).OnlyEnforceIf(oc)
-                # PM == 1 on weekdays (on weekends PM vars don't exist by default).
+                # PM == 1 on weekdays only (weekend PM vars don't exist
+                # for weekday-only stations).
                 if pm_vars and not inst.is_weekend(day):
                     model.Add(sum(pm_vars) == 1).OnlyEnforceIf(oc)
 
-    # Weekday on-call coverage: 1 junior + 1 senior on-call every weekday
-    # night (spec §5 gap #4). H8 covers weekends; this closes the weekday
-    # gap so Minimal-staffing mode (H11 off) still produces an on-call-
-    # covered roster.
-    if cfg.weekday_oncall_coverage_enabled:
-        juniors_all = [d for d in inst.doctors if d.tier == "junior"]
-        seniors_all = [d for d in inst.doctors if d.tier == "senior"]
+    # H8 / weekday on-call coverage — Per-OnCallType `daily_required`.
+    # Replaces the legacy weekday_oncall_coverage flag + per-tier H8 exact-1
+    # rules with a single per-type-per-active-day equality. The migration of
+    # pre-Phase-B sessions creates 5 types (oncall_jr, oncall_sr,
+    # weekend_ext_jr, weekend_ext_sr, weekend_consult) so the legacy
+    # "1 jr + 1 sr per night, 1 jr-EXT + 1 sr-EXT per weekend, N consultants"
+    # behaviour is preserved exactly.
+    for t in inst.on_call_types:
+        if t.daily_required <= 0:
+            continue
         for day in range(inst.n_days):
-            if inst.is_weekend(day):
+            if not _day_active_for_type(day, t):
                 continue
-            oc_j = [oncall[(d.id, day)] for d in juniors_all if (d.id, day) in oncall]
-            oc_s = [oncall[(d.id, day)] for d in seniors_all if (d.id, day) in oncall]
-            _exact_one(model, oc_j)
-            _exact_one(model, oc_s)
-
-    # H8 — Weekend coverage.
-    if cfg.h8_weekend_coverage_enabled:
-        for day in range(inst.n_days):
-            if not inst.is_weekend(day):
+            day_vars = [v for (_did, dd), v in oc_vars[t.key].items() if dd == day]
+            if not day_vars:
+                # No eligible doctor available — infeasible on this day.
+                model.Add(1 == 0)
                 continue
-            juniors = [d for d in inst.doctors if d.tier == "junior"]
-            seniors = [d for d in inst.doctors if d.tier == "senior"]
-            ext_j_vars = [ext[(d.id, day)] for d in juniors if (d.id, day) in ext]
-            ext_s_vars = [ext[(d.id, day)] for d in seniors if (d.id, day) in ext]
-            oc_j_vars = [oncall[(d.id, day)] for d in juniors if (d.id, day) in oncall]
-            oc_s_vars = [oncall[(d.id, day)] for d in seniors if (d.id, day) in oncall]
-            _exact_one(model, ext_j_vars)
-            _exact_one(model, ext_s_vars)
-            _exact_one(model, oc_j_vars)
-            _exact_one(model, oc_s_vars)
-            wc_all = [
-                wconsult[(d.id, day)]
-                for d in inst.doctors
-                if d.tier == "consultant" and (d.id, day) in wconsult
-            ]
-            required_consultants = max(0, int(inst.weekend_consultants_required))
-            if required_consultants > 0:
-                if not wc_all:
-                    model.Add(1 == 0)
-                else:
-                    model.Add(sum(wc_all) == required_consultants)
-            # One weekend role at most per junior/senior doctor on a weekend day.
-            for d in juniors + seniors:
-                roles = []
-                if (d.id, day) in ext:
-                    roles.append(ext[(d.id, day)])
-                if (d.id, day) in oncall:
-                    roles.append(oncall[(d.id, day)])
-                if len(roles) >= 2:
-                    model.Add(sum(roles) <= 1)
+            model.Add(sum(day_vars) == t.daily_required)
 
-    # H9 — Day in lieu for weekend extended.
+    # H9 — Day in lieu for weekend-role on-call types.
     if cfg.h9_lieu_day_enabled:
-        ext_to_choices: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
-        for (did, w, side), lv in lieu_choice.items():
-            ext_to_choices[(did, w)].append(lv)
-            model.Add(lv <= ext[(did, w)])
-        for (did, w), ev in ext.items():
-            choices = ext_to_choices.get((did, w), [])
-            if choices:
-                model.Add(sum(choices) == 1).OnlyEnforceIf(ev)
-                model.Add(sum(choices) == 0).OnlyEnforceIf(ev.Not())
-
+        oc_to_choices: dict[tuple[int, int, str], list[cp_model.IntVar]] = defaultdict(list)
+        for (did, w, type_key, _side), lv in lieu_choice.items():
+            oc_to_choices[(did, w, type_key)].append(lv)
+            model.Add(lv <= oc_vars[type_key][(did, w)])
+        for (did, w, type_key), choices in oc_to_choices.items():
+            ev = oc_vars.get(type_key, {}).get((did, w))
+            if ev is None:
+                continue
+            model.Add(sum(choices) == 1).OnlyEnforceIf(ev)
+            model.Add(sum(choices) == 0).OnlyEnforceIf(ev.Not())
         # lieu-day ⇒ no activity that day.
         for (did, day), lt in lieu_taken.items():
-            for v in _activities_on(did, day, assign_by_dday, oncall, ext, wconsult):
+            for v in _activities_on(did, day, assign_by_dday, oc_vars):
                 model.AddImplication(lt, v.Not())
 
     # H10 — Leave: enforced by omitting vars on leave days.
 
-    # H12 — Call blocks (soft-block: doctor can't take on-call that day).
-    # Unlike leave, doesn't prevent station/AM/PM work.
+    # H12 — Call blocks (no on-call across all types that day).
     for did, days in inst.no_oncall.items():
         for day in days:
-            if (did, day) in oncall:
-                model.Add(oncall[(did, day)] == 0)
+            for t in inst.on_call_types:
+                v = oc_vars[t.key].get((did, day))
+                if v is not None:
+                    model.Add(v == 0)
 
     # H13 — Session blocks (doctor opts out of a specific AM or PM on a day).
     for did, per_day in inst.no_session.items():
@@ -561,34 +551,56 @@ def solve(
                 if blocked_vars:
                     model.Add(sum(blocked_vars) == 0)
 
-    # H14 — Per-doctor on-call cap (max_oncalls).
+    # H14 — Per-doctor on-call cap (max_oncalls). Sums across all types.
     for d in inst.doctors:
-        if d.max_oncalls is None or d.tier == "consultant":
+        if d.max_oncalls is None:
             continue
-        doc_oncalls = [oncall[(d.id, day)] for day in range(inst.n_days)
-                       if (d.id, day) in oncall]
+        doc_oncalls: list[cp_model.IntVar] = []
+        for t in inst.on_call_types:
+            for (did, _day), v in oc_vars[t.key].items():
+                if did == d.id:
+                    doc_oncalls.append(v)
         if doc_oncalls:
             model.Add(sum(doc_oncalls) <= int(d.max_oncalls))
 
-    # H15 — Manual overrides (force specific assignments).
+    # H15 — Manual overrides. Phase B accepts:
+    #   role = "STATION"            (with station + sess kwargs)
+    #   role = "ONCALL_<type_key>"  (per-type, post-Phase-B)
+    #   role = "ONCALL" / "EXT" / "WCONSULT"  (legacy back-compat;
+    #           resolved against any type with matching legacy_role_alias).
+    legacy_alias_for: dict[str, str] = {
+        "ONCALL": "ONCALL", "EXT": "WEEKEND_EXT", "WCONSULT": "WEEKEND_CONSULT",
+    }
+    types_by_alias: dict[str, list[str]] = defaultdict(list)
+    for t in inst.on_call_types:
+        if t.legacy_role_alias:
+            types_by_alias[t.legacy_role_alias].append(t.key)
     for override in inst.overrides:
         did, day, station, sess, role = override
         if role == "STATION" and station and sess:
             v = assign.get((did, day, station, sess))
             if v is not None:
                 model.Add(v == 1)
-        elif role == "ONCALL":
-            v = oncall.get((did, day))
+            continue
+        if role.startswith("ONCALL_"):
+            type_key = role[len("ONCALL_"):]
+            v = oc_vars.get(type_key, {}).get((did, day))
             if v is not None:
                 model.Add(v == 1)
-        elif role == "EXT":
-            v = ext.get((did, day))
-            if v is not None:
-                model.Add(v == 1)
-        elif role == "WCONSULT":
-            v = wconsult.get((did, day))
-            if v is not None:
-                model.Add(v == 1)
+            continue
+        legacy_alias = legacy_alias_for.get(role)
+        if legacy_alias is None:
+            continue
+        candidates = [
+            oc_vars[type_key].get((did, day))
+            for type_key in types_by_alias.get(legacy_alias, [])
+        ]
+        candidates = [v for v in candidates if v is not None]
+        if candidates:
+            # Force exactly one type with this alias to fire on this day
+            # for this doctor (matches legacy "ONCALL=1" override semantic
+            # — picks whichever the doctor is eligible for).
+            model.Add(sum(candidates) == 1)
 
     # ----------------------------------------------------------- Soft objective
     penalties: list[cp_model.IntVar | int] = []
@@ -601,19 +613,14 @@ def solve(
     by_doc_assign: dict[int, list[cp_model.IntVar]] = defaultdict(list)
     for (did, _, _, _), v in assign.items():
         by_doc_assign[did].append(v)
+    # Phase B: per-doctor on-call totals span all user-defined types.
     by_doc_oncall: dict[int, list[cp_model.IntVar]] = defaultdict(list)
-    for (did, _), v in oncall.items():
-        by_doc_oncall[did].append(v)
-    by_doc_ext: dict[int, list[cp_model.IntVar]] = defaultdict(list)
-    for (did, _), v in ext.items():
-        by_doc_ext[did].append(v)
-    by_doc_wconsult: dict[int, list[cp_model.IntVar]] = defaultdict(list)
-    for (did, _), v in wconsult.items():
-        by_doc_wconsult[did].append(v)
-    by_doc_weekend_oncall: dict[int, list[cp_model.IntVar]] = defaultdict(list)
-    for (did, day), v in oncall.items():
-        if inst.is_weekend(day):
-            by_doc_weekend_oncall[did].append(v)
+    by_doc_weekend: dict[int, list[cp_model.IntVar]] = defaultdict(list)
+    for t in inst.on_call_types:
+        for (did, day), v in oc_vars[t.key].items():
+            by_doc_oncall[did].append(v)
+            if t.counts_as_weekend_role or inst.is_weekend(day):
+                by_doc_weekend[did].append(v)
 
     # ---- H11 / S5 — mandatory weekday assignment (soft, heavy weight).
     # Per-weekday-per-doctor "idle" indicator: 1 if the doctor is neither
@@ -632,8 +639,11 @@ def solve(
                 if day in leave_days:
                     continue  # excused by H10
                 working = list(assign_by_dday.get((d.id, day), []))
-                if (d.id, day) in oncall:
-                    working.append(oncall[(d.id, day)])
+                # Any on-call type the doctor holds today counts as working.
+                for type_map in oc_vars.values():
+                    v = type_map.get((d.id, day))
+                    if v is not None:
+                        working.append(v)
                 excused: list[cp_model.IntVar] = []
                 if (d.id, day) in post_call:
                     excused.append(post_call[(d.id, day)])
@@ -677,18 +687,14 @@ def solve(
             oncall_count[d.id] = oc
 
             wk = model.NewIntVar(0, 3 * inst.n_days, f"wk_{d.id}")
-            wk_terms = (
-                by_doc_ext.get(d.id, [])
-                + by_doc_weekend_oncall.get(d.id, [])
-                + by_doc_wconsult.get(d.id, [])
-            )
+            wk_terms = by_doc_weekend.get(d.id, [])
             if wk_terms:
                 model.Add(wk == sum(wk_terms))
             else:
                 model.Add(wk == 0)
             weekend_count[d.id] = wk
 
-            # Weighted workload: sum of weighted terms per assignment type.
+            # Weighted workload: sum of weighted terms per assignment.
             wl_terms: list[cp_model.IntVar | int] = []
             for (did, day, _st, sess), v in assign.items():
                 if did != d.id:
@@ -697,19 +703,14 @@ def solve(
                      if inst.is_weekend(day)
                      else workload_weights.weekday_session)
                 wl_terms.append(v * w)
-            for (did, day), v in oncall.items():
-                if did != d.id:
-                    continue
-                w = (workload_weights.weekend_oncall
-                     if inst.is_weekend(day)
-                     else workload_weights.weekday_oncall)
-                wl_terms.append(v * w)
-            for (did, _), v in ext.items():
-                if did == d.id:
-                    wl_terms.append(v * workload_weights.weekend_ext)
-            for (did, _), v in wconsult.items():
-                if did == d.id:
-                    wl_terms.append(v * workload_weights.weekend_consult)
+            # On-call assignments: per-type weight resolution. Types with a
+            # legacy alias map to the matching legacy weight; others fall
+            # back to the weekday/weekend on-call weights.
+            for t in inst.on_call_types:
+                for (did, day), v in oc_vars[t.key].items():
+                    if did != d.id:
+                        continue
+                    wl_terms.append(v * _oncall_weight(t, day, inst, workload_weights))
 
             # Upper bound: worst case every day × highest single-day weight × 2 sessions.
             wl_upper = max(
@@ -774,13 +775,18 @@ def solve(
                 penalties.append(gap * weights.balance_sessions)
                 penalty_components[f"S1_sessions_gap_{tier}"] = (gap, weights.balance_sessions)
 
-            # S2 on-call balance (skip consultants — no oncall for them).
-            if weights.balance_oncall and tier != "consultant":
-                mx = model.NewIntVar(0, inst.n_days, f"mx_o_{tier}")
-                mn = model.NewIntVar(0, inst.n_days, f"mn_o_{tier}")
+            # S2 on-call balance. Phase B: consultants now have on-call
+            # vars (e.g. weekend_consult), so balance applies to all tiers
+            # — but only when at least one doctor in the tier is eligible
+            # for any on-call type.
+            tier_has_oncall = any(by_doc_oncall.get(i) for i in tier_ids)
+            if weights.balance_oncall and tier_has_oncall:
+                oc_max = max(2, inst.n_days * len(inst.on_call_types))
+                mx = model.NewIntVar(0, oc_max, f"mx_o_{tier}")
+                mn = model.NewIntVar(0, oc_max, f"mn_o_{tier}")
                 model.AddMaxEquality(mx, [oncall_count[i] for i in tier_ids])
                 model.AddMinEquality(mn, [oncall_count[i] for i in tier_ids])
-                gap = model.NewIntVar(0, inst.n_days, f"gap_o_{tier}")
+                gap = model.NewIntVar(0, oc_max, f"gap_o_{tier}")
                 model.Add(gap == mx - mn)
                 penalties.append(gap * weights.balance_oncall)
                 penalty_components[f"S2_oncall_gap_{tier}"] = (gap, weights.balance_oncall)
@@ -843,18 +849,22 @@ def solve(
                         for (d, _day, st_name, _sess), v in assign.items():
                             if d == did and st_name == role:
                                 actual_vars.append(v)
-                    elif role == "ONCALL":
-                        for (d, _day), v in oncall.items():
+                    elif role.startswith("ONCALL_"):
+                        # Per-type role preference (post-Phase-B form).
+                        type_key = role[len("ONCALL_"):]
+                        type_map = oc_vars.get(type_key, {})
+                        for (d, _day), v in type_map.items():
                             if d == did:
                                 actual_vars.append(v)
-                    elif role == "WEEKEND_EXT":
-                        for (d, _day), v in ext.items():
-                            if d == did:
-                                actual_vars.append(v)
-                    elif role == "WEEKEND_CONSULT":
-                        for (d, _day), v in wconsult.items():
-                            if d == did:
-                                actual_vars.append(v)
+                    elif role in ("ONCALL", "WEEKEND_EXT", "WEEKEND_CONSULT"):
+                        # Legacy back-compat: aggregate across every type
+                        # whose `legacy_role_alias` matches the literal.
+                        for t in inst.on_call_types:
+                            if t.legacy_role_alias != role:
+                                continue
+                            for (d, _day), v in oc_vars[t.key].items():
+                                if d == did:
+                                    actual_vars.append(v)
                     else:
                         # Unknown role label — skip silently. UI validates.
                         continue
@@ -928,33 +938,65 @@ def solve(
 
     if symmetry_break:
         _apply_symmetry_break(
-            model, inst, by_doc_oncall, by_doc_assign,
-            by_doc_ext, by_doc_wconsult,
+            model, inst, by_doc_oncall, by_doc_assign, by_doc_weekend,
         )
 
     if redundant_aggregates:
-        _apply_redundant_aggregates(model, inst, cfg, by_doc_oncall)
+        _apply_redundant_aggregates(model, inst, by_doc_oncall)
 
     if decision_strategy and decision_strategy != "default":
+        # Flatten oc_vars into a single var list for branching priority.
+        all_oc_vars: dict[tuple[int, int], cp_model.IntVar] = {}
+        for type_map in oc_vars.values():
+            all_oc_vars.update(type_map)
         _apply_decision_strategy(
-            model, decision_strategy, oncall, assign,
+            model, decision_strategy, all_oc_vars, assign,
         )
 
     # --------------------------------------------------------------- Warm start
     if warm_start:
-        for kind, vmap in (("stations", assign), ("oncall", oncall),
-                           ("ext", ext), ("wconsult", wconsult)):
-            hinted = warm_start.get(kind) or {}
-            for key, val in hinted.items():
-                var = vmap.get(key)
-                if var is None:
-                    continue  # instance changed since the hint was recorded
+        # Phase B canonical key: warm_start["oncall_by_type"] = {type_key:
+        # {(d, day): 1, ...}, ...}. Legacy keys "oncall" / "ext" / "wconsult"
+        # are accepted as back-compat: each routes to whichever types share
+        # the matching legacy_role_alias.
+        for key, val in (warm_start.get("stations") or {}).items():
+            var = assign.get(key)
+            if var is not None:
                 try:
                     model.AddHint(var, int(bool(val)))
                 except Exception:
-                    # CP-SAT raises if hints conflict with earlier hints for
-                    # the same var; ignore and let the solver search freely.
+                    pass
+        oct_by_alias: dict[str, list[str]] = defaultdict(list)
+        for t in inst.on_call_types:
+            if t.legacy_role_alias:
+                oct_by_alias[t.legacy_role_alias].append(t.key)
+        for type_key, hinted in (warm_start.get("oncall_by_type") or {}).items():
+            type_map = oc_vars.get(type_key, {})
+            for k, val in hinted.items():
+                var = type_map.get(k)
+                if var is None:
                     continue
+                try:
+                    model.AddHint(var, int(bool(val)))
+                except Exception:
+                    continue
+        for legacy_key, alias in (("oncall", "ONCALL"), ("ext", "WEEKEND_EXT"),
+                                  ("wconsult", "WEEKEND_CONSULT")):
+            hinted = warm_start.get(legacy_key) or {}
+            if not hinted:
+                continue
+            keys_for_alias = oct_by_alias.get(alias, [])
+            for k, val in hinted.items():
+                # Try each candidate type; first one that has the var wins.
+                for type_key in keys_for_alias:
+                    var = oc_vars.get(type_key, {}).get(k)
+                    if var is None:
+                        continue
+                    try:
+                        model.AddHint(var, int(bool(val)))
+                    except Exception:
+                        pass
+                    break
 
     # --------------------------------------------------------------- Solve
     solver = cp_model.CpSolver()
@@ -1008,12 +1050,12 @@ def solve(
     t0 = time.perf_counter()
     snapshot_maps = None
     if snapshot_assignments:
-        snapshot_maps = {
-            "stations": assign,
-            "oncall": oncall,
-            "ext": ext,
-            "wconsult": wconsult,
-        }
+        # Phase B: snapshot every type's vars so the WebSocket stream can
+        # surface partial assignments per type. The IntermediateLogger
+        # walks this dict-of-dicts and emits a flat snapshot.
+        snapshot_maps = {"stations": assign}
+        for t in inst.on_call_types:
+            snapshot_maps[f"oncall_by_type::{t.key}"] = oc_vars[t.key]
     if not feasibility_only:
         logger = _IntermediateLogger(
             t0, _dispatch, penalty_components, snapshot_maps,
@@ -1065,30 +1107,69 @@ def solve(
     )
 
     if has_solution:
+        oncall_by_type: dict[str, dict[tuple[int, int], int]] = {}
+        for t in inst.on_call_types:
+            picked = {k: solver.Value(v) for k, v in oc_vars[t.key].items() if solver.Value(v)}
+            oncall_by_type[t.key] = picked
+        # Phase B canonical: `oncall_by_type` keyed by type_key. Legacy
+        # back-compat views `oncall` / `ext` / `wconsult` aggregate across
+        # types whose `legacy_role_alias` matches; this lets downstream
+        # consumers (assignments_to_rows, fairness, coverage, baselines)
+        # keep working with the legacy three keys until they're updated.
         result.assignments = {
             "stations": {k: solver.Value(v) for k, v in assign.items() if solver.Value(v)},
-            "oncall":   {k: solver.Value(v) for k, v in oncall.items() if solver.Value(v)},
-            "ext":      {k: solver.Value(v) for k, v in ext.items() if solver.Value(v)},
-            "wconsult": {k: solver.Value(v) for k, v in wconsult.items() if solver.Value(v)},
+            "oncall_by_type": oncall_by_type,
+            "oncall": {},
+            "ext": {},
+            "wconsult": {},
         }
+        for t in inst.on_call_types:
+            target = {
+                "ONCALL": "oncall",
+                "WEEKEND_EXT": "ext",
+                "WEEKEND_CONSULT": "wconsult",
+            }.get(t.legacy_role_alias or "")
+            if target is None:
+                continue
+            for k, v in oncall_by_type[t.key].items():
+                if v:
+                    result.assignments[target][k] = v
     return result
+
+
+def _oncall_weight(
+    t: OnCallType,
+    day: int,
+    inst: Instance,
+    w: WorkloadWeights,
+) -> int:
+    """Per-day workload weight for an on-call type assignment. Maps the
+    legacy role aliases to their existing per-role weights so old
+    scenarios produce identical S0 contributions; new user-defined types
+    fall back to the standard weekday/weekend on-call weights."""
+    is_we = inst.is_weekend(day)
+    alias = t.legacy_role_alias
+    if alias == "WEEKEND_EXT":
+        return w.weekend_ext
+    if alias == "WEEKEND_CONSULT":
+        return w.weekend_consult
+    return w.weekend_oncall if is_we else w.weekday_oncall
 
 
 def _activities_on(
     did: int,
     day: int,
     assign_by_dday: dict[tuple[int, int], list[cp_model.IntVar]],
-    oncall: dict[tuple[int, int], cp_model.IntVar],
-    ext: dict[tuple[int, int], cp_model.IntVar],
-    wconsult: dict[tuple[int, int], cp_model.IntVar],
+    oc_vars: dict[str, dict[tuple[int, int], cp_model.IntVar]],
 ) -> list[cp_model.IntVar]:
+    """All vars representing activity for a (doctor, day): station + every
+    on-call type the doctor could hold. Used by H5/H9 to force a no-work
+    day, and by the day-0 prev_oncall seed."""
     out: list[cp_model.IntVar] = list(assign_by_dday.get((did, day), []))
-    if (did, day) in oncall:
-        out.append(oncall[(did, day)])
-    if (did, day) in ext:
-        out.append(ext[(did, day)])
-    if (did, day) in wconsult:
-        out.append(wconsult[(did, day)])
+    for type_map in oc_vars.values():
+        v = type_map.get((did, day))
+        if v is not None:
+            out.append(v)
     return out
 
 
@@ -1121,6 +1202,7 @@ def _doctor_signature(
     return (
         doctor.tier,
         tuple(sorted(doctor.eligible_stations)),
+        tuple(sorted(doctor.eligible_oncall_types)),
         float(doctor.fte),
         -1 if doctor.max_oncalls is None else int(doctor.max_oncalls),
         int(inst.prev_workload.get(doctor.id, 0)),
@@ -1142,52 +1224,30 @@ def _apply_symmetry_break(
     inst: Instance,
     by_doc_oncall: dict[int, list[cp_model.IntVar]],
     by_doc_assign: dict[int, list[cp_model.IntVar]],
-    by_doc_ext: dict[int, list[cp_model.IntVar]],
-    by_doc_wconsult: dict[int, list[cp_model.IntVar]],
+    by_doc_weekend: dict[int, list[cp_model.IntVar]],
 ) -> None:
     """Kill doctor-level symmetry by ordering interchangeable peers.
 
-    Two doctors with the same input signature are literally
-    interchangeable: any solution with assignments (a=A, b=B) has an
-    equally-good twin with (a=B, b=A). CP-SAT would otherwise explore
-    both orderings and waste search budget.
-
-    Correctness trap avoided: using independent `oc_a >= oc_b AND
-    st_a >= st_b AND ...` constraints excludes feasible solutions
-    where doctor a has more on-calls but fewer sessions than b (and
-    vice-versa in the swapped version). We therefore collapse the
-    four counters into a single lex-order key using a weighting
-    scheme where each term dominates the next: total =
-    W0·oncall + W1·station + W2·ext + W3·wconsult, with Wi chosen so
-    Wi > max_possible(next_term_slack). This enforces lexicographic
-    dominance without excluding any feasible-up-to-swap solution.
+    Phase B: collapses the legacy four-counter lex key (oncall, station,
+    ext, wconsult) into three counters (oncall-total across types,
+    station, weekend-role-total). Behaviour is the same — interchangeable
+    doctors get a stable lex order — but the counters are computed off
+    the generic per-type aggregators.
     """
     from collections import defaultdict as _defaultdict
 
     groups: dict[tuple, list] = _defaultdict(list)
     for doctor in inst.doctors:
-        # Overrides pin specific doctors to specific assignments, so a
-        # doctor named in an override is no longer interchangeable.
         is_overridden = any(o[0] == doctor.id for o in inst.overrides)
         if is_overridden:
             continue
         groups[_doctor_signature(doctor, inst)].append(doctor)
 
-    # Weights for the lex-order key. Each Wi must strictly exceed the
-    # max possible value of the lower-priority weighted sum so ties
-    # propagate correctly.
-    #
-    # Upper bounds:
-    #   oncall per doctor    ≤ n_days
-    #   station per doctor   ≤ 2 * n_days (AM + PM every day)
-    #   ext per doctor       ≤ 2 (Sat + Sun)
-    #   wconsult per doctor  ≤ 2 (Sat + Sun)
-    # Worst-case horizon is 31 so ext/wconsult bounds are tiny.
-    max_wc_plus_one = 3
-    max_ext_weighted = 2 + 1
-    w_ext = max_wc_plus_one
-    w_st = w_ext * (max_ext_weighted)
-    # station upper bound per doctor.
+    # Lex-key weights. weekend ≤ 2 * len(types) per doctor (each type can
+    # fire at most once per weekend day; we cap with a generous bound).
+    max_weekend_plus_one = 2 * inst.n_days + 1
+    w_we = 1
+    w_st = max_weekend_plus_one
     max_st_plus_one = 2 * inst.n_days + 1
     w_oc = w_st * max_st_plus_one
 
@@ -1199,23 +1259,17 @@ def _apply_symmetry_break(
             key_a = (
                 w_oc * sum(by_doc_oncall.get(a.id, []) or [0])
                 + w_st * sum(by_doc_assign.get(a.id, []) or [0])
-                + w_ext * sum(by_doc_ext.get(a.id, []) or [0])
-                + sum(by_doc_wconsult.get(a.id, []) or [0])
+                + w_we * sum(by_doc_weekend.get(a.id, []) or [0])
             )
             key_b = (
                 w_oc * sum(by_doc_oncall.get(b.id, []) or [0])
                 + w_st * sum(by_doc_assign.get(b.id, []) or [0])
-                + w_ext * sum(by_doc_ext.get(b.id, []) or [0])
-                + sum(by_doc_wconsult.get(b.id, []) or [0])
+                + w_we * sum(by_doc_weekend.get(b.id, []) or [0])
             )
-            # If both sides are integer zero (no vars at all), the
-            # expression collapses to a trivial 0 >= 0 which CP-SAT
-            # rejects. Guard against that.
             has_any = (
                 by_doc_oncall.get(a.id) or by_doc_oncall.get(b.id)
                 or by_doc_assign.get(a.id) or by_doc_assign.get(b.id)
-                or by_doc_ext.get(a.id) or by_doc_ext.get(b.id)
-                or by_doc_wconsult.get(a.id) or by_doc_wconsult.get(b.id)
+                or by_doc_weekend.get(a.id) or by_doc_weekend.get(b.id)
             )
             if has_any:
                 model.Add(key_a >= key_b)
@@ -1224,32 +1278,37 @@ def _apply_symmetry_break(
 def _apply_redundant_aggregates(
     model: cp_model.CpModel,
     inst: Instance,
-    cfg: "ConstraintConfig",
     by_doc_oncall: dict[int, list[cp_model.IntVar]],
 ) -> None:
     """Add redundant tier-level aggregate lower bounds.
 
-    H8 (weekend coverage) and `weekday_oncall_coverage` together pin a
-    lower bound on the number of on-calls per tier over the horizon.
-    H11 can motivate extras — a weekday doctor with nothing else to do
-    can be put on-call rather than pay the idle-weekday penalty — so
-    the aggregate is a `≥` floor, not an equality.
-
-    The LP relaxation already implies this, but materialising it as a
-    single per-tier sum gives CP-SAT a tighter dual bound in practice.
+    Phase B: each on-call type's `daily_required` × number-of-active-days
+    pins a lower bound on total assignments of that type. Sum across
+    types — restricted to types whose `eligible_tiers` includes a given
+    tier — gives a per-tier floor. Materialising it as a single sum
+    yields a tighter LP dual bound for CP-SAT.
     """
-    weekend_days = sum(1 for day in range(inst.n_days) if inst.is_weekend(day))
-    weekday_days = inst.n_days - weekend_days
+    floor_per_tier: dict[str, int] = {}
+    for t in inst.on_call_types:
+        if t.daily_required <= 0:
+            continue
+        # Count days where the type is active.
+        active_days = 0
+        for day in range(inst.n_days):
+            wd = inst.weekday_of(day)
+            if wd in t.days_active:
+                active_days += 1
+            elif day in inst.public_holidays and (5 in t.days_active or 6 in t.days_active):
+                active_days += 1
+        type_floor = active_days * t.daily_required
+        if type_floor <= 0:
+            continue
+        for tier in t.eligible_tiers:
+            floor_per_tier[tier] = floor_per_tier.get(tier, 0) + type_floor
 
-    weekend_floor = weekend_days if cfg.h8_weekend_coverage_enabled else 0
-    weekday_floor = (
-        weekday_days if cfg.weekday_oncall_coverage_enabled else 0
-    )
-    floor_demand = weekend_floor + weekday_floor
-    if floor_demand <= 0:
-        return
-
-    for tier in ("junior", "senior"):
+    for tier, floor_demand in floor_per_tier.items():
+        if floor_demand <= 0:
+            continue
         tier_vars: list[cp_model.IntVar] = []
         for d in inst.doctors:
             if d.tier != tier:

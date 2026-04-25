@@ -1,4 +1,4 @@
-schema_version: 2
+schema_version: 3
 horizon:
   start_date: '2026-04-27'
   n_days: 7
@@ -7,131 +7,157 @@ doctors:
 - name: SHO1
   tier: junior
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: SHO2
   tier: junior
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: SHO3
   tier: junior
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: SHO4
   tier: junior
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: SHO5
   tier: junior
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: SHO6
   tier: junior
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: SHO7
   tier: junior
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: SHO8
   tier: junior
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: SHO9
   tier: junior
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: SHO10
   tier: junior
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: oncall_jr,weekend_ext_jr
   prev_workload: 0
   fte: 1.0
 - name: ED-R1
   tier: senior
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: oncall_sr,weekend_ext_sr
   prev_workload: 0
   fte: 1.0
 - name: ED-R2
   tier: senior
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: oncall_sr,weekend_ext_sr
   prev_workload: 0
   fte: 1.0
 - name: ED-R3
   tier: senior
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: oncall_sr,weekend_ext_sr
   prev_workload: 0
   fte: 1.0
 - name: ED-R4
   tier: senior
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: oncall_sr,weekend_ext_sr
   prev_workload: 0
   fte: 1.0
 - name: ED-R5
   tier: senior
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: oncall_sr,weekend_ext_sr
   prev_workload: 0
   fte: 1.0
 - name: ED-R6
   tier: senior
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: oncall_sr,weekend_ext_sr
   prev_workload: 0
   fte: 1.0
 - name: ED-R7
   tier: senior
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: oncall_sr,weekend_ext_sr
   prev_workload: 0
   fte: 1.0
 - name: ED-R8
   tier: senior
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: oncall_sr,weekend_ext_sr
   prev_workload: 0
   fte: 1.0
 - name: Dr ED1
   tier: consultant
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: Dr ED2
   tier: consultant
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: Dr ED3
   tier: consultant
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: Dr ED4
   tier: consultant
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: Dr Traum1
   tier: consultant
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: Dr Traum2
   tier: consultant
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: Dr ED5
   tier: consultant
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 - name: Dr Traum3
   tier: consultant
   eligible_stations: MAJORS,MINORS,RESUS,TRIAGE,PAEDS_ED
+  eligible_oncall_types: weekend_consult
   prev_workload: 0
   fte: 1.0
 stations:
@@ -173,6 +199,102 @@ stations:
 blocks: []
 overrides: []
 role_preferences: []
+on_call_types:
+- key: oncall_jr
+  label: Night call (junior)
+  start_hour: 20
+  end_hour: 8
+  days_active:
+  - Mon
+  - Tue
+  - Wed
+  - Thu
+  - Fri
+  - Sat
+  - Sun
+  eligible_tiers:
+  - junior
+  daily_required: 1
+  post_shift_rest_hours: 11
+  next_day_off: true
+  frequency_cap_days: 3
+  counts_as_weekend_role: false
+  works_full_day: false
+  works_pm_only: true
+  legacy_role_alias: ONCALL
+- key: oncall_sr
+  label: Night call (senior)
+  start_hour: 20
+  end_hour: 8
+  days_active:
+  - Mon
+  - Tue
+  - Wed
+  - Thu
+  - Fri
+  - Sat
+  - Sun
+  eligible_tiers:
+  - senior
+  daily_required: 1
+  post_shift_rest_hours: 11
+  next_day_off: true
+  frequency_cap_days: 3
+  counts_as_weekend_role: false
+  works_full_day: true
+  works_pm_only: false
+  legacy_role_alias: ONCALL
+- key: weekend_ext_jr
+  label: Weekend extended (junior)
+  start_hour: 8
+  end_hour: 20
+  days_active:
+  - Sat
+  - Sun
+  eligible_tiers:
+  - junior
+  daily_required: 1
+  post_shift_rest_hours: 11
+  next_day_off: false
+  frequency_cap_days: null
+  counts_as_weekend_role: true
+  works_full_day: false
+  works_pm_only: false
+  legacy_role_alias: WEEKEND_EXT
+- key: weekend_ext_sr
+  label: Weekend extended (senior)
+  start_hour: 8
+  end_hour: 20
+  days_active:
+  - Sat
+  - Sun
+  eligible_tiers:
+  - senior
+  daily_required: 1
+  post_shift_rest_hours: 11
+  next_day_off: false
+  frequency_cap_days: null
+  counts_as_weekend_role: true
+  works_full_day: false
+  works_pm_only: false
+  legacy_role_alias: WEEKEND_EXT
+- key: weekend_consult
+  label: Weekend consultant
+  start_hour: 8
+  end_hour: 17
+  days_active:
+  - Sat
+  - Sun
+  eligible_tiers:
+  - consultant
+  daily_required: 1
+  post_shift_rest_hours: 11
+  next_day_off: false
+  frequency_cap_days: null
+  counts_as_weekend_role: true
+  works_full_day: false
+  works_pm_only: false
+  legacy_role_alias: WEEKEND_CONSULT
 tier_labels:
   junior: Junior
   senior: Senior
@@ -209,16 +331,9 @@ hours:
   weekend_ext: 12.0
   weekend_consult: 10.0
 constraints:
-  h4_enabled: true
-  h4_gap: 3
   h5_enabled: true
-  h6_enabled: true
-  h7_enabled: true
-  h8_enabled: true
   h9_enabled: true
   h11_enabled: true
-  weekday_oncall_coverage: true
-  weekend_consultants_required: 1
 solver:
   time_limit: 30
   num_workers: 8

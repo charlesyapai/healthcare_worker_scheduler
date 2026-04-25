@@ -28,6 +28,7 @@ from api.models.session import (  # noqa: E402
     DoctorEntry,
     Horizon,
     Hours,
+    OnCallType,
     SessionState,
     ShiftLabels,
     StationEntry,
@@ -56,6 +57,9 @@ class _RotaPreset:
     # Sundays. Phase A: stamped onto each station's `weekend_enabled` flag
     # (replacing the dropped global `weekend_am_pm` constraint).
     weekend_am_pm: bool
+    # Phase B: per-OnCallType days_active replaces this. The flag still
+    # lives on the preset so `_apply_preset` can decide whether to enable
+    # the legacy 5-default-types' weekday on-call.
     weekday_oncall_coverage: bool
 
 
@@ -135,23 +139,133 @@ ROTA_PRESETS: dict[RotaPresetKey, _RotaPreset] = {
 }
 
 
+def _legacy_oncall_types(
+    *,
+    weekday_oncall: bool,
+    weekend_h8: bool = True,
+    weekend_consultants_required: int = 1,
+) -> list[OnCallType]:
+    """Phase B: synthesize the 5 legacy default on-call types as Pydantic
+    OnCallType entries. Mirrors `scheduler.instance.default_on_call_types`
+    but emits the `OnCallType` Pydantic model used by the scenario
+    pipeline."""
+    night_days: list[str] = []
+    if weekday_oncall:
+        night_days.extend(["Mon", "Tue", "Wed", "Thu", "Fri"])
+    if weekend_h8:
+        night_days.extend(["Sat", "Sun"])
+    weekend_days = ["Sat", "Sun"] if weekend_h8 else []
+    types: list[OnCallType] = []
+    if night_days:
+        types.append(OnCallType.model_validate({
+            "key": "oncall_jr",
+            "label": "Night call (junior)",
+            "start_hour": 20, "end_hour": 8,
+            "days_active": night_days,
+            "eligible_tiers": ["junior"],
+            "daily_required": 1,
+            "next_day_off": True, "frequency_cap_days": 3,
+            "counts_as_weekend_role": False,
+            "works_full_day": False, "works_pm_only": True,
+            "legacy_role_alias": "ONCALL",
+        }))
+        types.append(OnCallType.model_validate({
+            "key": "oncall_sr",
+            "label": "Night call (senior)",
+            "start_hour": 20, "end_hour": 8,
+            "days_active": night_days,
+            "eligible_tiers": ["senior"],
+            "daily_required": 1,
+            "next_day_off": True, "frequency_cap_days": 3,
+            "counts_as_weekend_role": False,
+            "works_full_day": True, "works_pm_only": False,
+            "legacy_role_alias": "ONCALL",
+        }))
+    if weekend_days:
+        types.append(OnCallType.model_validate({
+            "key": "weekend_ext_jr",
+            "label": "Weekend extended (junior)",
+            "start_hour": 8, "end_hour": 20,
+            "days_active": weekend_days,
+            "eligible_tiers": ["junior"],
+            "daily_required": 1,
+            "next_day_off": False, "frequency_cap_days": None,
+            "counts_as_weekend_role": True,
+            "legacy_role_alias": "WEEKEND_EXT",
+        }))
+        types.append(OnCallType.model_validate({
+            "key": "weekend_ext_sr",
+            "label": "Weekend extended (senior)",
+            "start_hour": 8, "end_hour": 20,
+            "days_active": weekend_days,
+            "eligible_tiers": ["senior"],
+            "daily_required": 1,
+            "next_day_off": False, "frequency_cap_days": None,
+            "counts_as_weekend_role": True,
+            "legacy_role_alias": "WEEKEND_EXT",
+        }))
+        if weekend_consultants_required > 0:
+            types.append(OnCallType.model_validate({
+                "key": "weekend_consult",
+                "label": "Weekend consultant",
+                "start_hour": 8, "end_hour": 17,
+                "days_active": weekend_days,
+                "eligible_tiers": ["consultant"],
+                "daily_required": int(weekend_consultants_required),
+                "next_day_off": False, "frequency_cap_days": None,
+                "counts_as_weekend_role": True,
+                "legacy_role_alias": "WEEKEND_CONSULT",
+            }))
+    return types
+
+
+def _eligible_oncall_keys_for_tier(tier: str, types: list[OnCallType]) -> list[str]:
+    return [t.key for t in types if tier in t.eligible_tiers]
+
+
 def _apply_preset(state: SessionState, preset_key: RotaPresetKey) -> SessionState:
     """Stamp the rota preset's labels + hours onto a scenario's
     SessionState. Presets also carry an opinion on whether AM/PM stations
-    run on weekends — Phase A pushes that down to each station's
-    `weekend_enabled` flag (the old global `constraints.weekend_am_pm`
-    was dropped). Weekday on-call coverage is NOT touched — that's a
-    scenario-level clinical choice (clinic_week disables it because
-    clinics don't run nights; every other scenario keeps it)."""
+    run on weekends (per-station weekend_enabled, Phase A) and whether
+    weekday on-call coverage is required (Phase B: encoded as days_active
+    on the migrated default on-call types). Scenarios may override the
+    on-call types or constraints before the preset is applied; if they
+    do, we preserve their explicit choice."""
     p = ROTA_PRESETS[preset_key]
     new_stations = [
         s.model_copy(update={"weekend_enabled": p.weekend_am_pm})
         for s in state.stations
     ]
+    # If the scenario already explicitly set on_call_types, leave them.
+    if state.on_call_types:
+        on_call_types = state.on_call_types
+    else:
+        on_call_types = _legacy_oncall_types(
+            weekday_oncall=p.weekday_oncall_coverage,
+            weekend_h8=True,
+        )
+    # Populate per-doctor `eligible_oncall_types` if missing. We only
+    # backfill — preserving any per-doctor list the scenario set.
+    eligible_for = {
+        tier: _eligible_oncall_keys_for_tier(tier, on_call_types)
+        for tier in ("junior", "senior", "consultant")
+    }
+    new_doctors = [
+        d.model_copy(update={
+            "eligible_oncall_types": (
+                d.eligible_oncall_types
+                if d.eligible_oncall_types
+                else eligible_for.get(d.tier, [])
+            ),
+        })
+        for d in state.doctors
+    ]
     return state.model_copy(update={
         "shift_labels": p.labels,
         "hours": p.hours,
         "stations": new_stations,
+        "on_call_types": on_call_types,
+        "doctors": new_doctors,
     })
 from api.sessions import (  # noqa: E402
     session_to_instance,
@@ -530,18 +644,15 @@ def clinic_week() -> SessionState:
                      eligible_tiers=["junior", "senior", "consultant"], is_reporting=False),
     ]
 
-    # Weekday-only clinic: disable weekend H8 and the weekday-on-call
-    # rule. H4–H7 / H9 are still on by default but become no-ops once
-    # no on-call exists.
-    constraints = ConstraintsConfig(
-        h8_enabled=False,
-        weekday_oncall_coverage=False,
-    )
-
+    # Weekday-only clinic: no on-call types at all (disables both weekend
+    # H8 and weekday on-call coverage in one go). The Phase B equivalent
+    # of the legacy `h8_enabled=False, weekday_oncall_coverage=False`
+    # combo is simply an empty `on_call_types` list — the scenario-level
+    # `_apply_preset` honours that explicit choice.
     return SessionState(
         horizon=Horizon(start_date=_monday(), n_days=7, public_holidays=[]),
         doctors=doctors, stations=stations,
-        constraints=constraints,
+        on_call_types=[],
     )
 
 
@@ -789,7 +900,10 @@ def icu_two_weeks() -> SessionState:
     spreads fatigue evenly over the fortnight.
     """
     juniors = [f"ICU-R{i+1}" for i in range(6)]
-    seniors = [f"ICU-F{i+1}" for i in range(4)]
+    # 5 seniors (was 4 pre-Phase-B): the per-OnCallType H4 1-in-3 cap +
+    # H9 weekend lieu day requires a slightly bigger senior bench than
+    # the legacy fixture had.
+    seniors = [f"ICU-F{i+1}" for i in range(5)]
     consultants = [
         ("Dr Crit1", "ICU"), ("Dr Crit2", "ICU"),
         ("Dr Crit3", "ICU"), ("Dr Crit4", "ICU"),
