@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/numberInput";
 import { cn } from "@/lib/utils";
 
 /** Pick a horizon by dragging across the calendar. Click any day that
@@ -84,16 +85,11 @@ export function When() {
               <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
                 Number of days
               </span>
-              <Input
-                type="number"
+              <NumberInput
                 min={1}
                 max={90}
                 value={horizon.n_days ?? 21}
-                onChange={(e) =>
-                  setHorizon({
-                    n_days: Math.max(1, Math.min(90, Number(e.target.value))),
-                  })
-                }
+                onChange={(v) => setHorizon({ n_days: v })}
               />
             </label>
             <div className="flex flex-col gap-1">

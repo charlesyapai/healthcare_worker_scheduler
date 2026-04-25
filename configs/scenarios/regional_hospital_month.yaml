@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 horizon:
   start_date: '2026-04-27'
   n_days: 28
@@ -7,182 +7,152 @@ horizon:
 doctors:
 - name: J01
   tier: junior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 0.5
 - name: J02
   tier: junior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: J03
   tier: junior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: J04
   tier: junior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: J05
   tier: junior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: J06
   tier: junior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: J07
   tier: junior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: J08
   tier: junior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: S01
   tier: senior
-  subspec: ''
   eligible_stations: CT,MR,US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
   max_oncalls: 3.0
 - name: S02
   tier: senior
-  subspec: ''
   eligible_stations: CT,MR,US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: S03
   tier: senior
-  subspec: ''
   eligible_stations: CT,MR,US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: S04
   tier: senior
-  subspec: ''
   eligible_stations: CT,MR,US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: S05
   tier: senior
-  subspec: ''
   eligible_stations: CT,MR,US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: S06
   tier: senior
-  subspec: ''
   eligible_stations: CT,MR,US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: C01
   tier: consultant
-  subspec: Neuro
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C02
   tier: consultant
-  subspec: Body
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C03
   tier: consultant
-  subspec: MSK
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C04
   tier: consultant
-  subspec: Neuro
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C05
   tier: consultant
-  subspec: Body
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C06
   tier: consultant
-  subspec: MSK
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C07
   tier: consultant
-  subspec: Neuro
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C08
   tier: consultant
-  subspec: Body
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C09
   tier: consultant
-  subspec: MSK
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C10
   tier: consultant
-  subspec: Neuro
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C11
   tier: consultant
-  subspec: Body
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C12
   tier: consultant
-  subspec: MSK
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C13
   tier: consultant
-  subspec: Neuro
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C14
   tier: consultant
-  subspec: Body
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C15
   tier: consultant
-  subspec: MSK
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: C16
   tier: consultant
-  subspec: Neuro
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
@@ -192,41 +162,57 @@ stations:
   required_per_session: 2
   eligible_tiers: senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: MR
   sessions: AM,PM
   required_per_session: 2
   eligible_tiers: senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: US
   sessions: AM,PM
   required_per_session: 3
   eligible_tiers: junior,senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: XR_REPORT
   sessions: AM,PM
   required_per_session: 3
   eligible_tiers: junior,senior,consultant
   is_reporting: true
+  weekday_enabled: true
+  weekend_enabled: false
 - name: IR
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: FLUORO
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: GEN_AM
   sessions: AM
   required_per_session: 2
   eligible_tiers: junior,senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: GEN_PM
   sessions: PM
   required_per_session: 2
   eligible_tiers: junior,senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 blocks:
 - doctor: J02
   date: '2026-04-30'
@@ -269,6 +255,7 @@ blocks:
   date: '2026-05-11'
   type: Prefer AM
 overrides: []
+role_preferences: []
 tier_labels:
   junior: Junior
   senior: Senior
@@ -280,10 +267,6 @@ shift_labels:
   oncall: "Night call 20:00\u201308:00"
   weekend_ext: Weekend extended
   weekend_consult: Weekend consultant
-subspecs:
-- Neuro
-- Body
-- MSK
 soft_weights:
   workload: 40
   sessions: 5
@@ -317,8 +300,8 @@ constraints:
   h8_enabled: true
   h9_enabled: true
   h11_enabled: true
-  weekend_am_pm: false
   weekday_oncall_coverage: true
+  weekend_consultants_required: 1
 solver:
   time_limit: 30
   num_workers: 8

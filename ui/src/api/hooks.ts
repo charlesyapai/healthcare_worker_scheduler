@@ -204,7 +204,6 @@ export interface TierSummary {
 export interface PerDoctorFairness {
   doctor: string;
   tier: string;
-  subspec: string | null;
   fte: number;
   weighted_workload: number;
   oncall_workload: number;
@@ -215,18 +214,12 @@ export interface PerDoctorFairness {
   delta_from_median: number;
 }
 
-export interface SubspecParity {
-  subspecs: Record<string, { n: number; mean: number; min: number; max: number }>;
-  range: number;
-}
-
 export interface FairnessPayload {
   tier_order: string[];
   per_tier: Record<string, TierSummary>;
   per_tier_oncall: Record<string, TierSummary>;
   per_individual: PerDoctorFairness[];
   dow_load: Record<string, Record<string, number>>;
-  subspec_parity: SubspecParity;
   horizon_days: number;
 }
 

@@ -120,7 +120,6 @@ def session_to_v1_dict(state: SessionState) -> dict[str, Any]:
         {
             "name": d.name,
             "tier": d.tier,
-            "subspec": d.subspec or "",
             "eligible_stations": ",".join(d.eligible_stations),
             "prev_workload": d.prev_workload,
             "fte": d.fte,
@@ -136,6 +135,8 @@ def session_to_v1_dict(state: SessionState) -> dict[str, Any]:
             "required_per_session": s.required_per_session,
             "eligible_tiers": ",".join(s.eligible_tiers),
             "is_reporting": s.is_reporting,
+            "weekday_enabled": s.weekday_enabled,
+            "weekend_enabled": s.weekend_enabled,
         }
         for s in state.stations
     ]) if state.stations else pd.DataFrame()
@@ -176,7 +177,6 @@ def session_to_v1_dict(state: SessionState) -> dict[str, Any]:
         "role_prefs_df": role_prefs_df,
         "tier_labels": state.tier_labels.model_dump(),
         "shift_labels": state.shift_labels.model_dump(),
-        "subspecs": list(state.subspecs),
         # Flat soft weights — keys match what dump_state reads.
         "w_workload": state.soft_weights.workload,
         "w_sessions": state.soft_weights.sessions,
@@ -210,8 +210,8 @@ def session_to_v1_dict(state: SessionState) -> dict[str, Any]:
         "h8_enabled": state.constraints.h8_enabled,
         "h9_enabled": state.constraints.h9_enabled,
         "h11_enabled": state.constraints.h11_enabled,
-        "weekend_am_pm": state.constraints.weekend_am_pm,
         "weekday_oncall_coverage": state.constraints.weekday_oncall_coverage,
+        "weekend_consultants_required": state.constraints.weekend_consultants_required,
         # Solver.
         "time_limit": state.solver.time_limit,
         "num_workers": state.solver.num_workers,
@@ -267,8 +267,6 @@ def v1_dict_to_session(update: dict[str, Any], base: SessionState | None = None)
         data["tier_labels"].update(update["tier_labels"])
     if "shift_labels" in update and isinstance(update["shift_labels"], dict):
         data["shift_labels"].update(update["shift_labels"])
-    if "subspecs" in update:
-        data["subspecs"] = list(update["subspecs"])
 
     flat_to_nested: dict[str, tuple[str, str]] = {
         "w_workload": ("soft_weights", "workload"),
@@ -300,8 +298,8 @@ def v1_dict_to_session(update: dict[str, Any], base: SessionState | None = None)
         "h8_enabled": ("constraints", "h8_enabled"),
         "h9_enabled": ("constraints", "h9_enabled"),
         "h11_enabled": ("constraints", "h11_enabled"),
-        "weekend_am_pm": ("constraints", "weekend_am_pm"),
         "weekday_oncall_coverage": ("constraints", "weekday_oncall_coverage"),
+        "weekend_consultants_required": ("constraints", "weekend_consultants_required"),
         "time_limit": ("solver", "time_limit"),
         "num_workers": ("solver", "num_workers"),
         "feasibility_only": ("solver", "feasibility_only"),
@@ -348,11 +346,10 @@ def session_to_instance(state: SessionState) -> Instance:
         doctors_df=v1["doctors_df"],
         stations_df=v1["stations_df"],
         public_holidays=list(state.horizon.public_holidays),
-        weekend_am_pm_enabled=state.constraints.weekend_am_pm,
         block_entries=block_entries,
         override_entries=override_entries,
         role_preference_entries=role_preference_entries,
-        subspecs=list(state.subspecs),
+        weekend_consultants_required=state.constraints.weekend_consultants_required,
     )
 
 

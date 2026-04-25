@@ -1,8 +1,9 @@
 # Scheduling Constraints — Single Source of Truth
 
-Status: **v0.5** — H11 soft constraint added; all H-rules toggleable; weighted
-workload model with prior-period carry-in.
-Last updated: 2026-04-20.
+Status: **v0.6** — Phase A revamp landed (subspec system removed, tier
+no longer locks station eligibility, per-station weekday/weekend toggles,
+configurable weekend-consultant count).
+Last updated: 2026-04-26.
 
 This document is the authoritative specification for the CP-SAT model. If the
 model and this doc disagree, this doc is wrong — file a changelog entry and
@@ -14,21 +15,23 @@ update it.
 |---|---|
 | Horizon | 28–31 consecutive days. Day 0 is a known weekday (Mon=0 … Sun=6). |
 | Doctor tier | `junior`, `senior`, `consultant`. Each doctor has exactly one tier. |
-| Subspec | Each **consultant** has exactly one of 3 subspecs: `A`, `B`, `C`. Juniors and seniors have `None`. |
-| Station | Named workstation (e.g. `CT`, `MR`, `US`, `XR_REPORT`, `IR`, `FLUORO`, `GEN_AM`, `GEN_PM`). Each station has a session mask (AM, PM, or both) and a required headcount per active session. |
-| Session | `AM`, `PM`, `NIGHT`. |
+| Station | Named workstation (e.g. `CT`, `MR`, `US`, `XR_REPORT`, `IR`, `FLUORO`, `GEN_AM`, `GEN_PM`). Each station has a session mask (AM, PM, or FULL_DAY), a required headcount per active session, and per-station `weekday_enabled` / `weekend_enabled` flags. |
+| Session | `AM`, `PM`, `NIGHT`, `FULL_DAY` (paired AM+PM encoding). |
 | On-call roles | `JUNIOR_ONCALL`, `SENIOR_ONCALL` (both attend at night; see H6/H7 for their day-side patterns). |
-| Weekend-only roles | `JUNIOR_EXTENDED`, `SENIOR_EXTENDED`, `CONSULT_WEEKEND` (one per subspec). |
+| Weekend-only roles | `JUNIOR_EXTENDED`, `SENIOR_EXTENDED`, `CONSULT_WEEKEND` (configurable headcount via `weekend_consultants_required`, default 1). |
 
 ## 2. Hard constraints (must hold in any feasible roster)
 
 - **H1 — Station coverage.** For every (day, station, session) where the station
-  is active in that session, the number of assigned doctors equals the station's
-  required headcount for that session.
+  is active in that session AND enabled on that day's kind (weekday or weekend
+  per `weekday_enabled` / `weekend_enabled`), the number of assigned doctors
+  equals the station's required headcount for that session.
 - **H2 — One station per session.** A doctor fills at most one station in AM,
   and at most one in PM, on any given day.
 - **H3 — Station eligibility.** A doctor can only be assigned to a station if
-  the station is in that doctor's `eligible_stations` set.
+  the station is in that doctor's `eligible_stations` set. `station.eligible_tiers`
+  is **advisory metadata only** — it pre-fills new doctors' eligibility lists
+  in the UI but is not enforced by the solver.
 - **H4 — On-call cap (1-in-3).** For every doctor and every 3 consecutive days,
   at most one of those days has that doctor on on-call (junior or senior).
 - **H5 — Post-call off.** The day after any on-call: no AM, no PM, no on-call.
@@ -42,10 +45,11 @@ update it.
   - 1 `SENIOR_EXTENDED`
   - 1 `JUNIOR_ONCALL`
   - 1 `SENIOR_ONCALL`
-  - 1 consultant per subspec (`CONSULT_WEEKEND`), i.e. 3 consultants total.
-  A single doctor fills at most one of these weekend roles on a given day, and
-  they do not also take an AM/PM station that day (weekend AM/PM stations are
-  disabled by default; see Gap #5).
+  - `weekend_consultants_required` consultants on `CONSULT_WEEKEND`
+    (default 1; configurable via `ConstraintsConfig.weekend_consultants_required`).
+  A single doctor fills at most one of these weekend roles on a given day.
+  Whether a station's AM/PM slots also run on the weekend is per-station
+  (see `Station.weekend_enabled`).
 - **H9 — Day in lieu for weekend extended.** For every doctor assigned
   `*_EXTENDED` on a Sat or Sun, they receive a full day off (no AM, no PM, no
   on-call) on either the Friday before **or** the Monday after, whichever
@@ -129,12 +133,16 @@ Instance(
     prev_oncall: set[doctor_id] = (),# for H5 continuity at day 0
 )
 
-Doctor(id, tier, subspec|None, eligible_stations: set[str])
-Station(name, sessions: {"AM"|"PM"}, required_per_session: int,
-        eligible_tiers: set[str], is_reporting: bool = False)
+Doctor(id, tier, eligible_stations: set[str])
+Station(name, sessions: tuple[str, ...], required_per_session: int,
+        eligible_tiers: set[str],          # advisory only — not enforced
+        is_reporting: bool = False,
+        weekday_enabled: bool = True,
+        weekend_enabled: bool = False)
 ```
 
 Additional inputs on `Instance`:
+- `weekend_consultants_required: int = 1` — H8 weekend consultant headcount.
 - `prev_workload: dict[doctor_id, int]` — carry-in from prior period for S0.
 - `no_oncall: dict[doctor_id, set[day_idx]]` — H12 call blocks.
 - `no_session: dict[doctor_id, dict[day_idx, set[session]]]` — H13 session blocks.
@@ -142,8 +150,6 @@ Additional inputs on `Instance`:
   preferences (soft).
 - `overrides: list[(did, day, station|None, session|None, role)]` — H15
   manual assignment locks.
-- `subspecs: tuple[str, ...]` — consultant sub-spec labels (defaults to
-  `("Neuro", "Body", "MSK")`).
 
 Additional inputs on `Doctor`:
 - `fte: float` — full-time equivalent in [0.01, 1.0], default 1.0.
@@ -170,27 +176,31 @@ in `configs/default.yaml` and the benchmark's `--gaps` flag.
 | # | Gap | Default |
 |---|---|---|
 | 1 | Station list | 8 stations: `CT`, `MR`, `US`, `XR_REPORT`, `IR`, `FLUORO`, `GEN_AM` (AM only), `GEN_PM` (PM only). 1 doctor per (station, session). |
-| 2 | Station↔subspec | Per-doctor eligibility flag only. No station demands a specific subspec. |
-| 3 | Weekday rostering | All three tiers roster weekdays. Juniors/seniors eligible for `GEN_AM`, `GEN_PM`, `US`, `XR_REPORT` only. |
+| 2 | Eligibility | Per-doctor `eligible_stations` only. `station.eligible_tiers` is advisory (UI hint), not enforced. |
+| 3 | Weekday rostering | All three tiers roster weekdays. Default doctor templates pre-fill plausible per-tier eligibility lists; users override individually. |
 | 4 | Weekday on-call | 1 junior + 1 senior every night (weekday and weekend). |
-| 5 | Weekend AM/PM | Disabled. Weekend work is only the 5 roles in H8. |
+| 5 | Weekend AM/PM | Per-station via `weekend_enabled` flag (default false). |
 | 6 | Extended duty | Modeled as a boolean role that counts as 1 work-day. No station assignment, no extra hours tracked. |
 | 7 | Month boundary seed | Clean start: no `prev_oncall`. |
 | 8 | Public holidays | Treated as Sundays. Accepts a list of day indices. |
 | 9 | Balance metric | Balance on-call, weekend, and AM+PM separately, per tier (S1–S3). |
+| 10 | Weekend consultants | `ConstraintsConfig.weekend_consultants_required` controls H8 consultant headcount (default 1). |
 
 ## 6. Decision variables (CP-SAT encoding)
 
 - `assign[d, day, station, session] ∈ {0,1}` — doctor `d` on `station` in that
-  session. Created only if `d` is tier-eligible and station-eligible and the
-  station is active in that session.
+  session. Created only if `station ∈ d.eligible_stations`, the station is
+  active in that session, and the station is enabled on that day's kind
+  (weekday vs weekend per the per-station flags). Tier eligibility is
+  advisory and not used to gate var creation.
 - `oncall_j[d, day] ∈ {0,1}` — junior on-call indicator (only for junior
   doctors).
 - `oncall_s[d, day] ∈ {0,1}` — senior on-call indicator (only for senior
   doctors).
 - `ext_j[d, day] ∈ {0,1}` — junior extended (weekend days only).
 - `ext_s[d, day] ∈ {0,1}` — senior extended (weekend days only).
-- `weekend_consult[d, day, subspec] ∈ {0,1}` — consultant weekend duty.
+- `weekend_consult[d, day] ∈ {0,1}` — consultant weekend duty. Sum over
+  consultants per weekend day equals `weekend_consultants_required`.
 - `lieu[d, day] ∈ {0,1}` — lieu day taken (only defined for Fri/Mon adjacent to
   a weekend-extended assignment).
 

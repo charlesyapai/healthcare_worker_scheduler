@@ -50,15 +50,17 @@ def compute_coverage(
     start = horizon.start_date
     dates = [start + timedelta(days=i) for i in range(horizon.n_days)]
     holidays = set(horizon.public_holidays or [])
-    weekend_am_pm = state.constraints.weekend_am_pm
 
-    # Required per (date, station, session).
+    # Required per (date, station, session). Per-station weekday/weekend
+    # gates control whether the slot is in scope on a given day.
     required: dict[tuple[date, str, str], int] = {}
     for d in dates:
         we = _is_weekend(d, holidays)
-        if we and not weekend_am_pm:
-            continue
         for st in state.stations:
+            if we and not st.weekend_enabled:
+                continue
+            if not we and not st.weekday_enabled:
+                continue
             for sess in st.sessions:
                 required[(d, st.name, sess)] = st.required_per_session
 

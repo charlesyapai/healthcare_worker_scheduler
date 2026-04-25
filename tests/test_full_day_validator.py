@@ -37,19 +37,19 @@ def _state_with_full_day() -> SessionState:
     """Surgery-shaped fixture: consultant-only FULL_DAY OR_LIST +
     enough supporting headcount so weekend H8 is feasible."""
     doctors = [
-        DoctorEntry(name=f"J{i}", tier="junior", subspec=None,
+        DoctorEntry(name=f"J{i}", tier="junior",
                     eligible_stations=["CLINIC"])
         for i in range(3)
     ] + [
-        DoctorEntry(name=f"S{i}", tier="senior", subspec=None,
+        DoctorEntry(name=f"S{i}", tier="senior",
                     eligible_stations=["CLINIC"])
         for i in range(3)
     ] + [
-        DoctorEntry(name="C_General", tier="consultant", subspec="General",
+        DoctorEntry(name="C_General", tier="consultant",
                     eligible_stations=["OR_LIST", "CLINIC"]),
-        DoctorEntry(name="C_Ortho", tier="consultant", subspec="Orthopaedic",
+        DoctorEntry(name="C_Ortho", tier="consultant",
                     eligible_stations=["OR_LIST", "CLINIC"]),
-        DoctorEntry(name="C_Vasc", tier="consultant", subspec="Vascular",
+        DoctorEntry(name="C_Vasc", tier="consultant",
                     eligible_stations=["OR_LIST", "CLINIC"]),
     ]
     stations = [
@@ -64,7 +64,6 @@ def _state_with_full_day() -> SessionState:
     return SessionState(
         horizon=Horizon(start_date=_monday(), n_days=5, public_holidays=[]),
         doctors=doctors, stations=stations,
-        subspecs=["General", "Orthopaedic", "Vascular"],
         constraints=ConstraintsConfig(h11_enabled=False),
     )
 

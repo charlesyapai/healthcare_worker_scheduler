@@ -16,7 +16,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/numberInput";
 import { Toggle } from "@/components/ui/toggle";
 import { cn } from "@/lib/utils";
 
@@ -29,8 +29,8 @@ type ConstraintCfg = {
   h8_enabled: boolean;
   h9_enabled: boolean;
   h11_enabled: boolean;
-  weekend_am_pm: boolean;
   weekday_oncall_coverage: boolean;
+  weekend_consultants_required: number;
 };
 
 const DEFAULTS: ConstraintCfg = {
@@ -42,11 +42,11 @@ const DEFAULTS: ConstraintCfg = {
   h8_enabled: true,
   h9_enabled: true,
   h11_enabled: true,
-  weekend_am_pm: false,
   weekday_oncall_coverage: true,
+  weekend_consultants_required: 1,
 };
 
-type ToggleKey = Exclude<keyof ConstraintCfg, "h4_gap">;
+type ToggleKey = Exclude<keyof ConstraintCfg, "h4_gap" | "weekend_consultants_required">;
 
 type RuleGroup = "nights" | "weekends" | "weekdays";
 
@@ -103,14 +103,7 @@ const RULES: RuleDef[] = [
     key: "h8_enabled",
     label: "Full weekend coverage on Sat & Sun",
     description:
-      "Sat/Sun require: 1 junior EXT, 1 senior EXT, 1 junior on-call, 1 senior on-call, and 1 consultant per sub-spec.",
-    group: "weekends",
-  },
-  {
-    key: "weekend_am_pm",
-    label: "Also run weekday-style AM/PM stations on weekends",
-    description:
-      "Off by default — most UK hospitals staff weekends via the EXT + on-call block above, not the weekday station grid. Enable for 24/7-shift patterns.",
+      "Sat/Sun require: 1 junior EXT, 1 senior EXT, 1 junior on-call, 1 senior on-call, and N consultants on weekend duty (count below).",
     group: "weekends",
   },
   {
@@ -174,7 +167,6 @@ const PRESETS: Record<Preset, Partial<ConstraintCfg>> = {
     h9_enabled: true,
     h11_enabled: true,
     weekday_oncall_coverage: true,
-    weekend_am_pm: false,
   },
   balanced: DEFAULTS,
   relaxed: {
@@ -187,7 +179,6 @@ const PRESETS: Record<Preset, Partial<ConstraintCfg>> = {
     h9_enabled: false,
     h11_enabled: false,
     weekday_oncall_coverage: false,
-    weekend_am_pm: false,
   },
 };
 
@@ -214,6 +205,8 @@ export function Constraints() {
     save({ constraints: { ...cfg, [key]: !cfg[key] } });
   const setGap = (n: number) =>
     save({ constraints: { ...cfg, h4_gap: Math.max(2, n) } });
+  const setWeekendConsultants = (n: number) =>
+    save({ constraints: { ...cfg, weekend_consultants_required: Math.max(0, n) } });
   const applyPreset = (name: Preset) =>
     save({ constraints: { ...cfg, ...PRESETS[name] } });
 
@@ -283,19 +276,28 @@ export function Constraints() {
                       {rule.key === "h4_enabled" && cfg.h4_enabled && (
                         <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-400">
                           <span>N =</span>
-                          <Input
+                          <NumberInput
                             className="h-7 w-16 text-xs"
-                            type="number"
                             min={2}
                             max={14}
                             value={cfg.h4_gap}
-                            onChange={(e) =>
-                              setGap(Number(e.target.value) || 3)
-                            }
+                            onChange={setGap}
                           />
-                        <span>consecutive days</span>
-                      </div>
-                    )}
+                          <span>consecutive days</span>
+                        </div>
+                      )}
+                      {rule.key === "h8_enabled" && cfg.h8_enabled && (
+                        <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-400">
+                          <span>Consultants on weekend duty:</span>
+                          <NumberInput
+                            className="h-7 w-16 text-xs"
+                            min={0}
+                            max={20}
+                            value={cfg.weekend_consultants_required}
+                            onChange={setWeekendConsultants}
+                          />
+                        </div>
+                      )}
                     </RuleRow>
                   ))}
                 </ul>

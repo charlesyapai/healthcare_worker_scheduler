@@ -713,10 +713,10 @@ export interface components {
              */
             weekday_oncall_coverage: boolean;
             /**
-             * Weekend Am Pm
-             * @default false
+             * Weekend Consultants Required
+             * @default 1
              */
-            weekend_am_pm: boolean;
+            weekend_consultants_required: number;
         };
         /** DoctorEntry */
         DoctorEntry: {
@@ -736,8 +736,6 @@ export interface components {
              * @default 0
              */
             prev_workload: number;
-            /** Subspec */
-            subspec?: string | null;
             /**
              * Tier
              * @enum {string}
@@ -1208,7 +1206,7 @@ export interface components {
             role_preferences?: components["schemas"]["RolePreferenceEntry"][];
             /**
              * Schema Version
-             * @default 1
+             * @default 2
              */
             schema_version: number;
             shift_labels?: components["schemas"]["ShiftLabels"];
@@ -1216,8 +1214,6 @@ export interface components {
             solver?: components["schemas"]["SolverSettings"];
             /** Stations */
             stations?: components["schemas"]["StationEntry"][];
-            /** Subspecs */
-            subspecs?: string[];
             tier_labels?: components["schemas"]["TierLabels"];
             workload_weights?: components["schemas"]["WorkloadWeights"];
         };
@@ -1477,6 +1473,16 @@ export interface components {
             required_per_session: number;
             /** Sessions */
             sessions?: ("AM" | "PM" | "FULL_DAY")[];
+            /**
+             * Weekday Enabled
+             * @default true
+             */
+            weekday_enabled: boolean;
+            /**
+             * Weekend Enabled
+             * @default false
+             */
+            weekend_enabled: boolean;
         };
         /** TierLabels */
         TierLabels: {

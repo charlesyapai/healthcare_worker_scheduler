@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 horizon:
   start_date: '2026-04-27'
   n_days: 7
@@ -6,97 +6,81 @@ horizon:
 doctors:
 - name: FY1
   tier: junior
-  subspec: ''
   eligible_stations: WARD_ROUND,CLINIC,POSTOP
   prev_workload: 0
   fte: 1.0
 - name: FY2
   tier: junior
-  subspec: ''
   eligible_stations: WARD_ROUND,CLINIC,POSTOP
   prev_workload: 0
   fte: 1.0
 - name: FY3
   tier: junior
-  subspec: ''
   eligible_stations: WARD_ROUND,CLINIC,POSTOP
   prev_workload: 0
   fte: 1.0
 - name: FY4
   tier: junior
-  subspec: ''
   eligible_stations: WARD_ROUND,CLINIC,POSTOP
   prev_workload: 0
   fte: 1.0
 - name: FY5
   tier: junior
-  subspec: ''
   eligible_stations: WARD_ROUND,CLINIC,POSTOP
   prev_workload: 0
   fte: 1.0
 - name: FY6
   tier: junior
-  subspec: ''
   eligible_stations: WARD_ROUND,CLINIC,POSTOP
   prev_workload: 0
   fte: 1.0
 - name: SpR1
   tier: senior
-  subspec: ''
   eligible_stations: WARD_ROUND,CLINIC,POSTOP,SR_THEATRE,EMERGENCY
   prev_workload: 0
   fte: 1.0
 - name: SpR2
   tier: senior
-  subspec: ''
   eligible_stations: WARD_ROUND,CLINIC,POSTOP,SR_THEATRE,EMERGENCY
   prev_workload: 0
   fte: 1.0
 - name: SpR3
   tier: senior
-  subspec: ''
   eligible_stations: WARD_ROUND,CLINIC,POSTOP,SR_THEATRE,EMERGENCY
   prev_workload: 0
   fte: 1.0
 - name: SpR4
   tier: senior
-  subspec: ''
   eligible_stations: WARD_ROUND,CLINIC,POSTOP,SR_THEATRE,EMERGENCY
   prev_workload: 0
   fte: 1.0
 - name: Mr Cutler
   tier: consultant
-  subspec: General
   eligible_stations: OR_MAIN,OR_DAY_CASE,OR_EMERGENCY,CLINIC,WARD_ROUND
   prev_workload: 0
   fte: 1.0
 - name: Mr Keyhole
   tier: consultant
-  subspec: General
   eligible_stations: OR_MAIN,OR_DAY_CASE,OR_EMERGENCY,CLINIC,WARD_ROUND
   prev_workload: 0
   fte: 1.0
 - name: Ms Mend
   tier: consultant
-  subspec: General
   eligible_stations: OR_MAIN,OR_DAY_CASE,OR_EMERGENCY,CLINIC,WARD_ROUND
   prev_workload: 0
   fte: 1.0
 - name: Mr Ortho
   tier: consultant
-  subspec: Orthopaedic
   eligible_stations: OR_MAIN,OR_DAY_CASE,OR_EMERGENCY,CLINIC,WARD_ROUND
   prev_workload: 0
   fte: 1.0
 - name: Ms Ortho
   tier: consultant
-  subspec: Orthopaedic
   eligible_stations: OR_MAIN,OR_DAY_CASE,OR_EMERGENCY,CLINIC,WARD_ROUND
   prev_workload: 0
   fte: 1.0
 - name: Mr Vasc
   tier: consultant
-  subspec: Vascular
   eligible_stations: OR_MAIN,OR_DAY_CASE,OR_EMERGENCY,CLINIC,WARD_ROUND
   prev_workload: 0
   fte: 1.0
@@ -106,43 +90,60 @@ stations:
   required_per_session: 1
   eligible_tiers: consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: OR_DAY_CASE
   sessions: FULL_DAY
   required_per_session: 1
   eligible_tiers: consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: OR_EMERGENCY
   sessions: FULL_DAY
   required_per_session: 1
   eligible_tiers: consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: SR_THEATRE
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: senior
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: EMERGENCY
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: CLINIC
   sessions: AM,PM
   required_per_session: 2
   eligible_tiers: junior,senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: WARD_ROUND
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: junior,senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: POSTOP
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: junior,senior
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 blocks: []
 overrides: []
+role_preferences: []
 tier_labels:
   junior: Junior
   senior: Senior
@@ -154,10 +155,6 @@ shift_labels:
   oncall: "Night call 17:00\u201308:00"
   weekend_ext: Weekend on-call
   weekend_consult: Weekend consultant
-subspecs:
-- General
-- Orthopaedic
-- Vascular
 soft_weights:
   workload: 40
   sessions: 5
@@ -191,8 +188,8 @@ constraints:
   h8_enabled: true
   h9_enabled: true
   h11_enabled: true
-  weekend_am_pm: false
   weekday_oncall_coverage: true
+  weekend_consultants_required: 1
 solver:
   time_limit: 30
   num_workers: 8

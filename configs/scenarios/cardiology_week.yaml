@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 horizon:
   start_date: '2026-04-27'
   n_days: 7
@@ -6,109 +6,91 @@ horizon:
 doctors:
 - name: Reg1
   tier: junior
-  subspec: ''
   eligible_stations: WARD,CLINIC,ECG_READ
   prev_workload: 0
   fte: 1.0
 - name: Reg2
   tier: junior
-  subspec: ''
   eligible_stations: WARD,CLINIC,ECG_READ
   prev_workload: 0
   fte: 1.0
 - name: Reg3
   tier: junior
-  subspec: ''
   eligible_stations: WARD,CLINIC,ECG_READ
   prev_workload: 0
   fte: 1.0
 - name: Reg4
   tier: junior
-  subspec: ''
   eligible_stations: WARD,CLINIC,ECG_READ
   prev_workload: 0
   fte: 1.0
 - name: Reg5
   tier: junior
-  subspec: ''
   eligible_stations: WARD,CLINIC,ECG_READ
   prev_workload: 0
   fte: 1.0
 - name: Reg6
   tier: junior
-  subspec: ''
   eligible_stations: WARD,CLINIC,ECG_READ
   prev_workload: 0
   fte: 1.0
 - name: Fel1
   tier: senior
-  subspec: ''
   eligible_stations: WARD,CLINIC,ECHO,ECG_READ
   prev_workload: 0
   fte: 1.0
 - name: Fel2
   tier: senior
-  subspec: ''
   eligible_stations: WARD,CLINIC,ECHO,ECG_READ
   prev_workload: 0
   fte: 1.0
 - name: Fel3
   tier: senior
-  subspec: ''
   eligible_stations: WARD,CLINIC,ECHO,ECG_READ
   prev_workload: 0
   fte: 1.0
 - name: Fel4
   tier: senior
-  subspec: ''
   eligible_stations: WARD,CLINIC,ECHO,ECG_READ
   prev_workload: 0
   fte: 1.0
 - name: Dr Hart
   tier: consultant
-  subspec: Invasive
   eligible_stations: CATH_LAB,ECHO,CLINIC,WARD,ECG_READ
   prev_workload: 0
   fte: 1.0
 - name: Dr Stent
   tier: consultant
-  subspec: Invasive
   eligible_stations: CATH_LAB,ECHO,CLINIC,WARD,ECG_READ
   prev_workload: 0
   fte: 1.0
 - name: Dr Beat
   tier: consultant
-  subspec: Non-invasive
   eligible_stations: CATH_LAB,ECHO,CLINIC,WARD,ECG_READ
   prev_workload: 0
   fte: 1.0
 - name: Dr Echo
   tier: consultant
-  subspec: Non-invasive
   eligible_stations: CATH_LAB,ECHO,CLINIC,WARD,ECG_READ
   prev_workload: 0
   fte: 1.0
 - name: Dr Arrhy
   tier: consultant
-  subspec: Electrophys
   eligible_stations: CATH_LAB,ECHO,CLINIC,WARD,ECG_READ
   prev_workload: 0
   fte: 1.0
 - name: Dr Pace
   tier: consultant
-  subspec: Electrophys
   eligible_stations: CATH_LAB,ECHO,CLINIC,WARD,ECG_READ
   prev_workload: 0
   fte: 1.0
 - name: Dr Cor
   tier: consultant
-  subspec: Invasive
   eligible_stations: CATH_LAB,ECHO,CLINIC,WARD,ECG_READ
   prev_workload: 0
   fte: 1.0
 - name: Dr Valve
   tier: consultant
-  subspec: Non-invasive
   eligible_stations: CATH_LAB,ECHO,CLINIC,WARD,ECG_READ
   prev_workload: 0
   fte: 1.0
@@ -118,28 +100,39 @@ stations:
   required_per_session: 1
   eligible_tiers: consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: ECHO
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: CLINIC
   sessions: AM,PM
   required_per_session: 2
   eligible_tiers: junior,senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: WARD
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: junior,senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: ECG_READ
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: junior,senior,consultant
   is_reporting: true
+  weekday_enabled: true
+  weekend_enabled: false
 blocks: []
 overrides: []
+role_preferences: []
 tier_labels:
   junior: Junior
   senior: Senior
@@ -151,10 +144,6 @@ shift_labels:
   oncall: "Night call 20:00\u201308:00"
   weekend_ext: Weekend extended
   weekend_consult: Weekend consultant
-subspecs:
-- Invasive
-- Non-invasive
-- Electrophys
 soft_weights:
   workload: 40
   sessions: 5
@@ -188,8 +177,8 @@ constraints:
   h8_enabled: true
   h9_enabled: true
   h11_enabled: true
-  weekend_am_pm: false
   weekday_oncall_coverage: true
+  weekend_consultants_required: 1
 solver:
   time_limit: 30
   num_workers: 8

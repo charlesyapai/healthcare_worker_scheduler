@@ -216,7 +216,7 @@ def solve(
         (AUTOMATIC, FIXED_SEARCH, PORTFOLIO_SEARCH,
         LP_SEARCH, PSEUDO_COST_SEARCH, PORTFOLIO_WITH_QUICK_RESTART_SEARCH).
     symmetry_break : when True, add lex-order constraints on groups of
-        interchangeable doctors (same tier/subspec/eligibility/FTE/leave
+        interchangeable doctors (same tier/eligibility/FTE/leave
         pattern). Interchangeable doctors would otherwise let CP-SAT
         explore swapped-but-identical solutions; forcing an ordering by
         on-call count collapses those to one representative.
@@ -260,11 +260,15 @@ def solve(
         for day in range(inst.n_days):
             if day in leave_days:
                 continue
-            if inst.is_weekend(day) and not inst.weekend_am_pm_enabled:
-                continue
+            is_we = inst.is_weekend(day)
             for st_name in d.eligible_stations:
                 st = station_by_name[st_name]
-                if d.tier not in st.eligible_tiers:
+                # Per-station weekday/weekend gate. station.eligible_tiers is
+                # advisory metadata only — not enforced here. Per-doctor
+                # `eligible_stations` is the only enforced eligibility check.
+                if is_we and not st.weekend_enabled:
+                    continue
+                if not is_we and not st.weekday_enabled:
                     continue
                 is_full_day = st_name in full_day_station_names
                 session_iter = ("AM", "PM") if is_full_day else SESSIONS
@@ -362,9 +366,14 @@ def solve(
 
     # H1 — Station coverage.
     for day in range(inst.n_days):
-        if inst.is_weekend(day) and not inst.weekend_am_pm_enabled:
-            continue
+        is_we = inst.is_weekend(day)
         for st in inst.stations:
+            # Per-station weekday/weekend gate — a station that's not enabled
+            # on this kind of day contributes no demand.
+            if is_we and not st.weekend_enabled:
+                continue
+            if not is_we and not st.weekday_enabled:
+                continue
             # A FULL_DAY station's AM and PM vars are paired (AM == PM),
             # so counting either set gives the number of full-day holders.
             # Use AM side to avoid double-counting.
@@ -494,13 +503,17 @@ def solve(
             _exact_one(model, ext_s_vars)
             _exact_one(model, oc_j_vars)
             _exact_one(model, oc_s_vars)
-            for ss in inst.subspecs:
-                wc_vars = [
-                    wconsult[(d.id, day)]
-                    for d in inst.doctors
-                    if d.tier == "consultant" and d.subspec == ss and (d.id, day) in wconsult
-                ]
-                _exact_one(model, wc_vars)
+            wc_all = [
+                wconsult[(d.id, day)]
+                for d in inst.doctors
+                if d.tier == "consultant" and (d.id, day) in wconsult
+            ]
+            required_consultants = max(0, int(inst.weekend_consultants_required))
+            if required_consultants > 0:
+                if not wc_all:
+                    model.Add(1 == 0)
+                else:
+                    model.Add(sum(wc_all) == required_consultants)
             # One weekend role at most per junior/senior doctor on a weekend day.
             for d in juniors + seniors:
                 roles = []
@@ -1099,15 +1112,14 @@ def _doctor_signature(
     """Produce a hashable 'interchangeability signature' for a doctor.
 
     Two doctors with the same signature are literally identical from the
-    solver's point of view: same tier, subspec, eligibility, FTE,
-    on-call cap, prior-workload carry-in, leave pattern, per-day blocks,
-    and preferences. We can safely require a lex-order between them
-    without excluding any optimal solution — any "swapped" solution has
-    a valid representative in which the ordered pair is satisfied.
+    solver's point of view: same tier, eligibility, FTE, on-call cap,
+    prior-workload carry-in, leave pattern, per-day blocks, and
+    preferences. We can safely require a lex-order between them without
+    excluding any optimal solution — any "swapped" solution has a valid
+    representative in which the ordered pair is satisfied.
     """
     return (
         doctor.tier,
-        doctor.subspec or "",
         tuple(sorted(doctor.eligible_stations)),
         float(doctor.fte),
         -1 if doctor.max_oncalls is None else int(doctor.max_oncalls),

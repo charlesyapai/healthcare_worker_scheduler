@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 horizon:
   start_date: '2026-04-27'
   n_days: 14
@@ -6,107 +6,91 @@ horizon:
 doctors:
 - name: ICU-R1
   tier: junior
-  subspec: ''
   eligible_stations: ROUNDS_A,ROUNDS_B,ADMISSIONS,FAMILY_MTG
   prev_workload: 0
   fte: 1.0
   max_oncalls: 4.0
 - name: ICU-R2
   tier: junior
-  subspec: ''
   eligible_stations: ROUNDS_A,ROUNDS_B,ADMISSIONS,FAMILY_MTG
   prev_workload: 0
   fte: 1.0
   max_oncalls: 4.0
 - name: ICU-R3
   tier: junior
-  subspec: ''
   eligible_stations: ROUNDS_A,ROUNDS_B,ADMISSIONS,FAMILY_MTG
   prev_workload: 0
   fte: 1.0
   max_oncalls: 4.0
 - name: ICU-R4
   tier: junior
-  subspec: ''
   eligible_stations: ROUNDS_A,ROUNDS_B,ADMISSIONS,FAMILY_MTG
   prev_workload: 0
   fte: 1.0
   max_oncalls: 4.0
 - name: ICU-R5
   tier: junior
-  subspec: ''
   eligible_stations: ROUNDS_A,ROUNDS_B,ADMISSIONS,FAMILY_MTG
   prev_workload: 0
   fte: 1.0
   max_oncalls: 4.0
 - name: ICU-R6
   tier: junior
-  subspec: ''
   eligible_stations: ROUNDS_A,ROUNDS_B,ADMISSIONS,FAMILY_MTG
   prev_workload: 0
   fte: 1.0
   max_oncalls: 4.0
 - name: ICU-F1
   tier: senior
-  subspec: ''
   eligible_stations: ROUNDS_A,ROUNDS_B,ADMISSIONS,FAMILY_MTG
   prev_workload: 0
   fte: 1.0
   max_oncalls: 4.0
 - name: ICU-F2
   tier: senior
-  subspec: ''
   eligible_stations: ROUNDS_A,ROUNDS_B,ADMISSIONS,FAMILY_MTG
   prev_workload: 0
   fte: 1.0
   max_oncalls: 4.0
 - name: ICU-F3
   tier: senior
-  subspec: ''
   eligible_stations: ROUNDS_A,ROUNDS_B,ADMISSIONS,FAMILY_MTG
   prev_workload: 0
   fte: 1.0
   max_oncalls: 4.0
 - name: ICU-F4
   tier: senior
-  subspec: ''
   eligible_stations: ROUNDS_A,ROUNDS_B,ADMISSIONS,FAMILY_MTG
   prev_workload: 0
   fte: 1.0
   max_oncalls: 4.0
 - name: Dr Crit1
   tier: consultant
-  subspec: ICU
   eligible_stations: ROUNDS_A,ROUNDS_B,ADMISSIONS,FAMILY_MTG
   prev_workload: 0
   fte: 1.0
 - name: Dr Crit2
   tier: consultant
-  subspec: ICU
   eligible_stations: ROUNDS_A,ROUNDS_B,ADMISSIONS,FAMILY_MTG
   prev_workload: 0
   fte: 1.0
 - name: Dr Crit3
   tier: consultant
-  subspec: ICU
   eligible_stations: ROUNDS_A,ROUNDS_B,ADMISSIONS,FAMILY_MTG
   prev_workload: 0
   fte: 1.0
 - name: Dr Crit4
   tier: consultant
-  subspec: ICU
   eligible_stations: ROUNDS_A,ROUNDS_B,ADMISSIONS,FAMILY_MTG
   prev_workload: 0
   fte: 1.0
 - name: Dr Crit5
   tier: consultant
-  subspec: ICU
   eligible_stations: ROUNDS_A,ROUNDS_B,ADMISSIONS,FAMILY_MTG
   prev_workload: 0
   fte: 1.0
 - name: Dr Crit6
   tier: consultant
-  subspec: ICU
   eligible_stations: ROUNDS_A,ROUNDS_B,ADMISSIONS,FAMILY_MTG
   prev_workload: 0
   fte: 1.0
@@ -116,23 +100,32 @@ stations:
   required_per_session: 2
   eligible_tiers: junior,senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: true
 - name: ROUNDS_B
   sessions: AM,PM
   required_per_session: 2
   eligible_tiers: junior,senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: true
 - name: ADMISSIONS
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: true
 - name: FAMILY_MTG
   sessions: PM
   required_per_session: 1
   eligible_tiers: senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: true
 blocks: []
 overrides: []
+role_preferences: []
 tier_labels:
   junior: Junior
   senior: Senior
@@ -144,8 +137,6 @@ shift_labels:
   oncall: "Night 20:00\u201308:00"
   weekend_ext: Weekend day
   weekend_consult: Weekend consultant
-subspecs:
-- ICU
 soft_weights:
   workload: 40
   sessions: 5
@@ -179,8 +170,8 @@ constraints:
   h8_enabled: true
   h9_enabled: true
   h11_enabled: true
-  weekend_am_pm: true
   weekday_oncall_coverage: true
+  weekend_consultants_required: 1
 solver:
   time_limit: 30
   num_workers: 8

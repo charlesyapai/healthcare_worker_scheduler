@@ -60,7 +60,7 @@ const CATEGORY_META: Record<
   specialty: {
     label: "By specialty",
     description:
-      "Department-shaped templates with subspecialty-aware stations, rules, and shift patterns.",
+      "Department-shaped templates with realistic stations, rules, and shift patterns.",
     icon: Stethoscope,
   },
   realistic: {

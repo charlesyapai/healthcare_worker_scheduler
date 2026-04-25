@@ -52,6 +52,9 @@ RotaPresetKey = str  # "clinic" | "day_night_12h" | "surgical" | "shift_24_7"
 class _RotaPreset:
     labels: ShiftLabels
     hours: Hours
+    # Whether the preset implies AM/PM stations also run on Saturdays /
+    # Sundays. Phase A: stamped onto each station's `weekend_enabled` flag
+    # (replacing the dropped global `weekend_am_pm` constraint).
     weekend_am_pm: bool
     weekday_oncall_coverage: bool
 
@@ -134,20 +137,21 @@ ROTA_PRESETS: dict[RotaPresetKey, _RotaPreset] = {
 
 def _apply_preset(state: SessionState, preset_key: RotaPresetKey) -> SessionState:
     """Stamp the rota preset's labels + hours onto a scenario's
-    SessionState. Presets also carry an opinion on `weekend_am_pm`
-    (do you staff AM/PM stations on Saturday?) because it's tightly
-    coupled to the shift shape. Weekday on-call coverage is NOT
-    touched — that's a scenario-level clinical choice (clinic_week
-    disables it because clinics don't run nights; every other
-    scenario keeps it)."""
+    SessionState. Presets also carry an opinion on whether AM/PM stations
+    run on weekends — Phase A pushes that down to each station's
+    `weekend_enabled` flag (the old global `constraints.weekend_am_pm`
+    was dropped). Weekday on-call coverage is NOT touched — that's a
+    scenario-level clinical choice (clinic_week disables it because
+    clinics don't run nights; every other scenario keeps it)."""
     p = ROTA_PRESETS[preset_key]
-    constraints = state.constraints.model_copy(update={
-        "weekend_am_pm": p.weekend_am_pm,
-    })
+    new_stations = [
+        s.model_copy(update={"weekend_enabled": p.weekend_am_pm})
+        for s in state.stations
+    ]
     return state.model_copy(update={
         "shift_labels": p.labels,
         "hours": p.hours,
-        "constraints": constraints,
+        "stations": new_stations,
     })
 from api.sessions import (  # noqa: E402
     session_to_instance,
@@ -171,13 +175,13 @@ def radiology_small() -> SessionState:
     doctors: list[DoctorEntry] = []
     for n in ["Dr A", "Dr B", "Dr C", "Dr D", "Dr E"]:
         doctors.append(DoctorEntry(
-            name=n, tier="junior", subspec=None,
+            name=n, tier="junior",
             eligible_stations=["US", "XR_REPORT", "GEN_AM", "GEN_PM"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n in ["Dr F", "Dr G", "Dr H", "Dr I"]:
         doctors.append(DoctorEntry(
-            name=n, tier="senior", subspec=None,
+            name=n, tier="senior",
             eligible_stations=["CT", "MR", "US", "XR_REPORT", "GEN_AM", "GEN_PM"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
@@ -185,7 +189,7 @@ def radiology_small() -> SessionState:
                   ("Dr L", "Body"), ("Dr M", "Body"),
                   ("Dr N", "MSK"), ("Dr O", "MSK")]:
         doctors.append(DoctorEntry(
-            name=n, tier="consultant", subspec=ss,
+            name=n, tier="consultant",
             eligible_stations=["CT", "MR", "US", "XR_REPORT", "IR", "FLUORO"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
@@ -211,7 +215,6 @@ def radiology_small() -> SessionState:
     return SessionState(
         horizon=Horizon(start_date=_monday(), n_days=7, public_holidays=[]),
         doctors=doctors, stations=stations,
-        subspecs=["Neuro", "Body", "MSK"],
     )
 
 
@@ -231,19 +234,19 @@ def busy_month_with_leave() -> SessionState:
                       ("C7", "Neuro"), ("C8", "Body")]
     for n in juniors:
         doctors.append(DoctorEntry(
-            name=n, tier="junior", subspec=None,
+            name=n, tier="junior",
             eligible_stations=["US", "XR_REPORT", "GEN_AM", "GEN_PM"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n in seniors:
         doctors.append(DoctorEntry(
-            name=n, tier="senior", subspec=None,
+            name=n, tier="senior",
             eligible_stations=["CT", "MR", "US", "XR_REPORT", "GEN_AM", "GEN_PM"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n, ss in consultants_ns:
         doctors.append(DoctorEntry(
-            name=n, tier="consultant", subspec=ss,
+            name=n, tier="consultant",
             eligible_stations=["CT", "MR", "US", "XR_REPORT", "IR", "FLUORO"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
@@ -269,7 +272,6 @@ def busy_month_with_leave() -> SessionState:
         horizon=Horizon(start_date=start, n_days=14,
                         public_holidays=[holiday]),
         doctors=doctors, stations=stations, blocks=blocks,
-        subspecs=["Neuro", "Body", "MSK"],
     )
 
 
@@ -295,19 +297,19 @@ def nursing_ward() -> SessionState:
     ]
     for n in staff_nurses:
         doctors.append(DoctorEntry(
-            name=n, tier="junior", subspec=None,
+            name=n, tier="junior",
             eligible_stations=nurse_stations,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n in senior_nurses:
         doctors.append(DoctorEntry(
-            name=n, tier="senior", subspec=None,
+            name=n, tier="senior",
             eligible_stations=nurse_stations,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n, ss in managers:
         doctors.append(DoctorEntry(
-            name=n, tier="consultant", subspec=ss,
+            name=n, tier="consultant",
             eligible_stations=nurse_stations,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
@@ -338,7 +340,6 @@ def nursing_ward() -> SessionState:
     return SessionState(
         horizon=Horizon(start_date=_monday(), n_days=14, public_holidays=[]),
         doctors=doctors, stations=stations,
-        subspecs=["Medical", "Surgical"],
         tier_labels=TierLabels(
             junior="Staff Nurse",
             senior="Senior Nurse",
@@ -392,19 +393,19 @@ def _std_radiology_doctors(size: int) -> list[DoctorEntry]:
     doctors: list[DoctorEntry] = []
     for n in juniors:
         doctors.append(DoctorEntry(
-            name=n, tier="junior", subspec=None,
+            name=n, tier="junior",
             eligible_stations=["US", "XR_REPORT", "GEN_AM", "GEN_PM"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n in seniors:
         doctors.append(DoctorEntry(
-            name=n, tier="senior", subspec=None,
+            name=n, tier="senior",
             eligible_stations=["CT", "MR", "US", "XR_REPORT", "GEN_AM", "GEN_PM"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n, ss in consultants:
         doctors.append(DoctorEntry(
-            name=n, tier="consultant", subspec=ss,
+            name=n, tier="consultant",
             eligible_stations=["CT", "MR", "US", "XR_REPORT", "IR", "FLUORO"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
@@ -434,7 +435,6 @@ def teaching_hospital_week() -> SessionState:
     return SessionState(
         horizon=Horizon(start_date=start, n_days=7, public_holidays=[]),
         doctors=doctors, stations=stations, blocks=blocks,
-        subspecs=["Neuro", "Body", "MSK"],
     )
 
 
@@ -479,7 +479,6 @@ def regional_hospital_month() -> SessionState:
         horizon=Horizon(start_date=start, n_days=28,
                         public_holidays=[public_holiday]),
         doctors=doctors, stations=stations, blocks=blocks,
-        subspecs=["Neuro", "Body", "MSK"],
     )
 
 
@@ -498,19 +497,19 @@ def clinic_week() -> SessionState:
     doctors: list[DoctorEntry] = []
     for name in ["J1", "J2", "J3", "J4"]:
         doctors.append(DoctorEntry(
-            name=name, tier="junior", subspec=None,
+            name=name, tier="junior",
             eligible_stations=["US", "XR_REPORT", "GEN_AM", "GEN_PM"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for name in ["S1", "S2", "S3"]:
         doctors.append(DoctorEntry(
-            name=name, tier="senior", subspec=None,
+            name=name, tier="senior",
             eligible_stations=["US", "XR_REPORT", "GEN_AM", "GEN_PM"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for name, ss in [("C1", "Neuro"), ("C2", "Body"), ("C3", "MSK")]:
         doctors.append(DoctorEntry(
-            name=name, tier="consultant", subspec=ss,
+            name=name, tier="consultant",
             eligible_stations=["US", "XR_REPORT", "GEN_AM", "GEN_PM"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
@@ -542,7 +541,6 @@ def clinic_week() -> SessionState:
     return SessionState(
         horizon=Horizon(start_date=_monday(), n_days=7, public_holidays=[]),
         doctors=doctors, stations=stations,
-        subspecs=["Neuro", "Body", "MSK"],
         constraints=constraints,
     )
 
@@ -568,19 +566,19 @@ def hospital_long_month() -> SessionState:
     doctors: list[DoctorEntry] = []
     for n in juniors:
         doctors.append(DoctorEntry(
-            name=n, tier="junior", subspec=None,
+            name=n, tier="junior",
             eligible_stations=["US", "XR_REPORT", "GEN_AM", "GEN_PM"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n in seniors:
         doctors.append(DoctorEntry(
-            name=n, tier="senior", subspec=None,
+            name=n, tier="senior",
             eligible_stations=["CT", "MR", "US", "XR_REPORT", "GEN_AM", "GEN_PM"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n, ss in consultants:
         doctors.append(DoctorEntry(
-            name=n, tier="consultant", subspec=ss,
+            name=n, tier="consultant",
             eligible_stations=["CT", "MR", "US", "XR_REPORT", "IR", "FLUORO"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
@@ -631,7 +629,6 @@ def hospital_long_month() -> SessionState:
         horizon=Horizon(start_date=start, n_days=28,
                         public_holidays=public_holidays),
         doctors=doctors, stations=stations, blocks=blocks,
-        subspecs=subspecs,
     )
 
 
@@ -671,19 +668,19 @@ def cardiology_week() -> SessionState:
     doctors: list[DoctorEntry] = []
     for n in juniors:
         doctors.append(DoctorEntry(
-            name=n, tier="junior", subspec=None,
+            name=n, tier="junior",
             eligible_stations=junior_stations,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n in seniors:
         doctors.append(DoctorEntry(
-            name=n, tier="senior", subspec=None,
+            name=n, tier="senior",
             eligible_stations=senior_stations,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n, ss in consultants:
         doctors.append(DoctorEntry(
-            name=n, tier="consultant", subspec=ss,
+            name=n, tier="consultant",
             eligible_stations=consultant_stations,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
@@ -706,7 +703,6 @@ def cardiology_week() -> SessionState:
     return SessionState(
         horizon=Horizon(start_date=_monday(), n_days=7, public_holidays=[]),
         doctors=doctors, stations=stations,
-        subspecs=["Invasive", "Non-invasive", "Electrophys"],
     )
 
 
@@ -738,19 +734,19 @@ def anaesthesia_two_weeks() -> SessionState:
     doctors: list[DoctorEntry] = []
     for n in juniors:
         doctors.append(DoctorEntry(
-            name=n, tier="junior", subspec=None,
+            name=n, tier="junior",
             eligible_stations=junior_stations,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n in seniors:
         doctors.append(DoctorEntry(
-            name=n, tier="senior", subspec=None,
+            name=n, tier="senior",
             eligible_stations=senior_stations,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n, ss in consultants:
         doctors.append(DoctorEntry(
-            name=n, tier="consultant", subspec=ss,
+            name=n, tier="consultant",
             eligible_stations=consultant_stations,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
@@ -778,7 +774,6 @@ def anaesthesia_two_weeks() -> SessionState:
     return SessionState(
         horizon=Horizon(start_date=_monday(), n_days=14, public_holidays=[]),
         doctors=doctors, stations=stations,
-        subspecs=["General", "Cardiac", "Obstetric", "Paediatric"],
     )
 
 
@@ -806,19 +801,19 @@ def icu_two_weeks() -> SessionState:
     doctors: list[DoctorEntry] = []
     for n in juniors:
         doctors.append(DoctorEntry(
-            name=n, tier="junior", subspec=None,
+            name=n, tier="junior",
             eligible_stations=stations_all,
             prev_workload=0, fte=1.0, max_oncalls=4,
         ))
     for n in seniors:
         doctors.append(DoctorEntry(
-            name=n, tier="senior", subspec=None,
+            name=n, tier="senior",
             eligible_stations=stations_all,
             prev_workload=0, fte=1.0, max_oncalls=4,
         ))
     for n, ss in consultants:
         doctors.append(DoctorEntry(
-            name=n, tier="consultant", subspec=ss,
+            name=n, tier="consultant",
             eligible_stations=stations_all,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
@@ -837,7 +832,6 @@ def icu_two_weeks() -> SessionState:
     return SessionState(
         horizon=Horizon(start_date=_monday(), n_days=14, public_holidays=[]),
         doctors=doctors, stations=stations,
-        subspecs=["ICU"],
     )
 
 
@@ -865,19 +859,19 @@ def emergency_week() -> SessionState:
     doctors: list[DoctorEntry] = []
     for n in juniors:
         doctors.append(DoctorEntry(
-            name=n, tier="junior", subspec=None,
+            name=n, tier="junior",
             eligible_stations=stations_all,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n in seniors:
         doctors.append(DoctorEntry(
-            name=n, tier="senior", subspec=None,
+            name=n, tier="senior",
             eligible_stations=stations_all,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n, ss in consultants:
         doctors.append(DoctorEntry(
-            name=n, tier="consultant", subspec=ss,
+            name=n, tier="consultant",
             eligible_stations=stations_all,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
@@ -895,14 +889,12 @@ def emergency_week() -> SessionState:
                      eligible_tiers=["senior", "consultant"], is_reporting=False),
     ]
 
-    # ED runs weekend cover like a weekday — enable AM/PM weekend staffing.
-    constraints = ConstraintsConfig(weekend_am_pm=True)
-
+    # ED runs weekend cover like a weekday — the `shift_24_7` preset
+    # applied by `_apply_preset` flips every station's `weekend_enabled`
+    # to True, so we don't need to override constraints here.
     return SessionState(
         horizon=Horizon(start_date=_monday(), n_days=7, public_holidays=[]),
         doctors=doctors, stations=stations,
-        subspecs=["General", "Trauma"],
-        constraints=constraints,
     )
 
 
@@ -936,19 +928,19 @@ def surgery_week() -> SessionState:
     doctors: list[DoctorEntry] = []
     for n in juniors:
         doctors.append(DoctorEntry(
-            name=n, tier="junior", subspec=None,
+            name=n, tier="junior",
             eligible_stations=junior_stations,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n in seniors:
         doctors.append(DoctorEntry(
-            name=n, tier="senior", subspec=None,
+            name=n, tier="senior",
             eligible_stations=senior_stations,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n, ss in consultants:
         doctors.append(DoctorEntry(
-            name=n, tier="consultant", subspec=ss,
+            name=n, tier="consultant",
             eligible_stations=consultant_stations,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
@@ -986,7 +978,6 @@ def surgery_week() -> SessionState:
     return SessionState(
         horizon=Horizon(start_date=_monday(), n_days=7, public_holidays=[]),
         doctors=doctors, stations=stations,
-        subspecs=["General", "Orthopaedic", "Vascular"],
     )
 
 
@@ -1016,19 +1007,19 @@ def paediatrics_two_weeks() -> SessionState:
     doctors: list[DoctorEntry] = []
     for n in juniors:
         doctors.append(DoctorEntry(
-            name=n, tier="junior", subspec=None,
+            name=n, tier="junior",
             eligible_stations=junior_stations,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n in seniors:
         doctors.append(DoctorEntry(
-            name=n, tier="senior", subspec=None,
+            name=n, tier="senior",
             eligible_stations=senior_stations,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n, ss in consultants:
         doctors.append(DoctorEntry(
-            name=n, tier="consultant", subspec=ss,
+            name=n, tier="consultant",
             eligible_stations=consultant_stations,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
@@ -1050,7 +1041,6 @@ def paediatrics_two_weeks() -> SessionState:
     return SessionState(
         horizon=Horizon(start_date=_monday(), n_days=14, public_holidays=[]),
         doctors=doctors, stations=stations,
-        subspecs=["General", "Neonatal"],
     )
 
 
@@ -1080,23 +1070,22 @@ def _benchmark_doctors(
     senior_pool = _keep(["CT", "MR", "US", "XR_REPORT", "GEN_AM", "GEN_PM"])
     consultant_pool = _keep(["CT", "MR", "US", "XR_REPORT", "IR", "FLUORO"])
 
-    subspecs = ["Neuro", "Body", "MSK"]
     out: list[DoctorEntry] = []
     for i in range(n_juniors):
         out.append(DoctorEntry(
-            name=f"J{i+1:02d}", tier="junior", subspec=None,
+            name=f"J{i+1:02d}", tier="junior",
             eligible_stations=junior_pool,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for i in range(n_seniors):
         out.append(DoctorEntry(
-            name=f"S{i+1:02d}", tier="senior", subspec=None,
+            name=f"S{i+1:02d}", tier="senior",
             eligible_stations=senior_pool,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for i in range(n_consultants):
         out.append(DoctorEntry(
-            name=f"C{i+1:02d}", tier="consultant", subspec=subspecs[i % 3],
+            name=f"C{i+1:02d}", tier="consultant",
             eligible_stations=consultant_pool,
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
@@ -1165,7 +1154,6 @@ def benchmark_nrp_small() -> SessionState:
             n_juniors=4, n_seniors=4, n_consultants=3, stations=stations,
         ),
         stations=stations,
-        subspecs=["Neuro", "Body", "MSK"],
     )
 
 
@@ -1193,7 +1181,6 @@ def stress_tight_oncall() -> SessionState:
             n_juniors=4, n_seniors=4, n_consultants=4, stations=stations,
         ),
         stations=stations,
-        subspecs=["Neuro", "Body", "MSK"],
     )
 
 
@@ -1217,19 +1204,19 @@ def stress_dense_leave() -> SessionState:
     doctors: list[DoctorEntry] = []
     for n in juniors:
         doctors.append(DoctorEntry(
-            name=n, tier="junior", subspec=None,
+            name=n, tier="junior",
             eligible_stations=["US", "XR_REPORT", "GEN_AM", "GEN_PM"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n in seniors:
         doctors.append(DoctorEntry(
-            name=n, tier="senior", subspec=None,
+            name=n, tier="senior",
             eligible_stations=["CT", "MR", "US", "XR_REPORT", "GEN_AM", "GEN_PM"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
     for n, ss in consultants:
         doctors.append(DoctorEntry(
-            name=n, tier="consultant", subspec=ss,
+            name=n, tier="consultant",
             eligible_stations=["CT", "MR", "US", "XR_REPORT", "IR", "FLUORO"],
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
@@ -1259,7 +1246,6 @@ def stress_dense_leave() -> SessionState:
     return SessionState(
         horizon=Horizon(start_date=start, n_days=14, public_holidays=holidays),
         doctors=doctors, stations=stations, blocks=blocks,
-        subspecs=["Neuro", "Body", "MSK"],
     )
 
 
@@ -1278,7 +1264,6 @@ def benchmark_nrp_medium() -> SessionState:
             n_juniors=7, n_seniors=4, n_consultants=9, stations=stations,
         ),
         stations=stations,
-        subspecs=["Neuro", "Body", "MSK"],
     )
 
 

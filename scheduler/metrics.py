@@ -25,11 +25,8 @@ def problem_metrics(inst: Instance) -> dict[str, Any]:
     """Shape-of-problem metrics, cheap to compute, no solve needed."""
     n = len(inst.doctors)
     tier_counts = defaultdict(int)
-    subspec_counts = defaultdict(int)
     for d in inst.doctors:
         tier_counts[d.tier] += 1
-        if d.subspec:
-            subspec_counts[d.subspec] += 1
 
     weekend_days = sum(1 for t in range(inst.n_days) if inst.is_weekend(t))
     weekday_days = inst.n_days - weekend_days
@@ -37,6 +34,8 @@ def problem_metrics(inst: Instance) -> dict[str, Any]:
     leave_density = (leave_doctor_days / max(1, n * inst.n_days))
 
     # Eligibility density per tier: avg |eligible_stations| / |allowed_stations|.
+    # `allowed` is computed against the advisory `eligible_tiers` field for
+    # the per-tier denominator.
     eligibility: dict[str, float] = {}
     for tier in ("junior", "senior", "consultant"):
         tier_docs = [d for d in inst.doctors if d.tier == tier]
@@ -51,40 +50,34 @@ def problem_metrics(inst: Instance) -> dict[str, Any]:
                 for d in tier_docs]
         eligibility[tier] = round(mean(vals), 3)
 
-    # Coverage-slack ratio per weekday: available / required.
-    # Available = doctor-sessions on a given day (AM + PM = 2 per available doctor).
-    # Required = sum over stations active in that session × required_per_session.
+    # Coverage-slack ratio per day: available / required. Counts only
+    # stations enabled on the day's kind.
     slack_by_day: dict[int, float] = {}
     for day in range(inst.n_days):
-        if inst.is_weekend(day) and not inst.weekend_am_pm_enabled:
+        is_we = inst.is_weekend(day)
+        active_stations = [
+            st for st in inst.stations
+            if (is_we and st.weekend_enabled) or (not is_we and st.weekday_enabled)
+        ]
+        if not active_stations:
             continue
         req = 0
-        for st in inst.stations:
+        for st in active_stations:
             for sess in st.sessions:
                 req += st.required_per_session
         available = 0
         for d in inst.doctors:
             if day in inst.leave.get(d.id, set()):
                 continue
-            # Up to 2 sessions per doctor (AM + PM), minus roles that claim
-            # the day — but at the problem-metrics stage we don't know those.
             available += 2
         slack_by_day[day] = round(available / max(1, req), 3)
 
     slack_min = round(min(slack_by_day.values()), 3) if slack_by_day else None
 
-    # Required weekend roles:
-    # per weekend day: 1 junior_ext + 1 senior_ext + 1 junior_oc + 1 senior_oc
-    # + 1 consultant per subspec.
-    wknd_oncall_required_per_tier = weekend_days  # 1/day for junior and senior each
-    wknd_ext_required_per_tier = weekend_days
-    wknd_consult_required_per_subspec = weekend_days
-
-    # Oncall capacity under 1-in-3 cap, ignoring leave:
+    # Oncall capacity under 1-in-3 cap, ignoring leave.
     oncall_cap_per_doc_max = (inst.n_days + 2) // 3   # ceil(n_days/3)
     oncall_required_junior = inst.n_days              # 1/night over horizon
     oncall_required_senior = inst.n_days
-    # Available capacity summed across juniors / seniors.
     avail_oncall_junior = tier_counts["junior"] * oncall_cap_per_doc_max
     avail_oncall_senior = tier_counts["senior"] * oncall_cap_per_doc_max
 
@@ -92,7 +85,6 @@ def problem_metrics(inst: Instance) -> dict[str, Any]:
         "n_doctors": n,
         "n_days": inst.n_days,
         "tier_counts": dict(tier_counts),
-        "subspec_counts": dict(subspec_counts),
         "n_stations": len(inst.stations),
         "weekend_days": weekend_days,
         "weekday_days": weekday_days,
@@ -108,7 +100,7 @@ def problem_metrics(inst: Instance) -> dict[str, Any]:
             "senior_available": avail_oncall_senior,
             "senior_required":  oncall_required_senior,
         },
-        "weekend_roles_per_subspec_required": wknd_consult_required_per_subspec,
+        "weekend_consultants_required": int(inst.weekend_consultants_required),
     }
 
 
@@ -162,7 +154,7 @@ def solution_metrics(inst: Instance, result: SolveResult) -> dict[str, Any]:
     doc_by_id = {d.id: d for d in inst.doctors}
 
     per_doc = {
-        d.id: {"tier": d.tier, "subspec": d.subspec,
+        d.id: {"tier": d.tier,
                "am_pm": 0, "oncall": 0, "weekend_ext": 0, "weekend_consult": 0,
                "oncall_days": []}
         for d in inst.doctors
@@ -221,9 +213,12 @@ def solution_metrics(inst: Instance, result: SolveResult) -> dict[str, Any]:
     for (did, day, sname, sess) in st_assigns:
         cov[(day, sname, sess)] += 1
     for day in range(inst.n_days):
-        if inst.is_weekend(day) and not inst.weekend_am_pm_enabled:
-            continue
+        is_we = inst.is_weekend(day)
         for st in inst.stations:
+            if is_we and not st.weekend_enabled:
+                continue
+            if not is_we and not st.weekday_enabled:
+                continue
             for sess in st.sessions:
                 got = cov.get((day, st.name, sess), 0)
                 if got != st.required_per_session:

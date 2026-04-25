@@ -18,7 +18,7 @@ from typing import Any
 import pandas as pd
 import yaml
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def _df_to_records(df: pd.DataFrame) -> list[dict]:
@@ -104,7 +104,6 @@ def dump_state(ss) -> str:
             "weekend_ext": "Weekend extended",
             "weekend_consult": "Weekend consultant",
         },
-        "subspecs": list(get("subspecs") or ["Neuro", "Body", "MSK"]),
         "soft_weights": {
             "workload": int(get("w_workload", 40)),
             "sessions": int(get("w_sessions", 5)),
@@ -141,8 +140,8 @@ def dump_state(ss) -> str:
             "h8_enabled": bool(get("h8_enabled", True)),
             "h9_enabled": bool(get("h9_enabled", True)),
             "h11_enabled": bool(get("h11_enabled", True)),
-            "weekend_am_pm": bool(get("weekend_am_pm", False)),
             "weekday_oncall_coverage": bool(get("weekday_oncall_coverage", True)),
+            "weekend_consultants_required": int(get("weekend_consultants_required", 1)),
         },
         "solver": {
             "time_limit": int(get("time_limit", 60)),
@@ -153,10 +152,11 @@ def dump_state(ss) -> str:
     return yaml.safe_dump(payload, sort_keys=False, default_flow_style=False)
 
 
-DOCTOR_COLS = ["name", "tier", "subspec", "eligible_stations",
+DOCTOR_COLS = ["name", "tier", "eligible_stations",
                "prev_workload", "fte", "max_oncalls"]
 STATION_COLS = ["name", "sessions", "required_per_session",
-                "eligible_tiers", "is_reporting"]
+                "eligible_tiers", "is_reporting",
+                "weekday_enabled", "weekend_enabled"]
 BLOCK_COLS = ["doctor", "date", "end_date", "type"]
 OVERRIDE_COLS = ["doctor", "date", "role"]
 ROLE_PREF_COLS = ["doctor", "role", "min_allocations", "priority"]
@@ -166,9 +166,30 @@ def load_state(yaml_text: str) -> dict[str, Any]:
     """Parse a YAML string and return a dict of updates to apply to session_state.
 
     Missing sections fall back to defaults so old save files keep loading.
+
+    Schema migration:
+      * v1 → v2: drops `Doctor.subspec` + `subspecs` list (silently ignored
+        on load). Per-station `weekday_enabled` defaults to True; per-station
+        `weekend_enabled` inherits from the legacy
+        `constraints.weekend_am_pm` flag once. The legacy flag itself is
+        dropped from the returned update dict.
     """
     data = yaml.safe_load(yaml_text) or {}
     out: dict[str, Any] = {}
+
+    schema_in = int(data.get("schema_version", 1) or 1)
+    legacy_constraints = data.get("constraints") or {}
+    legacy_weekend_am_pm = bool(legacy_constraints.get("weekend_am_pm", False))
+
+    # Migrate v1 records in-place before they hit the DataFrame builders.
+    if schema_in < 2:
+        for d in (data.get("doctors") or []):
+            if isinstance(d, dict):
+                d.pop("subspec", None)
+        for st in (data.get("stations") or []):
+            if isinstance(st, dict):
+                st.setdefault("weekday_enabled", True)
+                st.setdefault("weekend_enabled", legacy_weekend_am_pm)
 
     horizon = data.get("horizon", {}) or {}
     if horizon.get("start_date"):
@@ -216,8 +237,7 @@ def load_state(yaml_text: str) -> dict[str, Any]:
             "weekend_ext": str(sl.get("weekend_ext", "Weekend extended")),
             "weekend_consult": str(sl.get("weekend_consult", "Weekend consultant")),
         }
-    if "subspecs" in data and isinstance(data["subspecs"], list):
-        out["subspecs"] = [str(s) for s in data["subspecs"] if s]
+    # Legacy `subspecs` list is silently dropped on load (Phase A removal).
 
     for section, keys in (
         ("soft_weights", {
@@ -242,8 +262,8 @@ def load_state(yaml_text: str) -> dict[str, Any]:
             "h5_enabled": "h5_enabled", "h6_enabled": "h6_enabled",
             "h7_enabled": "h7_enabled", "h8_enabled": "h8_enabled",
             "h9_enabled": "h9_enabled", "h11_enabled": "h11_enabled",
-            "weekend_am_pm": "weekend_am_pm",
             "weekday_oncall_coverage": "weekday_oncall_coverage",
+            "weekend_consultants_required": "weekend_consultants_required",
         }),
         ("solver", {
             "time_limit": "time_limit", "num_workers": "num_workers",

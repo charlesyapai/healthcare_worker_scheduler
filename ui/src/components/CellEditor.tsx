@@ -53,8 +53,7 @@ export function CellEditor({
         <div>
           <p className="text-sm font-semibold leading-tight">{doctor.name}</p>
           <p className="text-[11px] text-slate-500 dark:text-slate-400">
-            {doctor.tier}
-            {doctor.subspec ? ` · ${doctor.subspec}` : ""} · {date}
+            {doctor.tier} · {date}
           </p>
         </div>
         <button
@@ -125,8 +124,8 @@ function buildRoleOptions(stations: StationEntry[], doctor: DoctorEntry): string
   const roles: string[] = [];
   for (const s of stations) {
     if (!s.name) continue;
-    const tiers = s.eligible_tiers ?? [];
-    if (!tiers.includes(doctor.tier)) continue;
+    // Per Phase A: per-doctor eligibility is the truth. station.eligible_tiers
+    // is advisory only — not enforced when offering role options.
     if (!doctor.eligible_stations?.includes(s.name)) continue;
     for (const sess of s.sessions ?? []) {
       roles.push(`STATION_${s.name}_${sess}`);

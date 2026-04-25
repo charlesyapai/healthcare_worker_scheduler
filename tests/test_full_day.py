@@ -21,7 +21,6 @@ from scheduler.instance import (
     Doctor,
     Instance,
     Station,
-    SUBSPECS,
 )
 from scheduler.model import solve
 
@@ -32,38 +31,24 @@ def _tiny_instance_with_full_day(
     n_days: int = 3,
 ) -> Instance:
     """3-day horizon with one FULL_DAY consultant station and enough
-    consultants across the three subspecs to satisfy weekend coverage
-    trivially (horizon starts on a Monday; days 0..2 are all weekdays).
+    consultants to satisfy weekend coverage trivially (horizon starts on
+    a Monday; days 0..2 are all weekdays).
     """
     doctors = [
-        Doctor(
-            id=0, tier="junior", subspec=None,
-            eligible_stations=frozenset({"CLINIC"}),
-        ),
-        Doctor(
-            id=1, tier="junior", subspec=None,
-            eligible_stations=frozenset({"CLINIC"}),
-        ),
-        Doctor(
-            id=2, tier="senior", subspec=None,
-            eligible_stations=frozenset({"CLINIC"}),
-        ),
-        Doctor(
-            id=3, tier="senior", subspec=None,
-            eligible_stations=frozenset({"CLINIC"}),
-        ),
-        Doctor(
-            id=4, tier="consultant", subspec="Neuro",
-            eligible_stations=frozenset({"OR_LIST"}),
-        ),
-        Doctor(
-            id=5, tier="consultant", subspec="Body",
-            eligible_stations=frozenset({"OR_LIST"}),
-        ),
-        Doctor(
-            id=6, tier="consultant", subspec="MSK",
-            eligible_stations=frozenset({"OR_LIST"}),
-        ),
+        Doctor(id=0, tier="junior",
+               eligible_stations=frozenset({"CLINIC"})),
+        Doctor(id=1, tier="junior",
+               eligible_stations=frozenset({"CLINIC"})),
+        Doctor(id=2, tier="senior",
+               eligible_stations=frozenset({"CLINIC"})),
+        Doctor(id=3, tier="senior",
+               eligible_stations=frozenset({"CLINIC"})),
+        Doctor(id=4, tier="consultant",
+               eligible_stations=frozenset({"OR_LIST"})),
+        Doctor(id=5, tier="consultant",
+               eligible_stations=frozenset({"OR_LIST"})),
+        Doctor(id=6, tier="consultant",
+               eligible_stations=frozenset({"OR_LIST"})),
     ]
     stations = [
         Station(
@@ -84,7 +69,6 @@ def _tiny_instance_with_full_day(
         start_weekday=0,  # Monday
         doctors=doctors,
         stations=stations,
-        subspecs=tuple(SUBSPECS),
     )
 
 

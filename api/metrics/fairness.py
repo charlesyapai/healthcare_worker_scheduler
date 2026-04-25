@@ -108,7 +108,6 @@ def compute_fairness(
       - per_tier_oncall: same but restricted to on-call assignments
       - per_individual: per-doctor breakdown with delta-from-median
       - dow_load: weighted-workload distribution per tier × day-of-week
-      - subspec_parity: mean FTE-normalised workload per consultant subspec
     """
     horizon = state.horizon
     w = state.workload_weights
@@ -122,7 +121,6 @@ def compute_fairness(
         per_doc[d.name] = {
             "doctor": d.name,
             "tier": d.tier,
-            "subspec": d.subspec,
             "fte": float(d.fte or 1.0),
             "weighted_workload": 0,
             "oncall_workload": 0,
@@ -188,29 +186,6 @@ def compute_fairness(
             [round(v, 2) for v in oncall_values]
         )
 
-    # Subspec parity — consultants only. Mean FTE-normalised workload per subspec.
-    subspec_parity: dict[str, Any] = {"subspecs": {}, "range": 0.0}
-    subspec_buckets: dict[str, list[float]] = defaultdict(list)
-    for name in by_tier.get("consultant", []):
-        row = per_doc[name]
-        ss = row["subspec"] or "—"
-        subspec_buckets[ss].append(row["fte_normalised"])
-    subspec_means: list[float] = []
-    for ss, values in subspec_buckets.items():
-        n = len(values)
-        mean_v = sum(values) / n if n else 0.0
-        subspec_parity["subspecs"][ss] = {
-            "n": n,
-            "mean": round(mean_v, 2),
-            "min": round(min(values), 2) if values else 0.0,
-            "max": round(max(values), 2) if values else 0.0,
-        }
-        subspec_means.append(mean_v)
-    if subspec_means:
-        subspec_parity["range"] = round(
-            max(subspec_means) - min(subspec_means), 2
-        )
-
     # Tier order for rendering. Keep the literal tier keys so the UI can
     # join on `tier_labels` for display.
     tier_order = ["junior", "senior", "consultant"]
@@ -225,6 +200,5 @@ def compute_fairness(
                            -r["fte_normalised"]),
         ),
         "dow_load": dow_load,
-        "subspec_parity": subspec_parity,
         "horizon_days": horizon.n_days,
     }

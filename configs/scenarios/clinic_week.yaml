@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 horizon:
   start_date: '2026-04-27'
   n_days: 7
@@ -6,61 +6,51 @@ horizon:
 doctors:
 - name: J1
   tier: junior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: J2
   tier: junior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: J3
   tier: junior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: J4
   tier: junior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: S1
   tier: senior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: S2
   tier: senior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: S3
   tier: senior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: C1
   tier: consultant
-  subspec: Neuro
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: C2
   tier: consultant
-  subspec: Body
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: C3
   tier: consultant
-  subspec: MSK
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
@@ -70,23 +60,32 @@ stations:
   required_per_session: 1
   eligible_tiers: junior,senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: XR_REPORT
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: junior,senior,consultant
   is_reporting: true
+  weekday_enabled: true
+  weekend_enabled: false
 - name: GEN_AM
   sessions: AM
   required_per_session: 1
   eligible_tiers: junior,senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: GEN_PM
   sessions: PM
   required_per_session: 1
   eligible_tiers: junior,senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 blocks: []
 overrides: []
+role_preferences: []
 tier_labels:
   junior: Junior
   senior: Senior
@@ -98,10 +97,6 @@ shift_labels:
   oncall: "Night call 20:00\u201308:00"
   weekend_ext: Weekend extended
   weekend_consult: Weekend consultant
-subspecs:
-- Neuro
-- Body
-- MSK
 soft_weights:
   workload: 40
   sessions: 5
@@ -135,8 +130,8 @@ constraints:
   h8_enabled: false
   h9_enabled: true
   h11_enabled: true
-  weekend_am_pm: false
   weekday_oncall_coverage: false
+  weekend_consultants_required: 1
 solver:
   time_limit: 30
   num_workers: 8

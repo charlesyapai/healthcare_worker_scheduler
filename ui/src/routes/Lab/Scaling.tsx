@@ -38,6 +38,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/numberInput";
 
 interface ScalingCell {
   n_doctors: number;
@@ -180,46 +181,38 @@ export function LabScaling() {
               <span className="text-[10px] uppercase tracking-wide text-slate-500">
                 Time (s)
               </span>
-              <Input
-                type="number"
+              <NumberInput
                 min={1}
                 max={120}
                 className="mt-1 h-8 text-right text-xs"
                 value={timeLimit}
-                onChange={(e) =>
-                  setTimeLimit(Math.max(1, Math.min(120, Number(e.target.value) || 10)))
-                }
+                onChange={setTimeLimit}
               />
             </label>
             <label className="block">
               <span className="text-[10px] uppercase tracking-wide text-slate-500">
                 Workers
               </span>
-              <Input
-                type="number"
+              <NumberInput
                 min={1}
                 max={8}
                 className="mt-1 h-8 text-right text-xs"
                 value={numWorkers}
-                onChange={(e) =>
-                  setNumWorkers(Math.max(1, Math.min(8, Number(e.target.value) || 1)))
-                }
+                onChange={setNumWorkers}
               />
             </label>
             <label className="block">
               <span className="text-[10px] uppercase tracking-wide text-slate-500">
                 Leave%
               </span>
-              <Input
-                type="number"
+              <NumberInput
+                integer={false}
                 step={0.01}
                 min={0}
                 max={0.25}
                 className="mt-1 h-8 text-right text-xs"
                 value={leaveRate}
-                onChange={(e) =>
-                  setLeaveRate(Math.max(0, Math.min(0.25, Number(e.target.value) || 0)))
-                }
+                onChange={setLeaveRate}
               />
             </label>
           </div>

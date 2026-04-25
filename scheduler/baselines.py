@@ -110,10 +110,7 @@ def greedy_baseline(inst: Instance) -> SolveResult:
     by_tier: dict[str, list] = {"junior": [], "senior": [], "consultant": []}
     for d in inst.doctors:
         by_tier.setdefault(d.tier, []).append(d)
-    consultants_by_subspec: dict[str, list] = {}
-    for d in by_tier["consultant"]:
-        if d.subspec:
-            consultants_by_subspec.setdefault(d.subspec, []).append(d)
+    consultants_required = max(0, int(inst.weekend_consultants_required))
 
     # Running workload per doctor, used as the ranking key so greedy picks
     # the least-loaded eligible doctor. Seed with prev_workload so carry-in
@@ -165,6 +162,8 @@ def greedy_baseline(inst: Instance) -> SolveResult:
     def _can_station(did: int, day: int, station_name: str, sess: str, doc) -> bool:
         if day in leave.get(did, set()):
             return False
+        # Per-doctor eligibility is the truth; station.eligible_tiers is
+        # advisory metadata only (Phase A).
         if station_name not in doc.eligible_stations:
             return False
         if not busy.session_free(did, day, sess):
@@ -221,9 +220,10 @@ def greedy_baseline(inst: Instance) -> SolveResult:
         pick = _pick_lowest_load(cands)
         if pick:
             _book_oncall(pick.id, day)
-        # 1 consultant per subspec
-        for ss, candidates in consultants_by_subspec.items():
-            cands = [d for d in candidates
+        # N consultants on weekend duty (configurable count, replaces the
+        # old per-subspec rule).
+        for _slot in range(consultants_required):
+            cands = [d for d in by_tier["consultant"]
                      if day not in leave.get(d.id, set())
                      and not busy.wconsult_busy.get((d.id, day))]
             pick = _pick_lowest_load(cands)
@@ -245,15 +245,16 @@ def greedy_baseline(inst: Instance) -> SolveResult:
     # ---- Phase 3: station coverage ----
     for day in range(inst.n_days):
         is_we = inst.is_weekend(day)
-        if is_we and not inst.weekend_am_pm_enabled:
-            continue  # weekend AM/PM disabled by default
         for st in inst.stations:
+            if is_we and not st.weekend_enabled:
+                continue
+            if not is_we and not st.weekday_enabled:
+                continue
             for sess in st.sessions:
                 for _slot in range(st.required_per_session):
                     cands = [
                         d for d in inst.doctors
-                        if d.tier in st.eligible_tiers
-                        and _can_station(d.id, day, st.name, sess, d)
+                        if _can_station(d.id, day, st.name, sess, d)
                     ]
                     pick = _pick_lowest_load(cands)
                     if pick:
@@ -289,9 +290,12 @@ def random_repair_baseline(
     for it in range(max_iterations):
         improved = False
         for day in range(inst.n_days):
-            if inst.is_weekend(day) and not inst.weekend_am_pm_enabled:
-                continue
+            is_we = inst.is_weekend(day)
             for st in inst.stations:
+                if is_we and not st.weekend_enabled:
+                    continue
+                if not is_we and not st.weekday_enabled:
+                    continue
                 for sess in st.sessions:
                     # Current assigned count for this slot.
                     cur = sum(
@@ -300,11 +304,10 @@ def random_repair_baseline(
                     )
                     if cur >= st.required_per_session:
                         continue
-                    # Pick a random eligible doctor.
+                    # Pick a random eligible doctor (per-doctor only).
                     pool = [
                         d for d in inst.doctors
-                        if d.tier in st.eligible_tiers
-                        and st.name in d.eligible_stations
+                        if st.name in d.eligible_stations
                         and day not in leave.get(d.id, set())
                         and (d.id, day, sess) not in used_session
                         and sess not in no_session.get(d.id, {}).get(day, set())

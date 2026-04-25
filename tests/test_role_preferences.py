@@ -19,20 +19,20 @@ from scheduler.model import solve
 
 def _base_doctors_stations() -> tuple[list[Doctor], list[Station]]:
     """Small radiology-flavoured fixture. 6 doctors, 5 stations, 2
-    consultants per subspec so weekend H8 is trivially satisfiable.
+    consultants so weekend H8 is trivially satisfiable.
     Juniors are eligible for US + XR_REPORT; seniors + CT + MR on top."""
     doctors = [
-        Doctor(id=0, tier="junior", subspec=None,
+        Doctor(id=0, tier="junior",
                eligible_stations=frozenset({"US", "XR_REPORT"})),
-        Doctor(id=1, tier="junior", subspec=None,
+        Doctor(id=1, tier="junior",
                eligible_stations=frozenset({"US", "XR_REPORT"})),
-        Doctor(id=2, tier="senior", subspec=None,
+        Doctor(id=2, tier="senior",
                eligible_stations=frozenset({"CT", "MR", "US", "XR_REPORT"})),
-        Doctor(id=3, tier="senior", subspec=None,
+        Doctor(id=3, tier="senior",
                eligible_stations=frozenset({"CT", "MR", "US", "XR_REPORT"})),
-        Doctor(id=4, tier="consultant", subspec="Neuro",
+        Doctor(id=4, tier="consultant",
                eligible_stations=frozenset({"CT", "MR", "US", "XR_REPORT"})),
-        Doctor(id=5, tier="consultant", subspec="Body",
+        Doctor(id=5, tier="consultant",
                eligible_stations=frozenset({"CT", "MR", "US", "XR_REPORT"})),
     ]
     stations = [
@@ -66,7 +66,6 @@ def _short_instance(
     return Instance(
         n_days=n_days, start_weekday=0,
         doctors=doctors, stations=stations,
-        subspecs=("Neuro", "Body", "MSK"),
         role_preferences=role_preferences or {},
     )
 

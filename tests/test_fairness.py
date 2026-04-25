@@ -172,31 +172,3 @@ def test_dow_load_buckets_by_day_of_week() -> None:
     assert out["dow_load"]["senior"]["Mon"] == 0  # no seniors in fixture
 
 
-def test_subspec_parity_across_consultants() -> None:
-    """Three consultants across Neuro/Body/MSK; imbalanced workload."""
-    state = _state_from_doctors([
-        DoctorEntry(name="C1", tier="consultant", subspec="Neuro",
-                    fte=1.0, eligible_stations=["GEN_AM"]),
-        DoctorEntry(name="C2", tier="consultant", subspec="Body",
-                    fte=1.0, eligible_stations=["GEN_AM"]),
-        DoctorEntry(name="C3", tier="consultant", subspec="MSK",
-                    fte=1.0, eligible_stations=["GEN_AM"]),
-    ])
-    from datetime import timedelta
-
-    d0 = state.horizon.start_date
-    d1 = d0 + timedelta(days=1)
-    assignments = [
-        AssignmentRow(doctor="C1", date=d0, role="STATION_GEN_AM_AM"),  # 10
-        AssignmentRow(doctor="C2", date=d0, role="STATION_GEN_AM_AM"),
-        AssignmentRow(doctor="C2", date=d0, role="STATION_GEN_AM_PM"),  # 20
-        AssignmentRow(doctor="C3", date=d0, role="STATION_GEN_AM_AM"),
-        AssignmentRow(doctor="C3", date=d0, role="STATION_GEN_AM_PM"),
-        AssignmentRow(doctor="C3", date=d1, role="STATION_GEN_AM_AM"),  # 30
-    ]
-    out = compute_fairness(state, assignments)
-    ss = out["subspec_parity"]["subspecs"]
-    assert ss["Neuro"]["mean"] == 10.0
-    assert ss["Body"]["mean"] == 20.0
-    assert ss["MSK"]["mean"] == 30.0
-    assert out["subspec_parity"]["range"] == 20.0

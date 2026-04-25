@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 horizon:
   start_date: '2026-04-27'
   n_days: 7
@@ -6,91 +6,76 @@ horizon:
 doctors:
 - name: Dr A
   tier: junior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: Dr B
   tier: junior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: Dr C
   tier: junior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: Dr D
   tier: junior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: Dr E
   tier: junior
-  subspec: ''
   eligible_stations: US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: Dr F
   tier: senior
-  subspec: ''
   eligible_stations: CT,MR,US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: Dr G
   tier: senior
-  subspec: ''
   eligible_stations: CT,MR,US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: Dr H
   tier: senior
-  subspec: ''
   eligible_stations: CT,MR,US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: Dr I
   tier: senior
-  subspec: ''
   eligible_stations: CT,MR,US,XR_REPORT,GEN_AM,GEN_PM
   prev_workload: 0
   fte: 1.0
 - name: Dr J
   tier: consultant
-  subspec: Neuro
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: Dr K
   tier: consultant
-  subspec: Neuro
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: Dr L
   tier: consultant
-  subspec: Body
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: Dr M
   tier: consultant
-  subspec: Body
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: Dr N
   tier: consultant
-  subspec: MSK
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
 - name: Dr O
   tier: consultant
-  subspec: MSK
   eligible_stations: CT,MR,US,XR_REPORT,IR,FLUORO
   prev_workload: 0
   fte: 1.0
@@ -100,43 +85,60 @@ stations:
   required_per_session: 1
   eligible_tiers: senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: MR
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: US
   sessions: AM,PM
   required_per_session: 2
   eligible_tiers: junior,senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: XR_REPORT
   sessions: AM,PM
   required_per_session: 2
   eligible_tiers: junior,senior,consultant
   is_reporting: true
+  weekday_enabled: true
+  weekend_enabled: false
 - name: IR
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: FLUORO
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: GEN_AM
   sessions: AM
   required_per_session: 1
   eligible_tiers: junior,senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: GEN_PM
   sessions: PM
   required_per_session: 1
   eligible_tiers: junior,senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 blocks: []
 overrides: []
+role_preferences: []
 tier_labels:
   junior: Junior
   senior: Senior
@@ -148,10 +150,6 @@ shift_labels:
   oncall: "Night call 20:00\u201308:00"
   weekend_ext: Weekend extended
   weekend_consult: Weekend consultant
-subspecs:
-- Neuro
-- Body
-- MSK
 soft_weights:
   workload: 40
   sessions: 5
@@ -185,8 +183,8 @@ constraints:
   h8_enabled: true
   h9_enabled: true
   h11_enabled: true
-  weekend_am_pm: false
   weekday_oncall_coverage: true
+  weekend_consultants_required: 1
 solver:
   time_limit: 30
   num_workers: 8

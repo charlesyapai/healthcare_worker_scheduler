@@ -12,20 +12,22 @@ tier_mix:                      # Used when generating from a single N
   senior_fraction: 0.15
   # consultant = remainder
 
-subspecs: [A, B, C]
-
+# Phase A: per-station weekday_enabled / weekend_enabled flags replace the
+# old global weekend.am_pm_enabled toggle. AM/PM stations default to weekday-
+# only (weekend_enabled: false). station.eligible_tiers is now advisory
+# metadata only — per-doctor eligibility drives the solver.
 stations:
-  - {name: CT,        sessions: [AM, PM], required: 1, tiers: [consultant]}
-  - {name: MR,        sessions: [AM, PM], required: 1, tiers: [consultant]}
-  - {name: US,        sessions: [AM, PM], required: 1, tiers: [junior, senior, consultant]}
-  - {name: XR_REPORT, sessions: [AM, PM], required: 1, tiers: [junior, senior, consultant], is_reporting: true}
-  - {name: IR,        sessions: [AM, PM], required: 1, tiers: [consultant]}
-  - {name: FLUORO,    sessions: [AM, PM], required: 1, tiers: [consultant]}
-  - {name: GEN_AM,    sessions: [AM],     required: 1, tiers: [junior, senior, consultant]}
-  - {name: GEN_PM,    sessions: [PM],     required: 1, tiers: [junior, senior, consultant]}
+  - {name: CT,        sessions: [AM, PM], required: 1, tiers: [consultant], weekday_enabled: true, weekend_enabled: false}
+  - {name: MR,        sessions: [AM, PM], required: 1, tiers: [consultant], weekday_enabled: true, weekend_enabled: false}
+  - {name: US,        sessions: [AM, PM], required: 1, tiers: [junior, senior, consultant], weekday_enabled: true, weekend_enabled: false}
+  - {name: XR_REPORT, sessions: [AM, PM], required: 1, tiers: [junior, senior, consultant], is_reporting: true, weekday_enabled: true, weekend_enabled: false}
+  - {name: IR,        sessions: [AM, PM], required: 1, tiers: [consultant], weekday_enabled: true, weekend_enabled: false}
+  - {name: FLUORO,    sessions: [AM, PM], required: 1, tiers: [consultant], weekday_enabled: true, weekend_enabled: false}
+  - {name: GEN_AM,    sessions: [AM],     required: 1, tiers: [junior, senior, consultant], weekday_enabled: true, weekend_enabled: false}
+  - {name: GEN_PM,    sessions: [PM],     required: 1, tiers: [junior, senior, consultant], weekday_enabled: true, weekend_enabled: false}
 
 weekend:
-  am_pm_enabled: false          # Gap #5: weekend work is only the H8 roles.
+  consultants_required: 1       # H8 weekend consultant headcount.
 
 oncall:
   weeknight_junior_count: 1    # Gap #4

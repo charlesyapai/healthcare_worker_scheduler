@@ -36,7 +36,7 @@ def _state_with_two_stations() -> SessionState:
             DoctorEntry(name="B", tier="senior", eligible_stations=["S1", "S2"]),
         ],
         stations=[_station("S1"), _station("S2", required=1)],
-        constraints=ConstraintsConfig(weekend_am_pm=False),
+        constraints=ConstraintsConfig(),
     )
 
 

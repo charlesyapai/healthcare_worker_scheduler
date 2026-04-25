@@ -38,7 +38,6 @@ def validate(state: SessionState, assignments: list[AssignmentRow]) -> list[dict
     doctors_by_name = {d.name: d for d in state.doctors}
     stations_by_name = {s.name: s for s in state.stations}
     public_holidays = set(state.horizon.public_holidays)
-    subspecs = state.subspecs
 
     def is_weekend(d: date) -> bool:
         return d.weekday() >= 5 or d in public_holidays
@@ -108,7 +107,9 @@ def validate(state: SessionState, assignments: list[AssignmentRow]) -> list[dict
     for d in dates:
         we = is_weekend(d)
         for st in state.stations:
-            if we and not state.constraints.weekend_am_pm:
+            if we and not st.weekend_enabled:
+                continue
+            if not we and not st.weekday_enabled:
                 continue
             sessions = st.sessions or []
             is_full_day = "FULL_DAY" in sessions
@@ -175,11 +176,8 @@ def validate(state: SessionState, assignments: list[AssignmentRow]) -> list[dict
                     "H3", "error", f"{doc} {d.isoformat()}",
                     f"{doc} is not listed as eligible for {sn}.",
                 ))
-            if person.tier not in (stat.eligible_tiers or []):
-                violations.append(_v(
-                    "H3", "error", f"{doc} {d.isoformat()}",
-                    f"{person.tier} can't work {sn} (tier not in eligible_tiers).",
-                ))
+            # station.eligible_tiers is advisory metadata only — not a hard
+            # rule. Per-doctor `eligible_stations` (above) is the truth.
 
     # ---------- H4 1-in-N on-call cap ----------
     if state.constraints.h4_enabled:
@@ -215,11 +213,14 @@ def validate(state: SessionState, assignments: list[AssignmentRow]) -> list[dict
 
     # ---------- H8 weekend coverage ----------
     if state.constraints.h8_enabled:
+        required_consultants = max(
+            0, int(state.constraints.weekend_consultants_required),
+        )
         for d in dates:
             if not is_weekend(d):
                 continue
             j_oc = j_ext = s_oc = s_ext = 0
-            wc_by_ss: dict[str, int] = defaultdict(int)
+            wc_total = 0
             for (doc, dd), acts in by_doc_date.items():
                 if dd != d:
                     continue
@@ -238,8 +239,8 @@ def validate(state: SessionState, assignments: list[AssignmentRow]) -> list[dict
                         elif person.tier == "senior":
                             s_ext += 1
                     elif a.get("kind") == "wconsult":
-                        if person.tier == "consultant" and person.subspec:
-                            wc_by_ss[person.subspec] += 1
+                        if person.tier == "consultant":
+                            wc_total += 1
             if j_oc != 1:
                 violations.append(_v("H8", "error", d.isoformat(),
                                      f"{j_oc} junior on-call (need 1)."))
@@ -252,12 +253,12 @@ def validate(state: SessionState, assignments: list[AssignmentRow]) -> list[dict
             if s_ext != 1:
                 violations.append(_v("H8", "error", d.isoformat(),
                                      f"{s_ext} senior EXT (need 1)."))
-            for ss in subspecs:
-                if wc_by_ss.get(ss, 0) != 1:
-                    violations.append(_v(
-                        "H8", "error", f"{d.isoformat()} ({ss})",
-                        f"{wc_by_ss.get(ss, 0)} {ss} consultant (need 1).",
-                    ))
+            if wc_total != required_consultants:
+                violations.append(_v(
+                    "H8", "error", d.isoformat(),
+                    f"{wc_total} weekend consultant(s) "
+                    f"(need {required_consultants}).",
+                ))
 
     # ---------- Weekday on-call coverage ----------
     if state.constraints.weekday_oncall_coverage:

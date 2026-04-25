@@ -55,15 +55,12 @@ def seed_defaults(session: ServerSession = Depends(get_session)) -> SessionState
 
     Useful for the SPA's empty-state "Start with defaults" button.
     """
-    from scheduler.instance import SUBSPECS
-
     doctors_df = default_doctors_df(n=20, seed=0)
     stations_df = default_stations_df()
     doctors = [
         DoctorEntry.model_validate({
             "name": row["name"],
             "tier": row["tier"],
-            "subspec": row["subspec"] or None,
             "eligible_stations": row["eligible_stations"],
             "prev_workload": int(row.get("prev_workload", 0) or 0),
             "fte": float(row.get("fte", 1.0) or 1.0),
@@ -78,6 +75,8 @@ def seed_defaults(session: ServerSession = Depends(get_session)) -> SessionState
             "required_per_session": int(row["required_per_session"]),
             "eligible_tiers": row["eligible_tiers"],
             "is_reporting": bool(row["is_reporting"]),
+            "weekday_enabled": bool(row.get("weekday_enabled", True)),
+            "weekend_enabled": bool(row.get("weekend_enabled", False)),
         })
         for _, row in stations_df.iterrows()
     ]
@@ -85,7 +84,6 @@ def seed_defaults(session: ServerSession = Depends(get_session)) -> SessionState
         horizon=Horizon(start_date=date.today(), n_days=21),
         doctors=doctors,
         stations=stations,
-        subspecs=list(SUBSPECS),
     )
     return session.state
 

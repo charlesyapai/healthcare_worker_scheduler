@@ -95,10 +95,6 @@ export function FairnessView({
     <div className="space-y-4">
       <TierCards data={data} tierLabels={tierLabels} />
       <DowLoad data={data} tierLabels={tierLabels} />
-      {data.subspec_parity.subspecs &&
-        Object.keys(data.subspec_parity.subspecs).length > 0 && (
-          <SubspecParity data={data} />
-        )}
       <OutlierList data={data} tierLabels={tierLabels} />
     </div>
   );
@@ -222,44 +218,6 @@ function DowLoad({
             />
           </BarChart>
         </ResponsiveContainer>
-      </div>
-    </div>
-  );
-}
-
-function SubspecParity({ data }: { data: FairnessPayload }) {
-  const entries = Object.entries(data.subspec_parity.subspecs);
-  return (
-    <div>
-      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        Consultant subspec parity{" "}
-        <span className="font-normal text-slate-400">
-          (range {data.subspec_parity.range.toFixed(1)})
-        </span>
-      </p>
-      <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-left text-slate-500 dark:text-slate-400">
-              <th className="py-1">Subspec</th>
-              <th className="py-1">n</th>
-              <th className="py-1 text-right">Mean</th>
-              <th className="py-1 text-right">Min</th>
-              <th className="py-1 text-right">Max</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map(([ss, v]) => (
-              <tr key={ss}>
-                <td className="py-1 font-medium">{ss}</td>
-                <td className="py-1 text-slate-500">{v.n}</td>
-                <td className="py-1 text-right font-mono">{v.mean.toFixed(1)}</td>
-                <td className="py-1 text-right font-mono">{v.min.toFixed(1)}</td>
-                <td className="py-1 text-right font-mono">{v.max.toFixed(1)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
     </div>
   );

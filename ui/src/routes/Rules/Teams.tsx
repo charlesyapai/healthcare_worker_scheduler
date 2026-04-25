@@ -1,15 +1,12 @@
 /**
- * Combined Tiers + Sub-specs + Stations page.
+ * Combined Tiers + Stations page.
  *
- * Keeps the three cards stacked vertically on one scrollable page so
- * the user can set up a department's taxonomy in one go without
- * chasing sub-tabs. Stations are the bulk of the density so the card
- * is the most compact of the three — one row per station, all fields
- * on one line on wide screens, wrapping on narrow ones.
+ * Stations are the bulk of the density so the card is the most compact
+ * of the two — one row per station, all fields on one line on wide
+ * screens, wrapping on narrow ones.
  */
 
-import { Building2, Plus, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { Building2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { useAutoSavePatch } from "@/api/autosave";
@@ -28,6 +25,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/numberInput";
 import { cn } from "@/lib/utils";
 
 const TIERS = ["junior", "senior", "consultant"] as const;
@@ -37,7 +35,6 @@ export function Teams() {
   return (
     <div className="space-y-4">
       <TiersCard />
-      <SubspecsCard />
       <StationsCard />
     </div>
   );
@@ -83,83 +80,6 @@ function TiersCard() {
   );
 }
 
-// ---------------------------------------------------------------- Subspecs
-
-function SubspecsCard() {
-  const { data } = useSessionState();
-  const { schedule: save } = useAutoSavePatch();
-  const subspecs = data?.subspecs ?? [];
-  const [draft, setDraft] = useState("");
-
-  const add = () => {
-    const name = draft.trim();
-    if (!name || subspecs.includes(name)) return;
-    save({ subspecs: [...subspecs, name] });
-    setDraft("");
-  };
-  const remove = (name: string) =>
-    save({ subspecs: subspecs.filter((s) => s !== name) });
-
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base">Sub-specialties</CardTitle>
-        <CardDescription className="text-xs">
-          Consultant sub-specialty labels. Weekend coverage requires one
-          consultant per sub-spec, so this must match your actual mix.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        <div className="flex flex-wrap gap-2">
-          {subspecs.map((s) => (
-            <span
-              key={s}
-              className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-medium text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300"
-            >
-              {s}
-              <button
-                type="button"
-                aria-label={`Remove ${s}`}
-                className="rounded-full p-0.5 hover:bg-indigo-200 dark:hover:bg-indigo-900"
-                onClick={() => remove(s)}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-          {subspecs.length === 0 && (
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              None yet — add one below.
-            </span>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <Input
-            placeholder="e.g. Neuro"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                add();
-              }
-            }}
-            className="h-9 max-w-xs"
-          />
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={add}
-            disabled={!draft.trim()}
-          >
-            Add
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 // ---------------------------------------------------------------- Stations
 
 function StationsCard() {
@@ -187,6 +107,8 @@ function StationsCard() {
           required_per_session: 1,
           eligible_tiers: ["junior", "senior", "consultant"],
           is_reporting: false,
+          weekday_enabled: true,
+          weekend_enabled: false,
         },
       ],
     });
@@ -243,6 +165,8 @@ function StationsCard() {
             ...raw,
             sessions: raw.sessions ?? [],
             eligible_tiers: raw.eligible_tiers ?? [],
+            weekday_enabled: raw.weekday_enabled ?? true,
+            weekend_enabled: raw.weekend_enabled ?? false,
           };
           return (
             <StationRow
@@ -264,6 +188,8 @@ type StationTier = NonNullable<StationEntry["eligible_tiers"]>[number];
 interface NormalisedStation extends Omit<StationEntry, "sessions" | "eligible_tiers"> {
   sessions: StationSession[];
   eligible_tiers: StationTier[];
+  weekday_enabled: boolean;
+  weekend_enabled: boolean;
 }
 
 function StationRow({
@@ -327,7 +253,10 @@ function StationRow({
         </Chip>
       </ChipGroup>
 
-      <ChipGroup label="Tiers">
+      <ChipGroup
+        label="Default tiers"
+        title="Advisory hint only — when you add a doctor at this tier, the station is pre-checked on their eligibility list. Per-doctor overrides are honoured. Not a hard rule."
+      >
         {TIERS.map((t) => {
           const on = station.eligible_tiers.includes(t);
           return (
@@ -353,17 +282,33 @@ function StationRow({
         })}
       </ChipGroup>
 
+      <ChipGroup label="Days">
+        <Chip
+          active={station.weekday_enabled}
+          tint="emerald"
+          onClick={() => onUpdate({ weekday_enabled: !station.weekday_enabled })}
+          title="Run this station on Mon–Fri."
+        >
+          Wkdy
+        </Chip>
+        <Chip
+          active={station.weekend_enabled}
+          tint="emerald"
+          onClick={() => onUpdate({ weekend_enabled: !station.weekend_enabled })}
+          title="Run this station on Sat/Sun and public holidays."
+        >
+          Wknd
+        </Chip>
+      </ChipGroup>
+
       <label className="flex items-center gap-1 text-[11px] text-slate-600 dark:text-slate-400">
         <span className="hidden sm:inline">Req</span>
-        <Input
-          type="number"
+        <NumberInput
           min={1}
           className="h-7 w-14 text-right text-xs"
           value={station.required_per_session}
-          onChange={(e) =>
-            onUpdate({
-              required_per_session: Math.max(1, Number(e.target.value) || 1),
-            })
+          onChange={(v) =>
+            onUpdate({ required_per_session: Math.max(1, v) })
           }
           aria-label="Doctors required per session"
         />
@@ -395,12 +340,14 @@ function StationRow({
 function ChipGroup({
   label,
   children,
+  title,
 }: {
   label: string;
   children: React.ReactNode;
+  title?: string;
 }) {
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1" title={title}>
       <span className="hidden text-[10px] font-medium uppercase tracking-wide text-slate-400 sm:inline">
         {label}
       </span>

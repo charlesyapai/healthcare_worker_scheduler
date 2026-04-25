@@ -39,15 +39,19 @@ def verify(inst: Instance, result) -> list[str]:
     doc_by_id = {d.id: d for d in inst.doctors}
     station_by_name = {s.name: s for s in inst.stations}
 
-    # H1 — station coverage.
+    # H1 — station coverage. Per-station weekday/weekend gates control
+    # whether a slot is in scope on a given day.
     from collections import Counter
     cov: Counter = Counter()
     for (did, day, sname, sess) in st_assigns:
         cov[(day, sname, sess)] += 1
     for day in range(inst.n_days):
-        if inst.is_weekend(day) and not inst.weekend_am_pm_enabled:
-            continue
+        is_we = inst.is_weekend(day)
         for st in inst.stations:
+            if is_we and not st.weekend_enabled:
+                continue
+            if not is_we and not st.weekday_enabled:
+                continue
             for sess in st.sessions:
                 got = cov.get((day, st.name, sess), 0)
                 if got != st.required_per_session:
@@ -61,14 +65,12 @@ def verify(inst: Instance, result) -> list[str]:
         if v > 1:
             violations.append(f"H2 doctor={k[0]} day={k[1]} sess={k[2]}: {v}")
 
-    # H3 — station eligibility.
+    # H3 — station eligibility (per-doctor only; tier eligibility is
+    # advisory metadata after Phase A).
     for (did, day, sname, sess) in st_assigns:
         d = doc_by_id[did]
-        st = station_by_name[sname]
         if sname not in d.eligible_stations:
             violations.append(f"H3 doctor={did} not eligible for {sname}")
-        if d.tier not in st.eligible_tiers:
-            violations.append(f"H3 tier={d.tier} not allowed on {sname}")
 
     # H4 — oncall 1-in-3.
     oncall_days_by_doc: dict[int, set[int]] = {}
@@ -125,11 +127,13 @@ def verify(inst: Instance, result) -> list[str]:
                                   (1, j_oc, "junior_oncall"), (1, s_oc, "senior_oncall")):
             if want != got:
                 violations.append(f"H8 day={day} {label}: {got} (want {want})")
-        for ss in inst.subspecs:
-            cnt = sum(1 for (did, dy) in wconsult
-                      if dy == day and doc_by_id[did].subspec == ss)
-            if cnt != 1:
-                violations.append(f"H8 day={day} wconsult subspec={ss}: {cnt}")
+        required_consultants = max(0, int(inst.weekend_consultants_required))
+        wc = sum(1 for (did, dy) in wconsult
+                 if dy == day and doc_by_id[did].tier == "consultant")
+        if wc != required_consultants:
+            violations.append(
+                f"H8 day={day} wconsult: {wc} (want {required_consultants})"
+            )
 
     # H9 — every weekend-ext doctor gets a lieu day in {Fri before, Mon after}
     # (if either is in horizon). We verify existence of a no-work day with the

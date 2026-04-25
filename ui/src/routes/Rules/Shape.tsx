@@ -23,6 +23,7 @@ import {
   DEFAULT_SHIFT_LABELS,
   type SessionState,
   type ShiftLabels,
+  type StationEntry,
   useSessionState,
 } from "@/api/hooks";
 import {
@@ -55,11 +56,15 @@ interface Preset {
     weekend_ext: number;
     weekend_consult: number;
   };
-  constraints: {
-    weekend_am_pm: boolean;
-  };
+  /** Whether AM/PM stations also run on weekends. Phase A: stamped onto
+   * each station's `weekend_enabled` flag (replaces the old global
+   * `constraints.weekend_am_pm`). */
+  weekendStations: boolean;
 }
 
+// Default labels are kept neutral ("AM", "PM", "Full day", "Night call").
+// Users who want clock-time labels (e.g. "Morning 08:00–13:00") edit them
+// directly below the preset row.
 const PRESETS: Preset[] = [
   {
     key: "clinic",
@@ -67,12 +72,7 @@ const PRESETS: Preset[] = [
     icon: Sun,
     description:
       "Mon–Fri daytime. Two half-sessions per day. Good for outpatient clinics, reporting pools, office-hours-only teams.",
-    labels: {
-      ...DEFAULT_SHIFT_LABELS,
-      am: "Morning 08:00–13:00",
-      pm: "Afternoon 13:00–18:00",
-      oncall: "Night call 20:00–08:00",
-    },
+    labels: { ...DEFAULT_SHIFT_LABELS },
     hours: {
       weekday_am: 4,
       weekday_pm: 4,
@@ -83,22 +83,15 @@ const PRESETS: Preset[] = [
       weekend_ext: 12,
       weekend_consult: 8,
     },
-    constraints: {
-      weekend_am_pm: false,
-    },
+    weekendStations: false,
   },
   {
     key: "day_night_12h",
     label: "12h Day + Night",
     icon: Moon,
     description:
-      "Two shifts per day: Day 08:00–20:00, Night 20:00–08:00. Matches acute hospital wards, paediatrics, ED.",
-    labels: {
-      ...DEFAULT_SHIFT_LABELS,
-      am: "Day 08:00–14:00",
-      pm: "Day 14:00–20:00",
-      oncall: "Night 20:00–08:00",
-    },
+      "Two shifts per day. Matches acute hospital wards, paediatrics, ED.",
+    labels: { ...DEFAULT_SHIFT_LABELS },
     hours: {
       weekday_am: 6,
       weekday_pm: 6,
@@ -109,9 +102,7 @@ const PRESETS: Preset[] = [
       weekend_ext: 12,
       weekend_consult: 12,
     },
-    constraints: {
-      weekend_am_pm: true,
-    },
+    weekendStations: true,
   },
   {
     key: "surgical",
@@ -119,13 +110,7 @@ const PRESETS: Preset[] = [
     icon: Scissors,
     description:
       "All-day consultant-led theatre lists. Juniors/seniors still split AM/PM for clinic + ward cover. Set OR-list stations to Full-day on the Teams tab.",
-    labels: {
-      ...DEFAULT_SHIFT_LABELS,
-      am: "Morning 08:00–13:00",
-      pm: "Afternoon 13:00–17:00",
-      full_day: "OR list 08:00–17:00",
-      oncall: "Night call 17:00–08:00",
-    },
+    labels: { ...DEFAULT_SHIFT_LABELS },
     hours: {
       weekday_am: 4,
       weekday_pm: 4,
@@ -136,9 +121,7 @@ const PRESETS: Preset[] = [
       weekend_ext: 12,
       weekend_consult: 9,
     },
-    constraints: {
-      weekend_am_pm: false,
-    },
+    weekendStations: false,
   },
   {
     key: "shift_24_7",
@@ -146,12 +129,7 @@ const PRESETS: Preset[] = [
     icon: CalendarClock,
     description:
       "Round-the-clock cover with weekend AM/PM enabled — every station staffed every day. Heavy demand; use for ICU/ED/inpatient wards.",
-    labels: {
-      ...DEFAULT_SHIFT_LABELS,
-      am: "Early 07:00–15:00",
-      pm: "Late 15:00–23:00",
-      oncall: "Night 23:00–07:00",
-    },
+    labels: { ...DEFAULT_SHIFT_LABELS },
     hours: {
       weekday_am: 8,
       weekday_pm: 8,
@@ -162,18 +140,25 @@ const PRESETS: Preset[] = [
       weekend_ext: 12,
       weekend_consult: 10,
     },
-    constraints: {
-      weekend_am_pm: true,
-    },
+    weekendStations: true,
   },
 ];
 
-function detectActivePreset(labels: ShiftLabels): PresetKey | null {
+function detectActivePreset(
+  labels: ShiftLabels,
+  stations: StationEntry[],
+): PresetKey | null {
+  // Heuristic: match labels first, break ties via the weekendStations
+  // signal (whether any station has weekend_enabled). All four presets
+  // currently share neutral labels, so we lean primarily on the weekend
+  // flag to disambiguate.
+  const anyWeekend = stations.some((s) => s.weekend_enabled);
   for (const p of PRESETS) {
     if (
       p.labels.am === labels.am &&
       p.labels.pm === labels.pm &&
-      p.labels.oncall === labels.oncall
+      p.labels.oncall === labels.oncall &&
+      p.weekendStations === anyWeekend
     ) {
       return p.key;
     }
@@ -187,21 +172,22 @@ export function Shape() {
   const { data } = useSessionState();
   const { schedule: save } = useAutoSavePatch();
   const labels: ShiftLabels = (data?.shift_labels as ShiftLabels) ?? DEFAULT_SHIFT_LABELS;
-  const activePreset = detectActivePreset(labels);
+  const stations = data?.stations ?? [];
+  const activePreset = detectActivePreset(labels, stations);
 
   const applyPreset = (p: Preset) => {
-    // The backend PATCH endpoint does a deep-merge, so passing only
-    // the one field we want to override inside `constraints` is
-    // enough to leave the other toggles untouched. Weekday on-call
-    // coverage is intentionally NOT touched — that's a clinical
-    // choice (does this department run nights?) that users set on
-    // the Rules tab, not something a rota preset should override.
+    // Phase A: weekend AM/PM is per-station now. The preset stamps
+    // every station's `weekend_enabled` to match its weekend-shape
+    // opinion. PATCH replaces the stations list wholesale (lists don't
+    // deep-merge), so we always include the full updated list.
+    const updatedStations = stations.map((s) => ({
+      ...s,
+      weekend_enabled: p.weekendStations,
+    }));
     const patch = {
       shift_labels: p.labels,
       hours: p.hours,
-      constraints: {
-        weekend_am_pm: p.constraints.weekend_am_pm,
-      },
+      stations: updatedStations,
     } as unknown as Partial<SessionState>;
     save(patch);
   };

@@ -38,7 +38,6 @@ export function WorkloadTable({ rows, tierLabels }: Props) {
                 <td className="px-2 py-1 font-medium">{r.doctor}</td>
                 <td className="px-2 py-1 text-slate-500">
                   {tierLabels[r.tier as keyof typeof tierLabels] ?? r.tier}
-                  {r.subspec ? <span className="ml-1 text-[10px]">({r.subspec})</span> : null}
                 </td>
                 <td className="px-2 py-1 text-right font-mono">{r.score.toFixed(0)}</td>
                 <td

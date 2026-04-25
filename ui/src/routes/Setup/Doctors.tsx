@@ -32,7 +32,6 @@ export function Doctors() {
   });
   const doctors = data?.doctors ?? [];
   const stations = data?.stations ?? [];
-  const subspecs = data?.subspecs ?? [];
   const stationNames = stations.map((s) => s.name).filter(Boolean) as string[];
 
   const updateDoctors = (next: DoctorEntry[]) => save({ doctors: next });
@@ -51,7 +50,6 @@ export function Doctors() {
       {
         name,
         tier: "junior",
-        subspec: null,
         eligible_stations: eligible,
         prev_workload: 0,
         fte: 1,
@@ -96,7 +94,7 @@ export function Doctors() {
             </>
           }
         />
-        <DoctorsCsvDrawer subspecs={subspecs} stationNames={stationNames} onImport={importCsv} />
+        <DoctorsCsvDrawer stationNames={stationNames} onImport={importCsv} />
       </div>
     );
   }
@@ -128,7 +126,6 @@ export function Doctors() {
               <tr>
                 <th className="px-2 py-2">Name</th>
                 <th className="px-2 py-2">Tier</th>
-                <th className="px-2 py-2">Sub-spec</th>
                 <th className="px-2 py-2">Eligible stations</th>
                 <th
                   className="px-2 py-2"
@@ -168,7 +165,6 @@ export function Doctors() {
                       onChange={(e) =>
                         updateRow(i, {
                           tier: e.target.value as (typeof TIERS)[number],
-                          subspec: e.target.value === "consultant" ? d.subspec : null,
                         })
                       }
                     >
@@ -178,28 +174,6 @@ export function Doctors() {
                         </option>
                       ))}
                     </Select>
-                  </td>
-                  <td className="px-2 py-1">
-                    {d.tier === "consultant" ? (
-                      <Select
-                        className="h-8"
-                        value={d.subspec ?? ""}
-                        onChange={(e) =>
-                          updateRow(i, { subspec: e.target.value || null })
-                        }
-                      >
-                        <option value="" disabled>
-                          pick…
-                        </option>
-                        {subspecs.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </Select>
-                    ) : (
-                      <span className="text-xs text-slate-400">—</span>
-                    )}
                   </td>
                   <td className="px-2 py-1 min-w-[14rem]">
                     <StationChips
@@ -275,18 +249,15 @@ export function Doctors() {
       </CardContent>
     </Card>
 
-    <DoctorsCsvDrawer subspecs={subspecs} stationNames={stationNames} onImport={importCsv} />
+    <DoctorsCsvDrawer stationNames={stationNames} onImport={importCsv} />
     </div>
   );
 }
 
 function DoctorsCsvDrawer({
-  // historical name, but the drawer now labels itself "people" in UI copy.
-  subspecs,
   stationNames,
   onImport,
 }: {
-  subspecs: string[];
   stationNames: string[];
   onImport: (rows: DoctorEntry[]) => number;
 }) {
@@ -303,16 +274,10 @@ function DoctorsCsvDrawer({
     const rows: DoctorEntry[] = [];
     for (const line of lines) {
       const parts = line.split(",").map((s) => s.trim());
-      const [name, tierRaw, subspecRaw, eligRaw, prevRaw, fteRaw, maxOcRaw] = parts;
+      const [name, tierRaw, eligRaw, prevRaw, fteRaw, maxOcRaw] = parts;
       if (!name) continue;
       const tier = (tierRaw || "junior").toLowerCase() as DoctorEntry["tier"];
       if (!["junior", "senior", "consultant"].includes(tier)) continue;
-      const subspec =
-        tier === "consultant"
-          ? subspecRaw && subspecs.includes(subspecRaw)
-            ? subspecRaw
-            : subspecs[0] ?? null
-          : null;
       const eligible = (eligRaw ?? "")
         .split(/[|; ]+/)
         .map((s) => s.trim())
@@ -320,7 +285,6 @@ function DoctorsCsvDrawer({
       rows.push({
         name,
         tier,
-        subspec,
         eligible_stations:
           eligible.length > 0 ? eligible : stationNames.slice(0, 2),
         prev_workload: parseIntOr(prevRaw, 0),
@@ -334,7 +298,7 @@ function DoctorsCsvDrawer({
   const apply = () => {
     const rows = parse();
     if (rows.length === 0) {
-      toast.error("No rows parsed. Columns: name, tier, subspec, stations, prev_workload, fte, max_oncalls");
+      toast.error("No rows parsed. Columns: name, tier, stations, prev_workload, fte, max_oncalls");
       return;
     }
     const added = onImport(rows);
@@ -350,9 +314,9 @@ function DoctorsCsvDrawer({
   };
 
   const example = [
-    "Dr A, junior, , GEN_AM|US|XR_REPORT, 0, 1.0,",
-    "Dr B, senior, , CT|MR|US, 0, 1.0,",
-    "Dr C, consultant, Neuro, CT|MR|IR, 0, 0.5, 4",
+    "Dr A, junior, GEN_AM|US|XR_REPORT, 0, 1.0,",
+    "Dr B, senior, CT|MR|US, 0, 1.0,",
+    "Dr C, consultant, CT|MR|IR, 0, 0.5, 4",
   ].join("\n");
 
   return (
@@ -367,10 +331,9 @@ function DoctorsCsvDrawer({
         <CardDescription>
           Columns:{" "}
           <code className="rounded bg-slate-100 px-1 py-0.5 dark:bg-slate-800">
-            name, tier, subspec, eligible_stations, prev_workload, fte, max_oncalls
+            name, tier, eligible_stations, prev_workload, fte, max_oncalls
           </code>
-          . Stations separated by <code>|</code>. Leave subspec blank for
-          junior/senior. An existing name is skipped.
+          . Stations separated by <code>|</code>. An existing name is skipped.
         </CardDescription>
       </CardHeader>
       {open && (

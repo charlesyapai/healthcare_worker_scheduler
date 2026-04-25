@@ -18,7 +18,7 @@
       "7-day horizon"
     ],
     "solve_status": "OPTIMAL",
-    "solve_time_s": 1.33,
+    "solve_time_s": 1.14,
     "difficulty": "easy"
   },
   {
@@ -63,7 +63,7 @@
       "7-day horizon"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.02,
+    "solve_time_s": 30.01,
     "difficulty": "hard"
   },
   {
@@ -86,7 +86,7 @@
       "14-day horizon"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.02,
+    "solve_time_s": 30.01,
     "difficulty": "hard"
   },
   {
@@ -366,9 +366,9 @@
       "6 stations",
       "28-day horizon"
     ],
-    "solve_status": "FEASIBLE",
-    "solve_time_s": 30.01,
-    "difficulty": "hard"
+    "solve_status": "OPTIMAL",
+    "solve_time_s": 21.11,
+    "difficulty": "easy"
   },
   {
     "id": "stress_dense_leave",
@@ -392,7 +392,7 @@
       "8 leave / block entries"
     ],
     "solve_status": "FEASIBLE",
-    "solve_time_s": 30.0,
+    "solve_time_s": 30.01,
     "difficulty": "hard"
   }
 ]

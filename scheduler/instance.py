@@ -11,10 +11,6 @@ import random
 from dataclasses import dataclass, field
 
 TIERS = ("junior", "senior", "consultant")
-# Default sub-spec labels. The actual list is configurable per Instance via
-# Instance.subspecs. This module-level tuple is only used for synthetic
-# instance generation (benchmarks / tests).
-SUBSPECS = ("Neuro", "Body", "MSK")
 # Internal session keys the CP-SAT model reasons over. FULL_DAY stations
 # are unpacked by the model into paired AM+PM variables (see
 # scheduler/model.py) so constraints that count AM/PM separately keep
@@ -28,15 +24,20 @@ class Station:
     name: str
     sessions: tuple[str, ...]
     required_per_session: int
+    # Advisory metadata only — the solver does not gate eligibility on
+    # this; per-doctor `eligible_stations` is the only enforced check.
     eligible_tiers: frozenset[str]
     is_reporting: bool = False
+    # Per-station weekday / weekend gate. Weekday-only is the historical
+    # default. Replaces the old global `Instance.weekend_am_pm_enabled`.
+    weekday_enabled: bool = True
+    weekend_enabled: bool = False
 
 
 @dataclass
 class Doctor:
     id: int
     tier: str
-    subspec: str | None
     eligible_stations: frozenset[str]
     # FTE = full-time equivalent, 0.0–1.0. 0.5 means the doctor is half-time
     # and should carry roughly half the workload of a full-timer.
@@ -55,7 +56,9 @@ class Instance:
     leave: dict[int, set[int]] = field(default_factory=dict)
     public_holidays: set[int] = field(default_factory=set)
     prev_oncall: set[int] = field(default_factory=set)
-    weekend_am_pm_enabled: bool = False
+    # H8 weekend consultant headcount. Replaces the old "1 consultant per
+    # subspec" rule with a flat configurable count.
+    weekend_consultants_required: int = 1
     # Prior-period carry-in: weighted workload score each doctor brought into
     # this horizon. The solver adds this to its own weighted workload when
     # balancing fairness (higher = did more last period → gets less this one).
@@ -81,9 +84,6 @@ class Instance:
     # where role is one of "STATION" / "ONCALL" / "EXT" / "WCONSULT".
     overrides: list[tuple[int, int, str | None, str | None, str]] = field(
         default_factory=list)
-    # Sub-specialty labels. Consultants each have one of these. Defaults to
-    # the three-item list below; editable in the UI.
-    subspecs: tuple[str, ...] = ("Neuro", "Body", "MSK")
 
     def is_weekend(self, day: int) -> bool:
         wd = (self.start_weekday + day) % 7
@@ -120,8 +120,6 @@ def _tier_split(n: int) -> tuple[int, int, int]:
     n_junior = max(4, int(round(n * 0.35)))
     n_senior = max(3, int(round(n * 0.15)))
     n_consult = max(6, n - n_junior - n_senior)
-    # Ensure at least 2 consultants per subspec.
-    n_consult = max(n_consult, 2 * len(SUBSPECS))
     # Re-balance if sum drifted.
     total = n_junior + n_senior + n_consult
     if total != n:
@@ -154,16 +152,15 @@ def make_synthetic(
     doctors: list[Doctor] = []
     did = 0
     for _ in range(n_j):
-        doctors.append(Doctor(did, "junior", None,
+        doctors.append(Doctor(did, "junior",
                               _eligible_for_tier("junior", stations, rng)))
         did += 1
     for _ in range(n_s):
-        doctors.append(Doctor(did, "senior", None,
+        doctors.append(Doctor(did, "senior",
                               _eligible_for_tier("senior", stations, rng)))
         did += 1
-    for i in range(n_c):
-        subspec = SUBSPECS[i % len(SUBSPECS)]
-        doctors.append(Doctor(did, "consultant", subspec,
+    for _ in range(n_c):
+        doctors.append(Doctor(did, "consultant",
                               _eligible_for_tier("consultant", stations, rng)))
         did += 1
 

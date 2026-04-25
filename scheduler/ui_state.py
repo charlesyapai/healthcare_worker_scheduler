@@ -17,16 +17,12 @@ import pandas as pd
 
 from scheduler.instance import (
     DEFAULT_STATIONS,
-    SUBSPECS,
     Doctor,
     Instance,
     Station,
 )
 
 TIERS = ("junior", "senior", "consultant")
-# Exposed only for legacy default-table scaffolding. The UI re-reads the
-# current subspec list from session_state["subspecs"].
-SUBSPEC_CHOICES = ("", *SUBSPECS)
 
 
 # ----------------------------------------------------------------- defaults
@@ -43,8 +39,6 @@ def default_doctors_df(n: int = 20, seed: int = 0) -> pd.DataFrame:
     n_j = max(4, int(round(n * 0.35)))
     n_s = max(3, int(round(n * 0.15)))
     n_c = max(6, n - n_j - n_s)
-    if n_c < 2 * len(SUBSPECS):
-        n_c = 2 * len(SUBSPECS)
     total = n_j + n_s + n_c
     if total != n:
         n_c += n - total
@@ -60,22 +54,21 @@ def default_doctors_df(n: int = 20, seed: int = 0) -> pd.DataFrame:
     idx = 0
     for _ in range(n_j):
         rows.append(dict(
-            name=_name(idx), tier="junior", subspec="",
+            name=_name(idx), tier="junior",
             eligible_stations=",".join(_default_elig("junior", rng)),
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
         idx += 1
     for _ in range(n_s):
         rows.append(dict(
-            name=_name(idx), tier="senior", subspec="",
+            name=_name(idx), tier="senior",
             eligible_stations=",".join(_default_elig("senior", rng)),
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
         idx += 1
-    for i in range(n_c):
-        ss = SUBSPECS[i % len(SUBSPECS)]
+    for _ in range(n_c):
         rows.append(dict(
-            name=_name(idx), tier="consultant", subspec=ss,
+            name=_name(idx), tier="consultant",
             eligible_stations=",".join(_default_elig("consultant", rng)),
             prev_workload=0, fte=1.0, max_oncalls=None,
         ))
@@ -100,6 +93,8 @@ def default_stations_df() -> pd.DataFrame:
             required_per_session=s.required_per_session,
             eligible_tiers=",".join(sorted(s.eligible_tiers)),
             is_reporting=s.is_reporting,
+            weekday_enabled=s.weekday_enabled,
+            weekend_enabled=s.weekend_enabled,
         ))
     return pd.DataFrame(rows)
 
@@ -133,12 +128,11 @@ def build_instance(
     stations_df: pd.DataFrame,
     leave_entries: Iterable[tuple[str, date]] = (),
     public_holidays: Iterable[date] = (),
-    weekend_am_pm_enabled: bool = False,
     prev_oncall_names: Iterable[str] = (),
     block_entries: Iterable[tuple[str, date, date | None, str]] = (),
     override_entries: Iterable[tuple[str, date, str]] = (),
     role_preference_entries: Iterable[tuple[str, str, int, int]] = (),
-    subspecs: Iterable[str] | None = None,
+    weekend_consultants_required: int = 1,
 ) -> Instance:
     """Assemble an Instance from editable tables.
 
@@ -149,8 +143,6 @@ def build_instance(
     insensitive).
     `override_entries` is an iterable of (doctor_name, date, role) where role
     is a string like "STATION_CT_AM", "ONCALL", "WEEKEND_EXT", "WEEKEND_CONSULT".
-    `subspecs` is the list of consultant sub-spec labels; defaults to the
-    module-level SUBSPECS if None.
     """
     if n_days < 1:
         raise BuildError("n_days must be ≥ 1")
@@ -186,17 +178,28 @@ def build_instance(
         if bad:
             raise BuildError(f"Station {name}: unknown tiers {sorted(bad)}.")
         is_rep = bool(row.get("is_reporting", False))
-        stations.append(Station(name, sessions, req, tiers, is_rep))
+
+        def _bool(val, default: bool) -> bool:
+            if val is None or (hasattr(pd, "isna") and pd.isna(val)):
+                return default
+            if isinstance(val, bool):
+                return val
+            s = str(val).strip().lower()
+            if s in ("true", "1", "yes", "y", "on"):
+                return True
+            if s in ("false", "0", "no", "n", "off", ""):
+                return False
+            return default
+        weekday_enabled = _bool(row.get("weekday_enabled"), True)
+        weekend_enabled = _bool(row.get("weekend_enabled"), False)
+        stations.append(Station(
+            name, sessions, req, tiers, is_rep,
+            weekday_enabled=weekday_enabled,
+            weekend_enabled=weekend_enabled,
+        ))
 
     if not stations:
         raise BuildError("At least one station is required.")
-
-    # Subspec list (either user-supplied or module default).
-    subspec_tuple: tuple[str, ...] = tuple(
-        str(s).strip() for s in (subspecs or SUBSPECS) if s and str(s).strip()
-    )
-    if not subspec_tuple:
-        subspec_tuple = tuple(SUBSPECS)
 
     # Doctors.
     doctors: list[Doctor] = []
@@ -212,14 +215,6 @@ def build_instance(
         if tier not in TIERS:
             raise BuildError(
                 f"Doctor {name}: tier must be one of {TIERS}, got '{tier}'.")
-        subspec_raw = str(row.get("subspec", "")).strip()
-        subspec = subspec_raw if subspec_raw else None
-        if tier == "consultant" and subspec is None:
-            raise BuildError(
-                f"Consultant {name}: subspec is required (choose {list(subspec_tuple)}).")
-        if subspec is not None and subspec not in subspec_tuple:
-            raise BuildError(
-                f"Doctor {name}: subspec '{subspec}' not in {list(subspec_tuple)}.")
         elig_s = str(row.get("eligible_stations", "")).strip()
         elig = frozenset(s.strip() for s in elig_s.split(",") if s.strip())
         bad = elig - station_names
@@ -246,7 +241,7 @@ def build_instance(
             max_oncalls = None
 
         new_id = len(doctors)
-        doctors.append(Doctor(new_id, tier, subspec, elig,
+        doctors.append(Doctor(new_id, tier, elig,
                               fte=fte, max_oncalls=max_oncalls))
         name_to_id[name] = new_id
         try:
@@ -434,14 +429,13 @@ def build_instance(
         leave=leave,
         public_holidays=ph_idx,
         prev_oncall=prev_oncall_ids,
-        weekend_am_pm_enabled=weekend_am_pm_enabled,
+        weekend_consultants_required=int(weekend_consultants_required),
         prev_workload=prev_workload_map,
         no_oncall=no_oncall,
         no_session=no_session,
         prefer_session=prefer_session,
         overrides=overrides,
         role_preferences=role_preferences,
-        subspecs=subspec_tuple,
     )
 
 

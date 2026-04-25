@@ -16,7 +16,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/numberInput";
 import { type SolveResultPayload, useSolveStore } from "@/store/solve";
 
 function fmt(n: number | null): string {
@@ -104,33 +104,28 @@ export function Solve() {
           <CardContent className="grid gap-3 text-sm">
             <label className="flex items-center justify-between gap-3">
               <span>Time limit (s)</span>
-              <Input
-                type="number"
+              <NumberInput
                 min={5}
                 max={3600}
                 className="h-8 w-24 text-right"
                 value={solver.time_limit ?? 60}
-                onChange={(e) =>
+                onChange={(v) =>
                   save({
-                    solver: { ...solver, time_limit: Math.max(5, Number(e.target.value) || 60) },
+                    solver: { ...solver, time_limit: Math.max(5, v) },
                   })
                 }
               />
             </label>
             <label className="flex items-center justify-between gap-3">
               <span>CPU workers</span>
-              <Input
-                type="number"
+              <NumberInput
                 min={1}
                 max={16}
                 className="h-8 w-24 text-right"
                 value={solver.num_workers ?? 8}
-                onChange={(e) =>
+                onChange={(v) =>
                   save({
-                    solver: {
-                      ...solver,
-                      num_workers: Math.max(1, Math.min(16, Number(e.target.value) || 8)),
-                    },
+                    solver: { ...solver, num_workers: v },
                   })
                 }
               />

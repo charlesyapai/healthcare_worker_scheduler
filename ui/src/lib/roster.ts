@@ -231,7 +231,6 @@ export interface HoursLike {
 export interface WorkloadRow {
   doctor: string;
   tier: string;
-  subspec: string | null;
   score: number;
   prevWorkload: number;
   deltaMedian: number;
@@ -244,7 +243,6 @@ export function computeWorkload(args: {
   doctors: Array<{
     name: string;
     tier: "junior" | "senior" | "consultant";
-    subspec: string | null | undefined;
     prev_workload?: number | null;
   }>;
   assignments: AssignmentRow[];
@@ -331,7 +329,6 @@ export function computeWorkload(args: {
     return {
       doctor: d.name,
       tier: d.tier,
-      subspec: d.subspec ?? null,
       score: who.score + (d.prev_workload ?? 0),
       prevWorkload: d.prev_workload ?? 0,
       deltaMedian: 0,

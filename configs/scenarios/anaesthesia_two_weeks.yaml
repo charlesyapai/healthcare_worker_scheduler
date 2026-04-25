@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 horizon:
   start_date: '2026-04-27'
   n_days: 14
@@ -6,145 +6,121 @@ horizon:
 doctors:
 - name: T1
   tier: junior
-  subspec: ''
   eligible_stations: PREOP,RECOVERY,ICU_COVER
   prev_workload: 0
   fte: 1.0
 - name: T2
   tier: junior
-  subspec: ''
   eligible_stations: PREOP,RECOVERY,ICU_COVER
   prev_workload: 0
   fte: 1.0
 - name: T3
   tier: junior
-  subspec: ''
   eligible_stations: PREOP,RECOVERY,ICU_COVER
   prev_workload: 0
   fte: 1.0
 - name: T4
   tier: junior
-  subspec: ''
   eligible_stations: PREOP,RECOVERY,ICU_COVER
   prev_workload: 0
   fte: 1.0
 - name: T5
   tier: junior
-  subspec: ''
   eligible_stations: PREOP,RECOVERY,ICU_COVER
   prev_workload: 0
   fte: 1.0
 - name: T6
   tier: junior
-  subspec: ''
   eligible_stations: PREOP,RECOVERY,ICU_COVER
   prev_workload: 0
   fte: 1.0
 - name: T7
   tier: junior
-  subspec: ''
   eligible_stations: PREOP,RECOVERY,ICU_COVER
   prev_workload: 0
   fte: 1.0
 - name: T8
   tier: junior
-  subspec: ''
   eligible_stations: PREOP,RECOVERY,ICU_COVER
   prev_workload: 0
   fte: 1.0
 - name: SR1
   tier: senior
-  subspec: ''
   eligible_stations: PREOP,RECOVERY,ICU_COVER,OR_GENERAL,OBSTETRIC
   prev_workload: 0
   fte: 1.0
 - name: SR2
   tier: senior
-  subspec: ''
   eligible_stations: PREOP,RECOVERY,ICU_COVER,OR_GENERAL,OBSTETRIC
   prev_workload: 0
   fte: 1.0
 - name: SR3
   tier: senior
-  subspec: ''
   eligible_stations: PREOP,RECOVERY,ICU_COVER,OR_GENERAL,OBSTETRIC
   prev_workload: 0
   fte: 1.0
 - name: SR4
   tier: senior
-  subspec: ''
   eligible_stations: PREOP,RECOVERY,ICU_COVER,OR_GENERAL,OBSTETRIC
   prev_workload: 0
   fte: 1.0
 - name: SR5
   tier: senior
-  subspec: ''
   eligible_stations: PREOP,RECOVERY,ICU_COVER,OR_GENERAL,OBSTETRIC
   prev_workload: 0
   fte: 1.0
 - name: SR6
   tier: senior
-  subspec: ''
   eligible_stations: PREOP,RECOVERY,ICU_COVER,OR_GENERAL,OBSTETRIC
   prev_workload: 0
   fte: 1.0
 - name: Dr Gen1
   tier: consultant
-  subspec: General
   eligible_stations: OR_GENERAL,OR_CARDIAC,OR_PAEDS,OBSTETRIC,ICU_COVER
   prev_workload: 0
   fte: 1.0
 - name: Dr Gen2
   tier: consultant
-  subspec: General
   eligible_stations: OR_GENERAL,OR_CARDIAC,OR_PAEDS,OBSTETRIC,ICU_COVER
   prev_workload: 0
   fte: 1.0
 - name: Dr Gen3
   tier: consultant
-  subspec: General
   eligible_stations: OR_GENERAL,OR_CARDIAC,OR_PAEDS,OBSTETRIC,ICU_COVER
   prev_workload: 0
   fte: 1.0
 - name: Dr Card1
   tier: consultant
-  subspec: Cardiac
   eligible_stations: OR_GENERAL,OR_CARDIAC,OR_PAEDS,OBSTETRIC,ICU_COVER
   prev_workload: 0
   fte: 1.0
 - name: Dr Card2
   tier: consultant
-  subspec: Cardiac
   eligible_stations: OR_GENERAL,OR_CARDIAC,OR_PAEDS,OBSTETRIC,ICU_COVER
   prev_workload: 0
   fte: 1.0
 - name: Dr Obs1
   tier: consultant
-  subspec: Obstetric
   eligible_stations: OR_GENERAL,OR_CARDIAC,OR_PAEDS,OBSTETRIC,ICU_COVER
   prev_workload: 0
   fte: 1.0
 - name: Dr Obs2
   tier: consultant
-  subspec: Obstetric
   eligible_stations: OR_GENERAL,OR_CARDIAC,OR_PAEDS,OBSTETRIC,ICU_COVER
   prev_workload: 0
   fte: 1.0
 - name: Dr Paed1
   tier: consultant
-  subspec: Paediatric
   eligible_stations: OR_GENERAL,OR_CARDIAC,OR_PAEDS,OBSTETRIC,ICU_COVER
   prev_workload: 0
   fte: 1.0
 - name: Dr Paed2
   tier: consultant
-  subspec: Paediatric
   eligible_stations: OR_GENERAL,OR_CARDIAC,OR_PAEDS,OBSTETRIC,ICU_COVER
   prev_workload: 0
   fte: 1.0
 - name: Dr Gen4
   tier: consultant
-  subspec: General
   eligible_stations: OR_GENERAL,OR_CARDIAC,OR_PAEDS,OBSTETRIC,ICU_COVER
   prev_workload: 0
   fte: 1.0
@@ -154,38 +130,53 @@ stations:
   required_per_session: 2
   eligible_tiers: senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: OR_CARDIAC
   sessions: FULL_DAY
   required_per_session: 1
   eligible_tiers: consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: OR_PAEDS
   sessions: FULL_DAY
   required_per_session: 1
   eligible_tiers: consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: OBSTETRIC
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: PREOP
   sessions: AM,PM
   required_per_session: 2
   eligible_tiers: junior,senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: RECOVERY
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: junior,senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 - name: ICU_COVER
   sessions: AM,PM
   required_per_session: 1
   eligible_tiers: junior,senior,consultant
   is_reporting: false
+  weekday_enabled: true
+  weekend_enabled: false
 blocks: []
 overrides: []
+role_preferences: []
 tier_labels:
   junior: Junior
   senior: Senior
@@ -197,11 +188,6 @@ shift_labels:
   oncall: "Night call 17:00\u201308:00"
   weekend_ext: Weekend on-call
   weekend_consult: Weekend consultant
-subspecs:
-- General
-- Cardiac
-- Obstetric
-- Paediatric
 soft_weights:
   workload: 40
   sessions: 5
@@ -235,8 +221,8 @@ constraints:
   h8_enabled: true
   h9_enabled: true
   h11_enabled: true
-  weekend_am_pm: false
   weekday_oncall_coverage: true
+  weekend_consultants_required: 1
 solver:
   time_limit: 30
   num_workers: 8

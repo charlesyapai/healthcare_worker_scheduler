@@ -37,7 +37,6 @@ class StrictModel(BaseModel):
 class DoctorEntry(StrictModel):
     name: str
     tier: Tier
-    subspec: str | None = None
     eligible_stations: list[str] = Field(default_factory=list)
     prev_workload: int = 0
     fte: float = 1.0
@@ -48,21 +47,22 @@ class DoctorEntry(StrictModel):
     def _coerce_stations(cls, v: Any) -> list[str]:
         return _split_csv(v)
 
-    @field_validator("subspec", mode="before")
-    @classmethod
-    def _blank_subspec(cls, v: Any) -> str | None:
-        if v is None:
-            return None
-        s = str(v).strip()
-        return s if s else None
-
 
 class StationEntry(StrictModel):
     name: str
     sessions: list[Session] = Field(default_factory=lambda: ["AM", "PM"])
     required_per_session: int = 1
+    # Advisory metadata: hints to the UI about which tiers usually staff this
+    # station. NOT enforced as a hard rule by the solver — per-doctor
+    # eligible_stations is the only enforced eligibility check. Kept so the
+    # Stations editor can pre-fill new doctors' eligibility lists.
     eligible_tiers: list[Tier] = Field(default_factory=list)
     is_reporting: bool = False
+    # Per-station weekday / weekend gate. Replaces the old global
+    # constraints.weekend_am_pm flag. Default: weekday-only (matches the
+    # historical default for AM/PM stations).
+    weekday_enabled: bool = True
+    weekend_enabled: bool = False
 
     @field_validator("sessions", mode="before")
     @classmethod
@@ -191,10 +191,12 @@ class ConstraintsConfig(StrictModel):
     h8_enabled: bool = True
     h9_enabled: bool = True
     h11_enabled: bool = True
-    weekend_am_pm: bool = False
     # Default on so Minimal-staffing mode still produces an on-call-covered
     # roster every weekday night.
     weekday_oncall_coverage: bool = True
+    # H8 weekend consultant headcount. Replaces the old "1 consultant per
+    # subspec" rule with a flat configurable count.
+    weekend_consultants_required: int = 1
 
 
 class SolverSettings(StrictModel):
@@ -204,7 +206,7 @@ class SolverSettings(StrictModel):
 
 
 class SessionState(StrictModel):
-    schema_version: int = 1
+    schema_version: int = 2
     horizon: Horizon = Field(default_factory=Horizon)
     doctors: list[DoctorEntry] = Field(default_factory=list)
     stations: list[StationEntry] = Field(default_factory=list)
@@ -213,7 +215,6 @@ class SessionState(StrictModel):
     role_preferences: list[RolePreferenceEntry] = Field(default_factory=list)
     tier_labels: TierLabels = Field(default_factory=TierLabels)
     shift_labels: ShiftLabels = Field(default_factory=ShiftLabels)
-    subspecs: list[str] = Field(default_factory=lambda: ["Neuro", "Body", "MSK"])
     soft_weights: SoftWeights = Field(default_factory=SoftWeights)
     workload_weights: WorkloadWeights = Field(default_factory=WorkloadWeights)
     hours: Hours = Field(default_factory=Hours)

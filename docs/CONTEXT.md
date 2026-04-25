@@ -1,143 +1,343 @@
 # Project Context — Healthcare Worker Scheduler
 
-**Read this first if you are a new agent or a human picking up this project.**
+**Read this first if you are a new agent or a human picking up this
+project.** Last refreshed 2026-04-26.
 
 ## 1. Goal
 
-Build a roster-generation service for a radiology department (initial user:
-CGH-style setup, ~30–50 consultants, expanding toward ~200 pax). The user
-inputs doctors, stations, and constraints; the system returns a monthly roster
-that satisfies hard constraints and optimizes soft ones.
+Build a roster-generation service for a hospital department —
+initial target was a radiology team (~30–50 consultants, scaling
+toward ~200 staff), but the model now generalises to any
+department whose week splits into AM / PM / on-call shifts.
 
-Deployment target: **Hugging Face Spaces** (or GitHub Pages + a small API).
+The user inputs:
+- Doctors / nurses / staff (with tier and per-person eligibility),
+- Stations (the work that needs covering, with sessions and tiers),
+- Constraints (rest periods, weekend cover, sub-spec parity, etc.),
+- A horizon (start date, number of days, public holidays),
 
-## 2. Strategy
+and the system returns a feasible roster that satisfies hard
+constraints and optimises soft ones (workload balance, on-call
+spread, idle-time minimisation, role preferences).
 
-Two-phase plan:
+The product has **two faces** sharing one solver:
 
-- **Phase 1 — CP-SAT baseline (this repo, in progress).** Use Google OR-Tools
-  CP-SAT to solve the scheduling problem directly. Benchmark solve time across
-  problem sizes to find out whether the solver is already fast enough that no
-  ML layer is needed.
-- **Phase 2 — Optional ML predictor.** If CP-SAT is too slow for interactive
-  use, train a model (e.g. a transformer or GNN) on solver-generated rosters
-  to predict a seed solution, then let CP-SAT polish it with a warm start or
-  a local-search neighbourhood around the prediction. The solver's output
-  from Phase 1 becomes the training data for Phase 2 — so Phase 1 is never
-  wasted work even if we proceed to ML.
+1. **Coordinator UI** — clinic / hospital users producing a real
+   schedule. Setup → Solve → Roster → Export. Live now at
+   `https://charlesyapai-healthcare-workforce-scheduler-v2.hf.space`.
+2. **Lab / research surface** — `/solve/lab/*` (under Solve in the
+   nav). Benchmark, Capacity, Sweep, Fairness, Scaling. Used by us
+   when tuning the solver and intended to support a peer-reviewed
+   submission.
 
-The key open question that Phase 1 answers:
-**For N doctors × D days, how long does CP-SAT take to find (a) a feasible
-solution, (b) a proved-optimal solution?**
+## 2. Architecture (current — v2)
 
-## 3. Where we are right now (v0.4)
+```
+┌────────────────────────────────────────────────────────────────────┐
+│ React SPA (ui/src/)                                                 │
+│  Vite + TypeScript strict + Tailwind v4                              │
+│  TanStack Query (server cache) + Zustand (client UI state)           │
+│  Routes: / · /setup/* · /solve · /solve/lab/* · /roster              │
+└────────────────────────────────────────────────────────────────────┘
+            │ apiFetch (cookie session)
+            ▼
+┌────────────────────────────────────────────────────────────────────┐
+│ FastAPI (api/)                                                      │
+│  Routers: state, solve, roster, metrics, lab, compliance, …         │
+│  Per-session state held in memory (sessions.py)                      │
+│  WebSocket /api/solve streams CP-SAT intermediate solutions          │
+└────────────────────────────────────────────────────────────────────┘
+            │ session_to_instance
+            ▼
+┌────────────────────────────────────────────────────────────────────┐
+│ Solver (scheduler/)                                                 │
+│  CP-SAT model in scheduler/model.py                                  │
+│  Hard rules: H1–H15 + weekday on-call coverage                       │
+│  Soft objective S0 (workload) … S7 (role prefs)                      │
+│  Heuristic baselines: greedy, random_repair (scheduler/baselines.py) │
+└────────────────────────────────────────────────────────────────────┘
+```
 
-- Branch: `claude/healthcare-roster-scheduler-P5QLa`.
-- Real configuration UI (editable doctor/station/leave tables, date
-  picker, snapshot picker) — see `app.py`. Seven tabs: Setup /
-  Constraints / Solve / Roster / Analytics / Diagnostics / Export.
-- `scheduler/ui_state.py` converts editable tables → `Instance`.
-- `scheduler.model.solve(..., snapshot_assignments=True)` captures a
-  full `assignments` dict per intermediate solution so the Roster tab
-  can render *any* snapshot, not just the final.
-- Deploys to Hugging Face Spaces via the Docker frontmatter in
-  `README.md` (port 7860, CORS/XSRF disabled for HF's iframe).
+The Streamlit-era `app.py` is gone — the v2 build replaced it
+entirely. The solver layer (`scheduler/`) is the same one from
+v0.x with significant additions; the Pydantic + UI layers are
+new.
 
-## 3b. v0.3 snapshot (still valid for the solver/metrics layer)
+## 3. Where we are right now
 
-- Branch: `claude/healthcare-roster-scheduler-P5QLa`.
-- Constraint spec frozen in `docs/CONSTRAINTS.md`, with defaults applied for
-  9 open gaps (user can override).
-- CP-SAT model in `scheduler/model.py`. `SolveResult` exposes
-  `first_feasible_s` and `penalty_components`; the intermediate-solution
-  callback records wall time + per-component weighted penalty.
-- Metrics layer in `scheduler/metrics.py` — `problem_metrics`,
-  `solve_metrics`, `solution_metrics`.
-- Infeasibility diagnostics in `scheduler/diagnostics.py` — L1
-  `presolve_feasibility` (ms; five necessary-condition checks) and
-  L3 `explain_infeasibility` (soft-relax on H1/H8, reports exactly
-  which constraints had to be broken).
-- Plotly charts in `scheduler/plots.py` — 10 figures, each returned
-  with its explanation from `docs/plots/<name>.md`.
-- Streamlit UI in `app.py` — threaded streaming solver, live
-  convergence chart, Analytics / Roster / Workload / Why-infeasible /
-  Export tabs, sidebar **Diagnose** (L1) button.
-- Synthetic instance generator in `scheduler/instance.py`.
-- Benchmark harness in `scheduler/benchmark.py`.
-- No ML. Deploys to Hugging Face Spaces as-is via the frontmatter in
-  `README.md`.
+**Branch:** `react-ui` (the project ships from this branch — there's
+no separate `main` rollout).
+
+**Last shipped commit:** `0c7edb8` — "Fix H1 validator: recognise
+FULL_DAY paired AM+PM rows".
+
+**Live HF Space:** `charlesyapai/healthcare_workforce_scheduler_v2`
+(private Docker Space). Deploys via
+`bash scripts/deploy_hf.sh` which force-pushes a docs-stripped
+branch to HF main.
+
+### What's built and stable
+
+- **Setup** absorbed Rules in the 2026-04-25 IA pass — `/setup/*`
+  has both per-period inputs (Templates · When · People · Leave &
+  blocks · Role preferences · Manual overrides) and department
+  inputs (Shape · Teams & stations · Rules · Hours & weights).
+- **Solve** hosts Lab as a sub-section — `/solve/lab/*` —
+  with Benchmark, Capacity, Sweep, Fairness, Scaling tabs.
+- **Roster** absorbed Export — `/roster` shows the heatmap +
+  fairness panel + WTD compliance card + RosterExport inline.
+- 17 bundled scenarios in `configs/scenarios/` covering quickstart
+  (radiology · clinic), specialty (cardiology · ICU · ED · surgery
+  with FULL_DAY OR lists · paeds · anaesthesia · nursing), realistic
+  (busy month · teaching · regional · large), research (NRP-shaped
+  benchmarks), and stress (tight on-call · dense leave).
+- **Validator parity** — every hard constraint enforced by
+  `scheduler/model.py` is mirrored in `api/validator.py`. A solve
+  emits a self-check audit; manual roster edits hit the same
+  validator over `/api/roster/validate`.
+- **Per-doctor role preferences (S7)** — soft shortfall penalty
+  for "Dr A wants ≥ N of role X this period". Editor at
+  `/setup/preferences`. Soft, never blocks feasibility.
+- **FULL_DAY station sessions** — paired AM+PM encoding for
+  surgical-list-style "one doctor holds the whole day" stations.
+- **UK NHS WTD compliance audit** — post-solve module under
+  `api/compliance/uk_wtd.py`, surfaced as a card on `/roster`.
+- **93/93 tests passing** on the full suite.
+
+### What's in flight (active forward plan)
+
+**Read [`docs/SCHEDULE_MODEL_REVAMP.md`](SCHEDULE_MODEL_REVAMP.md)
+end-to-end before starting any solver / model work.** The revamp
+is a four-phase rework that:
+
+1. **Phase A** — decouples tier from station eligibility, drops
+   the consultant-only sub-spec system, adds per-station weekend
+   toggles, fixes the backspace-cursor bug. (Foundation, atomic.)
+2. **Phase B** — replaces hard-coded `oncall` / `ext` / `wconsult`
+   variable families with user-defined `OnCallType`s (clock-time,
+   eligibility, post-shift rules per type).
+3. **Phase C** — variable tier count with classification mapping.
+4. **Phase D** — clock-time AM/PM with auto-computed hours.
+
+All four phases bump `schema_version` (currently 1, will be 5 by
+Phase D). Loaders accept any older version and migrate forward.
+
+### What was once on the roadmap and is no longer
+
+- **Phase 2 — ML predictor** (mentioned in old context as a "if
+  CP-SAT is too slow" fallback). Tabled. CP-SAT solves the 200×28
+  case fast enough for interactive use; ML adds risk + reproducibility
+  pain that a peer-reviewed submission doesn't want. The Lab's
+  `/lab/scaling` tab makes this empirically defensible.
+- **Streamlit `app.py` UI**. Replaced by the React SPA.
+- **Local-only Plotly charts**. Replaced by Recharts in the SPA.
 
 ## 4. How to pick up where we left off
 
-1. Read `docs/CONSTRAINTS.md` — this is the spec.
-2. Read `docs/CHANGELOG.md` — this is the running log.
-3. `pip install -r requirements.txt`.
-4. `python -m scheduler.benchmark --smoke` — runs a 10-doctor × 7-day sanity
-   check. Should finish in seconds.
-5. `python -m scheduler.benchmark` — full sweep. Writes
-   `results/benchmark_<timestamp>.csv`.
-6. Check the CSV: if the 30-doctor × 28-day row solves in < 60s with
-   `OPTIMAL` or high-quality `FEASIBLE`, CP-SAT alone is probably enough and
-   the ML phase may be skippable.
+1. Read [`SCHEDULE_MODEL_REVAMP.md`](SCHEDULE_MODEL_REVAMP.md) §11
+   ("Implementation context for the integrating agent") — that
+   section is the live operational guide for the next phase of work.
+2. Read [`CONSTRAINTS.md`](CONSTRAINTS.md) — the H/S rule spec.
+   Note that Phase A will revise this doc significantly (subspec
+   removal, per-station weekend); don't rely on the literal H8
+   wording in the current `CONSTRAINTS.md` after Phase A lands.
+3. Read [`CHANGELOG.md`](CHANGELOG.md) — running log of what
+   shipped, in reverse chronological order.
+4. Set up:
+   ```bash
+   pip install -r requirements.txt
+   cd ui && pnpm install && cd ..
+   ```
+5. Run tests:
+   ```bash
+   python -m pytest tests/ -x -q --ignore=tests/test_stress.py
+   ```
+   Should finish in ~1–2 min and report ~80 tests passing
+   (test_stress.py is the slow one; full suite is ~5 min).
+6. Run the build script — solves all 17 scenarios end-to-end:
+   ```bash
+   python scripts/build_scenarios.py
+   ```
+7. Bring up the dev stack:
+   ```bash
+   # Backend (port 7860):
+   uvicorn api.main:app --reload --port 7860
+   # Frontend (proxies /api to 7860):
+   cd ui && pnpm dev
+   ```
+   The SPA opens at `http://localhost:5173`.
 
 ## 5. Key files
 
 | Path | Purpose |
 |---|---|
-| `docs/CONSTRAINTS.md` | The single source of truth for the model. |
+| **Specs / docs** | |
+| `docs/SCHEDULE_MODEL_REVAMP.md` | **Active forward plan** — read first. |
+| `docs/CONSTRAINTS.md` | Hard + soft rule spec (will be updated as Phase A lands). |
+| `docs/CHANGELOG.md` | Reverse-chronological log of every shipped change. |
 | `docs/CONTEXT.md` | This file. |
-| `docs/CHANGELOG.md` | Append-only log of what changed, when, and why. |
-| `scheduler/instance.py` | `Instance`, `Doctor`, `Station` dataclasses + synthetic generator. |
-| `scheduler/model.py` | `build_model(instance) -> (model, vars)`, `solve(...)`, `SolveResult` (incl. `first_feasible_s`, `penalty_components`). |
-| `scheduler/metrics.py` | `problem_metrics`, `solve_metrics`, `solution_metrics`. |
-| `scheduler/diagnostics.py` | L1 `presolve_feasibility` + L3 `explain_infeasibility`. |
-| `scheduler/plots.py` | 10 Plotly figure builders, each returning `(figure, explanation_md)`. |
-| `scheduler/benchmark.py` | CLI sweeping problem sizes, writing CSV. |
-| `configs/default.yaml` | Default config for stations / tier mix / weights. |
-| `app.py` | Streamlit entry point (threaded streaming solve, analytics tabs, L3 button). |
-| `docs/plots/*.md` | Per-plot explanations (what / how to read / focus on). Hot-loaded by `plots.py`. |
-| `results/` | CSVs and solution dumps. Gitignored except `.gitkeep`. |
+| `docs/INDUSTRY_CONTEXT.md` | NRP literature + benchmarks + regulatory landscape. |
+| `docs/VALIDATION_PLAN.md` | Research-readiness checklist. |
+| `docs/RESEARCH_METRICS.md` | Formal metric definitions (S0…S7, etc.). |
+| `docs/HOW_TO_REPRODUCE.md` | Replay-bundle walkthrough. |
+| `docs/CITING.md` | BibTeX stubs. |
+| `docs/LAB_TAB_SPEC.md` | Lab tab UI/API spec. |
+| **Solver** | |
+| `scheduler/model.py` | CP-SAT model, `solve()`, `SolveResult`. |
+| `scheduler/instance.py` | `Doctor`, `Station`, `Instance` dataclasses + synthetic generator. |
+| `scheduler/ui_state.py` | UI tables → `Instance` (validation gate). |
+| `scheduler/persistence.py` | YAML round-trip (`load_state` / `dump_state`). |
+| `scheduler/baselines.py` | Greedy + random-repair baselines for the Lab. |
+| `scheduler/diagnostics.py` | L1 pre-solve feasibility checks + L3 infeasibility explainer. |
+| `scheduler/metrics.py` | Per-solve and per-solution metric helpers. |
+| **API** | |
+| `api/main.py` | FastAPI app. Mounts SPA at `/`. |
+| `api/sessions.py` | Per-browser session state, `session_to_instance`, role-string emission. |
+| `api/validator.py` | Post-solve hard-constraint audit. **Must mirror solver.** |
+| `api/models/session.py` | Pydantic shape of `SessionState`. |
+| `api/models/events.py` | WS event shapes + `AssignmentRow`. |
+| `api/models/lab.py` | Lab batch / capacity / scaling request-response shapes. |
+| `api/routes/state.py` | `/api/state*`, scenario list + load. |
+| `api/routes/solve.py` | WebSocket `/api/solve`, REST `/api/solve/run`, override fill-from-snapshot. |
+| `api/routes/roster.py` | `/api/roster/validate` (hits validator). |
+| `api/routes/lab.py` | Lab batch, scaling, capacity, bundle-zip. |
+| `api/routes/metrics.py` | Fairness + coverage. |
+| `api/routes/compliance.py` | UK NHS WTD audit. |
+| `api/routes/diagnostics.py` | L1 pre-solve + L3 explain. |
+| `api/lab/batch.py` | Cross-product (solver × seed) batch runner. |
+| `api/lab/scaling.py` | Synthetic-instance grid + power-law fit. |
+| `api/lab/capacity.py` | Hours-vs-target + team-reduction analyses. |
+| `api/lab/bundle.py` | Reproducibility ZIP export. |
+| `api/metrics/fairness.py` | Per-tier Gini/CV/range, FTE-normalised. |
+| `api/metrics/coverage.py` | Shortfall + over-coverage per session. |
+| `api/compliance/uk_wtd.py` | Six WTD rules (W1–W6) as a post-solve audit. |
+| **Frontend (selected)** | |
+| `ui/src/App.tsx` | React Router setup. |
+| `ui/src/components/Layout.tsx` | Top + side nav. |
+| `ui/src/api/hooks.ts` | TanStack Query hooks; one per endpoint. |
+| `ui/src/api/openapi.json`, `types.ts` | Generated; regen via `pnpm run gen:types`. |
+| `ui/src/routes/Setup/*` | All `/setup/*` pages (Templates · When · People · Leave · Preferences · Overrides · Shape · Teams · Constraints · Weights). |
+| `ui/src/routes/Solve/*` | `/solve` and `/solve/lab/*`. |
+| `ui/src/routes/Roster.tsx` | The post-solve workspace (heatmap, edit, validate, fairness, WTD, export). |
+| `ui/src/store/solve.ts`, `draft.ts`, `labBatch.ts` | Zustand stores. |
+| **Configs / scripts** | |
+| `configs/default.yaml` | Default config emitted by `seed_defaults`. |
+| `configs/scenarios/*.yaml` | The 17 bundled scenarios. |
+| `configs/scenarios/manifest.json` | Generated alongside YAMLs. |
+| `scripts/build_scenarios.py` | Builds + verifies + writes all 17 scenarios. |
+| `scripts/dump_openapi.py` | Dumps OpenAPI spec to stdout. |
+| `scripts/deploy_hf.sh` | Force-deploys to the HF Space. |
+| `scripts/replay_bundle.py` | Replays a downloaded reproducibility bundle. |
+| `scripts/benchmark_tuning.py` | A/B sweeps for the tuning toggles. |
 
-## 6. Decisions made so far (rationale)
+## 6. Decisions that are still load-bearing
 
-- **CP-SAT over MIP.** CP-SAT handles the channelling constraints (post-call
-  off, on-call 1-in-3) and symmetry breaking better than a typical MIP for
-  this style of problem, and it's free + well-maintained.
-- **Defaults applied for 9 gaps.** The user said "Continue where it left
-  off" after my gap list, so v0.1 bakes in defaults rather than blocking on
-  answers. Each default is documented so it is easy to flip.
-- **Separate balance terms per tier.** Juniors and consultants do different
-  work; balancing them in one pool would give weird results.
-- **Weekend stations disabled by default.** The conversation implied weekend
-  work *is* the on-call / extended / subspec-consultant roles, not AM/PM
-  station coverage. Flip `weekend_am_pm_enabled=True` in the config to
-  re-enable.
-- **No public-holiday calendar hardcoded.** Pass a list of day indices.
+- **CP-SAT over MILP.** CP-SAT handles channelling (post-call off,
+  1-in-N on-call) and symmetry breaking better than a typical MIP
+  for this problem shape. Free + well-maintained. The MILP baseline
+  for paper-comparison purposes is on the wishlist
+  ([`docs/BRIEFING_2026-04-23.md`](BRIEFING_2026-04-23.md) §4.2)
+  but not blocking.
+- **Per-tier balance, not pooled.** Juniors and consultants do
+  different work; balancing them in one pool would penalise
+  consultants for legitimately doing fewer hours. Surfaced as a
+  note on `/setup/weights` (was `/rules/weights` before the IA pass).
+  **This stays after the revamp** — Phase C's variable-tier work
+  preserves per-tier bucketing using a classification field.
+- **No public-holiday calendar hardcoded.** Pass an explicit
+  list. Treats public holidays as Sundays for weekend-rule
+  purposes.
+- **Reporting-only Hours config (current).** AM/PM/oncall hours
+  exist in `Hours` but don't drive solver decisions — only the
+  display column on `/roster`. Phase D will tie clock times into
+  Hours automatically.
+- **Validator parity.** Every hard rule enforced by the model is
+  re-verified by `api/validator.py` post-solve. **Don't change a
+  solver constraint without the matching validator change.**
+- **HF deploys are docs-stripped.** `scripts/deploy_hf.sh`
+  reconstitutes a `hf-deploy` branch from `react-ui` minus
+  `docs/`, then force-pushes to HF main. Canonical history
+  lives on GitHub.
 
-## 7. Known risks and open items
+## 7. Decisions that are CHANGING in the active revamp
 
-- **Solver blow-up.** At 200 doctors × 28 days × 8 stations × 2 sessions, the
-  variable count is ~90k. CP-SAT can usually handle this but it may need
-  aggressive symmetry breaking or redundant constraints. If the 200-doctor
-  case blows up, fall back to feasibility-only (no objective) and measure.
-- **Default list still needs user sign-off.** The 9 gaps in
-  `CONSTRAINTS.md §5`. Running the benchmark does not require sign-off, but
-  the user-facing UI later will.
-- **No unit tests yet.** There's a smoke test; that's it. Add tests before
-  wiring to a UI.
+These were "decisions made so far" historically, but Phase A of
+the revamp is rewriting them. **If you're working in this window,
+verify which side of Phase A you're on:**
 
-## 8. Running in a different environment
+- **3 hard-coded tiers (junior / senior / consultant).** Stays in
+  Phase A. Phase C makes this user-defined.
+- **`station.eligible_tiers` is a hard rule.** **Removed in Phase
+  A.** Becomes advisory metadata; only `doctor.eligible_stations`
+  drives solver eligibility.
+- **`Doctor.subspec` exists; H8 needs 1 consultant per subspec.**
+  **Removed in Phase A.** Replaced by a configurable consultant
+  count.
+- **Single global `weekend_am_pm` toggle.** **Removed in Phase A.**
+  Per-station `weekday_enabled` / `weekend_enabled` flags take over.
+- **Hard-coded on-call / ext / wconsult variable families.**
+  **Removed in Phase B.** User-defined `OnCallType`s replace them.
 
-The entire project is pure Python. Dependencies:
+## 8. Known risks + watch-items
+
+- **Solver blow-up at 200 doctors × 28 days.** Variable count is
+  ~90k. CP-SAT usually handles it, but symmetry breaking + the
+  redundant-aggregates toggle on `/lab/sweep` are the levers if
+  it tightens up. Not blocking interactive use today.
+- **HF cold-start.** First request after a redeploy can take 30–60s
+  while the container warms. The deploy script polls the runtime
+  API until `RUNNING` to confirm.
+- **OpenAPI regen forgetting.** The single most common reason
+  `pnpm build` fails after a backend edit. Pattern: `python
+  scripts/dump_openapi.py > ui/src/api/openapi.json && (cd ui &&
+  pnpm run gen:types)` after any change to `api/models/*.py`.
+- **YAML schema drift across the revamp.** Phase A bumps
+  `schema_version` from 1 to 2; Phase B → 3, etc. Loaders accept
+  any older version and migrate forward; saves always write the
+  current version. **Don't ship a phase boundary without testing
+  that an older saved YAML still loads.**
+- **Validator-model drift.** See §6. The FULL_DAY rollout was
+  shipped without the validator change and produced a red
+  self-check on every FULL_DAY scenario for two days before being
+  caught. Don't repeat.
+
+## 9. Running in a different environment
+
+The backend is pure Python + OR-Tools. Dependencies pinned in
+`requirements.txt`:
 
 ```
-ortools >= 9.10
-pyyaml
+ortools>=9.10
+pyyaml>=6
+fastapi>=0.115
+uvicorn[standard]>=0.30
+orjson>=3.10
+python-multipart>=0.0.9
+websockets>=12
+pytest>=8
+httpx>=0.27
+pandas>=2.0
+plotly>=5.20  # legacy; only used by old scheduler/plots.py
 ```
 
-Python 3.10+. No GPU needed for Phase 1. No network needed once deps are
-installed. All paths are relative to repo root.
+Python 3.11+. No GPU needed. No network needed once deps are
+installed.
 
-If you are picking this up in a Hugging Face Space, the Space only needs
-`requirements.txt` and whatever Gradio app wraps `scheduler.solve`. The Space
-has not been created yet.
+The frontend ships as a Vite + React + TypeScript SPA bundled by
+the multi-stage Dockerfile into `api/static/` at container build
+time. For local dev, run Vite separately on port 5173 with the
+`/api` proxy pointing at `localhost:7860`.
+
+HF Space is a private Docker Space — `Dockerfile` at repo root
+defines the multi-stage build. Container exposes port 7860.
+
+## 10. Pointers to docs that supersede parts of this one
+
+When in doubt, the more recent / specific doc wins:
+
+- For the active model rework: `docs/SCHEDULE_MODEL_REVAMP.md`.
+- For the current hard / soft rules: `docs/CONSTRAINTS.md`.
+- For research-tooling and metric definitions: `docs/VALIDATION_PLAN.md`,
+  `docs/RESEARCH_METRICS.md`, `docs/INDUSTRY_CONTEXT.md`.
+- For the Lab tabs: `docs/LAB_TAB_SPEC.md`.
+- For the running history: `docs/CHANGELOG.md`.

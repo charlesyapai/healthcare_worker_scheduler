@@ -58,13 +58,11 @@ def presolve_feasibility(inst: Instance) -> list[FeasibilityIssue]:
     real-world infeasibility with specific, actionable error messages."""
     issues: list[FeasibilityIssue] = []
     tier_counts: dict[str, int] = defaultdict(int)
-    subspec_counts: dict[str, int] = defaultdict(int)
     for d in inst.doctors:
         tier_counts[d.tier] += 1
-        if d.subspec:
-            subspec_counts[d.subspec] += 1
 
     weekend_days = [t for t in range(inst.n_days) if inst.is_weekend(t)]
+    consultants_required = max(0, int(inst.weekend_consultants_required))
 
     # Check 1: minimum tier counts.
     if weekend_days:
@@ -79,25 +77,27 @@ def presolve_feasibility(inst: Instance) -> list[FeasibilityIssue]:
                 "error", "no_seniors",
                 "Weekend days require senior on-call and senior extended duty, "
                 "but there are no senior doctors."))
-        for ss in inst.subspecs:
-            if subspec_counts.get(ss, 0) < 1:
-                issues.append(FeasibilityIssue(
-                    "error", "no_subspec",
-                    f"Weekend coverage needs a consultant of subspec {ss}, "
-                    f"but none are present.",
-                    {"subspec": ss}))
+        if consultants_required > 0 and tier_counts["consultant"] < consultants_required:
+            issues.append(FeasibilityIssue(
+                "error", "no_weekend_consultants",
+                f"Weekend coverage needs {consultants_required} consultant(s), "
+                f"but only {tier_counts['consultant']} are present.",
+                {"required": consultants_required,
+                 "available": tier_counts["consultant"]}))
 
-    # Check 2: per-day per-station eligibility.
-    # For each weekday, each station-session, count eligible doctors not on leave.
+    # Check 2: per-day per-station eligibility (per-doctor only).
+    # For each day, each station-session, count eligible doctors not on leave.
+    # Per-station weekday/weekend gates control whether the slot is in scope.
     for day in range(inst.n_days):
-        if inst.is_weekend(day) and not inst.weekend_am_pm_enabled:
-            continue
+        is_we = inst.is_weekend(day)
         for st in inst.stations:
+            if is_we and not st.weekend_enabled:
+                continue
+            if not is_we and not st.weekday_enabled:
+                continue
             for sess in st.sessions:
                 eligible = 0
                 for d in inst.doctors:
-                    if d.tier not in st.eligible_tiers:
-                        continue
                     if st.name not in d.eligible_stations:
                         continue
                     if day in inst.leave.get(d.id, set()):
@@ -112,18 +112,19 @@ def presolve_feasibility(inst: Instance) -> list[FeasibilityIssue]:
                         {"day": day, "station": st.name, "session": sess,
                          "required": st.required_per_session, "available": eligible}))
 
-    # Check 3: subspec coverage on each weekend day.
-    for day in weekend_days:
-        for ss in inst.subspecs:
+    # Check 3: weekend-consultant headcount per weekend day.
+    if consultants_required > 0:
+        for day in weekend_days:
             available = sum(1 for d in inst.doctors
-                            if d.tier == "consultant" and d.subspec == ss
+                            if d.tier == "consultant"
                             and day not in inst.leave.get(d.id, set()))
-            if available < 1:
+            if available < consultants_required:
                 issues.append(FeasibilityIssue(
-                    "error", "subspec_weekend",
-                    f"Day {day} (weekend): no available consultant with "
-                    f"subspec {ss} (all on leave).",
-                    {"day": day, "subspec": ss}))
+                    "error", "weekend_consultants_short",
+                    f"Day {day} (weekend): {available} consultant(s) available "
+                    f"but {consultants_required} required.",
+                    {"day": day, "available": available,
+                     "required": consultants_required}))
 
     # Check 4: on-call capacity under 1-in-3 cap.
     # Per doctor max oncall-days ~= ceil(avail_days / 3) where avail_days =
@@ -151,11 +152,19 @@ def presolve_feasibility(inst: Instance) -> list[FeasibilityIssue]:
                 f"Leave or eligibility changes could push this infeasible.",
                 {"tier": tier, "available": total_cap, "required": required}))
 
-    # Check 5: coverage slack per day.
+    # Check 5: coverage slack per day. Counts only stations enabled on the
+    # day's kind (weekday vs weekend) — disabled stations contribute no demand.
     for day in range(inst.n_days):
-        if inst.is_weekend(day) and not inst.weekend_am_pm_enabled:
+        is_we = inst.is_weekend(day)
+        active_stations = [
+            st for st in inst.stations
+            if (is_we and st.weekend_enabled) or (not is_we and st.weekday_enabled)
+        ]
+        if not active_stations:
             continue
-        required = sum(st.required_per_session for st in inst.stations for _ in st.sessions)
+        required = sum(
+            st.required_per_session for st in active_stations for _ in st.sessions
+        )
         available = sum(2 for d in inst.doctors
                         if day not in inst.leave.get(d.id, set()))
         if available < required:
@@ -196,11 +205,12 @@ def explain_infeasibility(inst: Instance, *, time_limit_s: float = 30.0,
         for day in range(inst.n_days):
             if day in leave_days:
                 continue
-            if inst.is_weekend(day) and not inst.weekend_am_pm_enabled:
-                continue
+            is_we = inst.is_weekend(day)
             for st_name in d.eligible_stations:
                 st = station_by_name[st_name]
-                if d.tier not in st.eligible_tiers:
+                if is_we and not st.weekend_enabled:
+                    continue
+                if not is_we and not st.weekday_enabled:
                     continue
                 for sess in SESSIONS:
                     if sess not in st.sessions:
@@ -244,9 +254,12 @@ def explain_infeasibility(inst: Instance, *, time_limit_s: float = 30.0,
 
     # H1 station coverage, with slack.
     for day in range(inst.n_days):
-        if inst.is_weekend(day) and not inst.weekend_am_pm_enabled:
-            continue
+        is_we = inst.is_weekend(day)
         for st in inst.stations:
+            if is_we and not st.weekend_enabled:
+                continue
+            if not is_we and not st.weekday_enabled:
+                continue
             for sess in st.sessions:
                 vars_for = [
                     assign[(d.id, day, st.name, sess)]
@@ -343,17 +356,17 @@ def explain_infeasibility(inst: Instance, *, time_limit_s: float = 30.0,
             loc = f"day {day} {label}"
             slacks.append((f"{label}_under", loc, up))
             slacks.append((f"{label}_over",  loc, dn))
-        for ss in inst.subspecs:
+        consultants_required = max(0, int(inst.weekend_consultants_required))
+        if consultants_required > 0:
             vars_for = [wconsult[(d.id, day)] for d in inst.doctors
-                        if d.tier == "consultant" and d.subspec == ss
-                        and (d.id, day) in wconsult]
-            up = model.NewIntVar(0, 10, f"sl_up_H8_wc_{day}_{ss}")
-            dn = model.NewIntVar(0, 10, f"sl_dn_H8_wc_{day}_{ss}")
+                        if d.tier == "consultant" and (d.id, day) in wconsult]
+            up = model.NewIntVar(0, 10, f"sl_up_H8_wc_{day}")
+            dn = model.NewIntVar(0, 10, f"sl_dn_H8_wc_{day}")
             lhs = sum(vars_for) if vars_for else 0
-            model.Add(lhs + up - dn == 1)
-            loc = f"day {day} subspec {ss} consultant"
-            slacks.append((f"H8_wconsult_under", loc, up))
-            slacks.append((f"H8_wconsult_over",  loc, dn))
+            model.Add(lhs + up - dn == consultants_required)
+            loc = f"day {day} weekend consultants"
+            slacks.append(("H8_wconsult_under", loc, up))
+            slacks.append(("H8_wconsult_over",  loc, dn))
 
         # one-role-per-doctor cap on weekend days.
         for d in inst.doctors:

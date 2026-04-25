@@ -115,7 +115,6 @@ export function Roster() {
       doctors: doctors.map((d) => ({
         name: d.name,
         tier: d.tier,
-        subspec: d.subspec,
         prev_workload: d.prev_workload,
       })),
       assignments: selectedAssignments,

@@ -2,6 +2,107 @@
 
 Append-only log. Newest at top. Each entry: date, short title, what/why.
 
+## 2026-04-26 — Schedule-model revamp Phase A
+
+**What:** Foundation pass of the four-phase schedule-model rework
+documented in `docs/SCHEDULE_MODEL_REVAMP.md`. Decouples tier from
+station eligibility, drops the consultant-only sub-spec system, gives
+each station its own weekday/weekend gate, and ships a
+`<NumberInput>` primitive that fixes the backspace-cursor-jump bug.
+Single atomic commit — subspec removal cascades through every
+scenario YAML so splitting would force throwaway shims.
+
+**A.1 — Decouple tier from station eligibility.**
+- Solver no longer enforces `station.eligible_tiers` as a hard rule.
+  Per-doctor `eligible_stations` is the only enforced check
+  ([scheduler/model.py](../scheduler/model.py)). The advisory metadata
+  stays on the model so the UI can pre-fill new doctors' eligibility
+  lists; the chip group on the Stations editor renamed to
+  "Default tiers" with a tooltip explaining the new semantics.
+- Validator H3 mirrors the relaxation in
+  [api/validator.py](../api/validator.py).
+- Pre-solve diagnostics + greedy/random_repair baselines updated to
+  use per-doctor eligibility only.
+- New regression test
+  [tests/test_eligibility_decoupled.py](../tests/test_eligibility_decoupled.py)
+  — a senior listed only on a junior-only station's eligibility set
+  is solvable onto that station.
+
+**A.2 — Drop subspec system.**
+- `Doctor.subspec` and `SessionState.subspecs` removed end-to-end
+  (Pydantic, dataclass, persistence, sessions, baselines, fairness,
+  diagnostics, build_scenarios, default seeds, all 17 bundled
+  scenarios, every test fixture, the UI's Doctors editor, the Sub-spec
+  card on Teams, the FairnessPanel's subspec-parity card, CSV import
+  format, and CellEditor display).
+- H8's "1 consultant per subspec" rule replaced with a configurable
+  `ConstraintsConfig.weekend_consultants_required: int = 1`
+  (also exposed on `Instance`). The Constraints page surfaces the
+  count input next to the H8 toggle.
+- New regression test
+  [tests/test_h8_weekend_count.py](../tests/test_h8_weekend_count.py)
+  — count=1, count=2, count=0 (rule disabled) all behave correctly.
+
+**A.3 — Per-station weekday/weekend toggle.**
+- `StationEntry`/`Station` gain `weekday_enabled` (default True) and
+  `weekend_enabled` (default False). Replaces the global
+  `ConstraintsConfig.weekend_am_pm` flag — solver, validator,
+  diagnostics, baselines, coverage metric, and pre-solve metrics all
+  now consult the per-station flags.
+- Stations editor gains a Days chip group ("Wkdy" / "Wknd") next to
+  the Sessions group.
+- Shape page presets stamp every station's `weekend_enabled` to match
+  the preset's weekend-shape opinion (replacing the old
+  `constraints.weekend_am_pm` patch).
+- New regression test
+  [tests/test_station_weekend_toggle.py](../tests/test_station_weekend_toggle.py)
+  — a `weekend_enabled=True` station produces Sat/Sun bookings; a
+  weekday-only station does not.
+- `schema_version` bumped 1 → 2. v1 YAMLs migrate on load: each
+  station's `weekend_enabled` inherits from the legacy
+  `constraints.weekend_am_pm` flag, `subspec` and `subspecs` keys are
+  silently dropped.
+
+**A.4 — `<NumberInput>` primitive.**
+- New [ui/src/components/ui/numberInput.tsx](../ui/src/components/ui/numberInput.tsx).
+  Holds a draft string while focused, validates + clamps only on blur
+  or Enter. Empty string is allowed mid-edit, so backspacing the last
+  digit no longer re-clamps to the floor and bumps the cursor to the
+  end.
+- Replaced bare `<Input type="number">` with clamp-on-empty logic on
+  the Lab/Scaling tab (Time, Workers, Leave%), Setup/When (n_days),
+  Solve (time_limit, num_workers), and Rules/Constraints (h4_gap,
+  weekend_consultants_required), Rules/Teams (Required count).
+
+**A.5 — Default-label cleanup.**
+- Shape page presets no longer pre-write cosmetic clock-time strings
+  ("OR list 08:00–17:00", "Morning 08:00–13:00", etc.). Defaults are
+  the neutral `DEFAULT_SHIFT_LABELS` ("AM", "PM", "Full day", "Night
+  call"). Users wanting clock times type them in directly.
+
+**Migration / back-compat.**
+- All 17 bundled scenarios re-built via
+  `python scripts/build_scenarios.py` — every one solves under the
+  new model.
+- Loading a v1 YAML (any saved file from before this commit) applies
+  the migration described in §A.3 silently. `subspec` and `subspecs`
+  drop without warning; any explicit per-station weekend choice
+  takes precedence over the legacy global flag if both are present.
+- Saved files always write `schema_version: 2`.
+
+**Validation.**
+- 91 tests pass (`pytest -x -q --ignore=tests/test_stress.py
+  --ignore=tests/test_self_check.py`); 8 self-check tests pass
+  separately. `pnpm build` clean. CONSTRAINTS.md revised to match.
+
+**Deferred to later phases.**
+- `wconsult` / `WEEKEND_CONSULT` role strings stay (Phase B replaces
+  them with user-defined on-call types).
+- Tier set is still hard-coded `junior`/`senior`/`consultant` (Phase
+  C makes it user-defined).
+- Hours config still keyed manually (Phase D ties it to clock-time
+  AM/PM).
+
 ## 2026-04-25 — Per-doctor role preferences (S7) + per-tier balance callout
 
 **What:** Two coordinator asks the old model couldn't express cleanly:

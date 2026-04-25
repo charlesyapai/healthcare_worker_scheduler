@@ -372,10 +372,10 @@
             "title": "Weekday Oncall Coverage",
             "type": "boolean"
           },
-          "weekend_am_pm": {
-            "default": false,
-            "title": "Weekend Am Pm",
-            "type": "boolean"
+          "weekend_consultants_required": {
+            "default": 1,
+            "title": "Weekend Consultants Required",
+            "type": "integer"
           }
         },
         "title": "ConstraintsConfig",
@@ -414,17 +414,6 @@
             "default": 0,
             "title": "Prev Workload",
             "type": "integer"
-          },
-          "subspec": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Subspec"
           },
           "tier": {
             "enum": [
@@ -1303,7 +1292,7 @@
             "type": "array"
           },
           "schema_version": {
-            "default": 1,
+            "default": 2,
             "title": "Schema Version",
             "type": "integer"
           },
@@ -1321,13 +1310,6 @@
               "$ref": "#/components/schemas/StationEntry"
             },
             "title": "Stations",
-            "type": "array"
-          },
-          "subspecs": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Subspecs",
             "type": "array"
           },
           "tier_labels": {
@@ -1852,6 +1834,16 @@
             },
             "title": "Sessions",
             "type": "array"
+          },
+          "weekday_enabled": {
+            "default": true,
+            "title": "Weekday Enabled",
+            "type": "boolean"
+          },
+          "weekend_enabled": {
+            "default": false,
+            "title": "Weekend Enabled",
+            "type": "boolean"
           }
         },
         "required": [
