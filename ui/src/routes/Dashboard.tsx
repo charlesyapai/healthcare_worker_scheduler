@@ -244,7 +244,7 @@ function Inputs() {
       label: "What needs covering",
       detail:
         "Stations and which tiers can staff them. Decide whether each station runs AM/PM half-sessions or a single Full-day booking.",
-      to: "/rules/teams",
+      to: "/setup/teams",
     },
     {
       label: "When the roster runs",
@@ -256,7 +256,7 @@ function Inputs() {
       label: "How strict the rules are",
       detail:
         "Rest rules, weekend cover, on-call frequency cap, weekday utilisation. Pick a preset or tweak each toggle.",
-      to: "/rules/constraints",
+      to: "/setup/constraints",
     },
   ];
   return (

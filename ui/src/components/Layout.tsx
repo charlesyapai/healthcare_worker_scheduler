@@ -1,11 +1,8 @@
 import {
   Calendar,
-  Download,
-  FlaskConical,
   Home,
   LayoutDashboard,
   Play,
-  Sliders,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { NavLink, Outlet } from "react-router-dom";
@@ -23,14 +20,15 @@ interface NavItem {
   icon: ComponentType<{ className?: string }>;
 }
 
+// Top-level nav consolidated to four sections after the 2026-04-25 IA pass:
+// Setup absorbed Rules (department-level + per-period inputs live together);
+// Solve hosts Lab as a secondary "harder questions" sub-section; Roster
+// hosts Export inline as an action card under the heatmap.
 const NAV: NavItem[] = [
   { to: "/", label: "Dashboard", icon: Home },
   { to: "/setup", label: "Setup", icon: LayoutDashboard },
-  { to: "/rules", label: "Rules", icon: Sliders },
   { to: "/solve", label: "Solve", icon: Play },
   { to: "/roster", label: "Roster", icon: Calendar },
-  { to: "/export", label: "Export", icon: Download },
-  { to: "/lab", label: "Lab", icon: FlaskConical },
 ];
 
 export function Layout() {
@@ -99,7 +97,7 @@ function SideNav() {
 function BottomNav() {
   return (
     <nav className="sticky bottom-0 z-10 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 md:hidden">
-      <ul className="grid grid-cols-7">
+      <ul className="grid grid-cols-4">
         {NAV.map(({ to, label, icon: Icon }) => (
           <li key={to} className="contents">
             <NavLink

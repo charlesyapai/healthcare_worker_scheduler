@@ -13,10 +13,9 @@ import { useSolveStore } from "@/store/solve";
 const NAV_MAP: Record<string, string> = {
   d: "/",
   s: "/setup",
-  r: "/rules",
-  o: "/roster",
   p: "/solve",
-  e: "/export",
+  o: "/roster",
+  l: "/solve/lab/benchmark",
 };
 
 export function useGlobalShortcuts() {
